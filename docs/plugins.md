@@ -29,7 +29,7 @@ Plugins install per workspace from a **local directory** or a **`github:` source
 
 ```sh
 outl plugin install ./outl-todo-archiver               # local dir
-outl plugin install github:avelino/outl/examples/todo-archiver   # github
+outl plugin install github:outlmd/outl/examples/todo-archiver   # github
 outl plugin install github:user/repo#v1.2.0            # pin a tag
 ```
 

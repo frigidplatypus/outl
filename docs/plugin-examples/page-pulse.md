@@ -1,6 +1,6 @@
 # Page Pulse
 
-> **Capability:** `toolbar-button` · [Source on GitHub](https://github.com/avelino/outl/tree/main/examples/page-pulse)
+> **Capability:** `toolbar-button` · [Source on GitHub](https://github.com/outlmd/outl/tree/main/examples/page-pulse)
 
 A quick pulse of the workspace — total blocks, open TODOs, and DONEs — behind a 💓 toolbar button.
 

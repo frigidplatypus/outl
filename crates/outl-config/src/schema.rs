@@ -375,7 +375,7 @@ impl Default for AssetsCfg {
 /// Read today by the **TUI** only (`outl_actions::backup::spawn_auto_pass`
 /// at startup); the desktop and mobile clients preserve the section
 /// verbatim but do not yet run the pass. See
-/// [`docs/config.md`](https://github.com/avelino/outl/blob/main/docs/config.md)
+/// [`docs/config.md`](https://github.com/outlmd/outl/blob/main/docs/config.md)
 /// → `[backup]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]

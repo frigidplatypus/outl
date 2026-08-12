@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#107](https://github.com/avelino/outl/issues/107), [#195](https://github.com/avelino/outl/issues/195), [#50](https://github.com/avelino/outl/issues/50), [#88](https://github.com/avelino/outl/issues/88) |
+| **Issue** | [#107](https://github.com/outlmd/outl/issues/107), [#195](https://github.com/outlmd/outl/issues/195), [#50](https://github.com/outlmd/outl/issues/50), [#88](https://github.com/outlmd/outl/issues/88) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [concepts.md § Slugs](../concepts.md#slugs), [config.md](../config.md) |

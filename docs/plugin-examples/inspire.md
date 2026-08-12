@@ -1,6 +1,6 @@
 # Inspire
 
-> **Capability:** `network` · [Source on GitHub](https://github.com/avelino/outl/tree/main/examples/inspire)
+> **Capability:** `network` · [Source on GitHub](https://github.com/outlmd/outl/tree/main/examples/inspire)
 
 A one-command plugin that reaches the outside world.
 The `inspire` command fetches a random quote over HTTP and shows it as a notification.

@@ -1,7 +1,7 @@
 # Plugin examples
 
 A gallery of small, self-contained example plugins — **one per capability** — so you can copy a working starting point instead of building from scratch.
-Each lives in [`examples/`](https://github.com/avelino/outl/tree/main/examples) and has its own page below with the code, the manifest, and how to run it.
+Each lives in [`examples/`](https://github.com/outlmd/outl/tree/main/examples) and has its own page below with the code, the manifest, and how to run it.
 
 New to plugins?
 Read the [tutorial](plugin-tutorial.md) first, then the [API reference](plugin-api.md).

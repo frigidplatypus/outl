@@ -279,7 +279,7 @@ Pinned by `tests/mixed_version_sidecar.rs`, which models the shipped v2 binary e
 An empty hash makes a shipped binary re-read the page with its own parser; a real one authorises it to render the tree straight over the `.md`.
 Its two gates are complementary, so nothing disarms both, and moving the signal into `version` arms the duplication loop above.
 Measured numbers, the refuted "the guard never re-arms" claim, and four regression tests live in the `tests/mixed_version_sidecar.rs` module doc.
-Open in [issue #210](https://github.com/avelino/outl/issues/210).
+Open in [issue #210](https://github.com/outlmd/outl/issues/210).
 
 **Sidecar is not a sync surface.**
 UI state that must converge between devices — fold flags, pinned, selection, anything user-meaningful — goes through the op log (`outl-core`), not here.

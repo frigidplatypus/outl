@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#2](https://github.com/avelino/outl/issues/2), [#3](https://github.com/avelino/outl/issues/3) (supporting: [#98](https://github.com/avelino/outl/issues/98), [#112](https://github.com/avelino/outl/issues/112)) |
+| **Issue** | [#2](https://github.com/outlmd/outl/issues/2), [#3](https://github.com/outlmd/outl/issues/3) (supporting: [#98](https://github.com/outlmd/outl/issues/98), [#112](https://github.com/outlmd/outl/issues/112)) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [architecture.md § 12–13](../architecture.md#12-tauri-for-desktop), [clients.md](../clients.md) |
@@ -12,7 +12,7 @@
 
 ## Why
 
-[#2](https://github.com/avelino/outl/issues/2) and [#3](https://github.com/avelino/outl/issues/3) ask the same thing twice: a client outside the terminal that opens the *same* workspace as the CLI and TUI, no migration, no conversion.
+[#2](https://github.com/outlmd/outl/issues/2) and [#3](https://github.com/outlmd/outl/issues/3) ask the same thing twice: a client outside the terminal that opens the *same* workspace as the CLI and TUI, no migration, no conversion.
 
 #3 shipped with a plan in its own body — "native UI per platform (SwiftUI / Compose), shared Rust core via a stable FFI surface" — and that plan is what this RFC replaces.
 Its cost was structural.
@@ -31,7 +31,7 @@ Tauri 2 for mobile (#3) and desktop (#2), with the shared surface pushed as far 
 Frontend is Solid + Tailwind.
 The only hand-written platform bridge is the ObjC iCloud watcher, because `NSMetadataQuery` has no cross-platform equivalent.
 
-[#98](https://github.com/avelino/outl/issues/98) is the policy applied to a public contract.
+[#98](https://github.com/outlmd/outl/issues/98) is the policy applied to a public contract.
 `outl://` is an external promise, so its parser landed **once** as `outl_actions::parse_deep_link` returning a `DeepLinkTarget`, and each client only maps that onto the `open_*` command it already had.
 Registration is the sole per-client part, because it is genuinely OS transport — see [`docs/clients.md` → Deep links](../clients.md#deep-links-outl).
 
@@ -53,7 +53,7 @@ Explicitly out of scope in #2, and local-first wants the filesystem, not a serve
 
 **What got worse: the webview matrix is now ours.**
 WKWebView, WebKitGTK and WebView2 do not render or handle input identically, so a CSS or focus regression can be platform-specific in a way a native toolkit would not allow.
-Packaging is the same story — Linux desktop assets only existed after [#112](https://github.com/avelino/outl/issues/112) asked, because the release matrix became maintainer work.
+Packaging is the same story — Linux desktop assets only existed after [#112](https://github.com/outlmd/outl/issues/112) asked, because the release matrix became maintainer work.
 
 **The mirrored case, stated explicitly.**
 Converging the GUI clients opens a gap the TUI can fall into: it cannot consume `@outl/shared`, so anything landing in TypeScript is invisible in the terminal.

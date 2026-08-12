@@ -14,7 +14,7 @@ If anything here is wrong or out of date, that's a bug — open an issue or fix 
 ## 1. Quick start
 
 ```bash
-git clone https://github.com/avelino/outl.git
+git clone https://github.com/outlmd/outl.git
 cd outl
 cargo build --workspace
 cargo test --workspace

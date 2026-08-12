@@ -1,6 +1,6 @@
 # Workspace Stats
 
-> **Capability:** `slash-command` · [Source on GitHub](https://github.com/avelino/outl/tree/main/examples/workspace-stats)
+> **Capability:** `slash-command` · [Source on GitHub](https://github.com/outlmd/outl/tree/main/examples/workspace-stats)
 
 A `stats` slash command that sweeps the whole workspace and toasts a one-line
 summary: total blocks, open TODOs, completed DONEs, and page count.

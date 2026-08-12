@@ -1,6 +1,6 @@
 # Homebrew tap
 
-outl ships pre-built binaries through the same `avelino/outl` repo — no separate `homebrew-outl` repo.
+outl ships pre-built binaries through the same `outlmd/outl` repo — no separate `homebrew-outl` repo.
 Two surfaces live on `main`:
 
 | Path | What it ships |
@@ -12,15 +12,25 @@ Two surfaces live on `main`:
 ## Install the CLI / TUI
 
 ```bash
-brew tap avelino/outl https://github.com/avelino/outl
-brew trust avelino/outl    # one-time: required for third-party taps
+brew tap outlmd/outl https://github.com/outlmd/outl
+brew trust outlmd/outl    # one-time: required for third-party taps
 brew install outl-beta     # beta channel — every push to main
 # brew install outl        # GA channel — semver tags only
 ```
 
 The custom-URL form (`brew tap <name> <url>`) tells Homebrew to use this repo as the tap directly, without the usual `homebrew-<name>` naming convention.
 
-> `brew trust` is required since Homebrew 4.x for any tap outside `homebrew-core` / `homebrew-cask`. Without it, `brew install` fails with `Refusing to load formula avelino/outl/outl-beta from untrusted tap`. The trust is per-tap (not per-formula) and one-time; subsequent installs / upgrades don't ask again.
+> **Tapped `avelino/outl` before?** The repo moved to the `outlmd` org, and a tap name is not a redirect — Homebrew keeps pulling from the old clone under the old name. Re-tap once:
+>
+> ```bash
+> brew untap avelino/outl
+> brew tap outlmd/outl https://github.com/outlmd/outl
+> brew trust outlmd/outl
+> ```
+>
+> Installed formulae keep working until the next `brew upgrade`; `brew untap` does not uninstall anything.
+
+> `brew trust` is required since Homebrew 4.x for any tap outside `homebrew-core` / `homebrew-cask`. Without it, `brew install` fails with `Refusing to load formula outlmd/outl/outl-beta from untrusted tap`. The trust is per-tap (not per-formula) and one-time; subsequent installs / upgrades don't ask again.
 >
 > If `brew trust` itself errors with `Refusing to write insecure trust store: target directory ... is not owned by the current user`, your `~/.config/homebrew` is a symlink to a read-only path (common on Nix-managed dotfiles). Replace the symlink with a writable directory before re-running.
 
@@ -37,15 +47,15 @@ brew unlink outl      && brew install outl-beta  # to beta
 ## Install the desktop app (macOS)
 
 ```bash
-brew tap avelino/outl https://github.com/avelino/outl   # same tap as the CLI
-brew trust avelino/outl                                 # skip if already trusted for the CLI
+brew tap outlmd/outl https://github.com/outlmd/outl   # same tap as the CLI
+brew trust outlmd/outl                                 # skip if already trusted for the CLI
 brew install --cask outl-desktop-beta
 ```
 
 That drops `outl.app` into `/Applications` via the **universal** dmg the release workflow builds on a single arm64 runner (`--target universal-apple-darwin` → `lipo` merge of arm64 + x86_64 into one binary).
 Both Apple Silicon and Intel Macs install the same dmg.
 
-> **Linux desktop:** Homebrew has no GUI cask on Linux, so the app ships as AppImage / `.deb` / `.rpm` assets on each [GitHub release](https://github.com/avelino/outl/releases).
+> **Linux desktop:** Homebrew has no GUI cask on Linux, so the app ships as AppImage / `.deb` / `.rpm` assets on each [GitHub release](https://github.com/outlmd/outl/releases).
 > See [Getting started → Desktop app on Linux](getting-started.md#desktop-app-on-linux).
 The cask sits in [`/Casks/outl-desktop-beta.rb`](../Casks/outl-desktop-beta.rb) and is bumped automatically alongside the CLI formula on every push to `main`.
 

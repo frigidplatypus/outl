@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#210](https://github.com/avelino/outl/issues/210), regression from [#166](https://github.com/avelino/outl/issues/166) |
+| **Issue** | [#210](https://github.com/outlmd/outl/issues/210), regression from [#166](https://github.com/outlmd/outl/issues/166) |
 | **PR** | — |
 | **Date** | 2026-08-06; producer, recovery and volume guards 2026-08-07; detector false positive, post-mutation guard and fleet analysis 2026-08-08 |
 | **Reference doc** | [storage.md](../storage.md), [cli.md § `outl doctor`](../cli.md#outl-doctor) |

@@ -5,13 +5,13 @@ This is the canonical guide for **what review measures your PR against** — the
 If you're looking for **how to set up, run, test, and debug the project**, that's the [Development guide](development.md).
 The two pages are deliberately split: that one is workflow, this one is policy.
 
-The [root `CONTRIBUTING.md`](https://github.com/avelino/outl/blob/main/CONTRIBUTING.md) on GitHub is a short pointer (clone, build, commit format, license) that links into both.
+The [root `CONTRIBUTING.md`](https://github.com/outlmd/outl/blob/main/CONTRIBUTING.md) on GitHub is a short pointer (clone, build, commit format, license) that links into both.
 Everything substantive lives across these two pages.
 
 We want outl to be a project where you can show up, read this page, and know exactly what you're walking into.
 No tribal knowledge, no hidden quality bar.
 
-The same priorities are encoded for automated review in [`.github/copilot-instructions.md`](https://github.com/avelino/outl/blob/main/.github/copilot-instructions.md) and [`.pr_agent.toml`](https://github.com/avelino/outl/blob/main/.pr_agent.toml).
+The same priorities are encoded for automated review in [`.github/copilot-instructions.md`](https://github.com/outlmd/outl/blob/main/.github/copilot-instructions.md) and [`.pr_agent.toml`](https://github.com/outlmd/outl/blob/main/.pr_agent.toml).
 If you ever feel a reviewer comment came out of nowhere, it almost certainly traces back to this page or one of those files.
 
 ### The automated reviewers
@@ -21,8 +21,8 @@ Where we configure one, we configure it in a file in the repo and never in a web
 
 | Reviewer | Configured by | Reads standards from |
 |---|---|---|
-| GitHub Copilot | [`.github/copilot-instructions.md`](https://github.com/avelino/outl/blob/main/.github/copilot-instructions.md) + [`.github/instructions/*.instructions.md`](https://github.com/avelino/outl/tree/main/.github/instructions) | those files, path-scoped by their `applyTo` frontmatter |
-| Qodo | [`.pr_agent.toml`](https://github.com/avelino/outl/blob/main/.pr_agent.toml) | root and per-crate `CLAUDE.md`, imported automatically and scoped to the folder holding each file |
+| GitHub Copilot | [`.github/copilot-instructions.md`](https://github.com/outlmd/outl/blob/main/.github/copilot-instructions.md) + [`.github/instructions/*.instructions.md`](https://github.com/outlmd/outl/tree/main/.github/instructions) | those files, path-scoped by their `applyTo` frontmatter |
+| Qodo | [`.pr_agent.toml`](https://github.com/outlmd/outl/blob/main/.pr_agent.toml) | root and per-crate `CLAUDE.md`, imported automatically and scoped to the folder holding each file |
 | CodeRabbit | (defaults) | the diff |
 
 Two consequences worth knowing before you wonder why a bot did or didn't say something.
@@ -76,7 +76,7 @@ If the description doesn't answer these, the PR gets a top-level comment request
    Ideally a failing test that the patch turns green.
 5. **For a feature, point at an approved issue.** If a feature isn't in an accepted issue, open the issue first.
 
-The template at [`.github/PULL_REQUEST_TEMPLATE.md`](https://github.com/avelino/outl/blob/main/.github/PULL_REQUEST_TEMPLATE.md) walks you through this.
+The template at [`.github/PULL_REQUEST_TEMPLATE.md`](https://github.com/outlmd/outl/blob/main/.github/PULL_REQUEST_TEMPLATE.md) walks you through this.
 Use it.
 
 ---
@@ -176,7 +176,7 @@ Keep the op, no-op the effect.
 Everything goes through `dyn Storage`.
 Today the only persistent implementation is `JsonlStorage`; `MemoryStorage` is used in tests.
 
-**Why:** ChronDB ([issue #1](https://github.com/avelino/outl/issues/1)) is the next backend, and we've already paid the cost of removing SQLite in 0.5.0.
+**Why:** ChronDB ([issue #1](https://github.com/outlmd/outl/issues/1)) is the next backend, and we've already paid the cost of removing SQLite in 0.5.0.
 Locking the core to a concrete backend reintroduces that cost.
 A second persistent backend doesn't land without an RFC issue first.
 
@@ -223,7 +223,7 @@ Binary formats and DB files don't merge across those transports.
 
 ULID for IDs, `uhlc` for time, MIT license, JSONL-per-actor, Tauri for mobile, iroh as the default sync transport (file/iCloud opt-in), `comrak` for markdown.
 These were debated and chosen at the start.
-The full table is in the root [`CLAUDE.md`](https://github.com/avelino/outl/blob/main/CLAUDE.md#decisions-you-dont-get-to-revisit) and [`CONTRIBUTING.md`](https://github.com/avelino/outl/blob/main/CONTRIBUTING.md#decisions-you-dont-get-to-revisit).
+The full table is in the root [`CLAUDE.md`](https://github.com/outlmd/outl/blob/main/CLAUDE.md#decisions-you-dont-get-to-revisit) and [`CONTRIBUTING.md`](https://github.com/outlmd/outl/blob/main/CONTRIBUTING.md#decisions-you-dont-get-to-revisit).
 
 **Why:** these are foundational.
 Changing one ripples through every crate.
@@ -481,7 +481,7 @@ outl ships continuously; the CRDT core, TUI, CLI, desktop, iOS **and Android** m
 Reviewers will push back on PRs that try to introduce these without an explicit issue:
 
 - Query DSL (`{{query: ...}}`).
-- `ChronDbStorage` backend ([issue #1](https://github.com/avelino/outl/issues/1)).
+- `ChronDbStorage` backend ([issue #1](https://github.com/outlmd/outl/issues/1)).
 - Per-page op log shards ([Per-page op log shards](sync.md#per-page-op-log-shards-for-10k-pages) in `docs/sync.md`, only when the workspace hits 10k pages).
 
 **Android used to be on this list and no longer is.**
@@ -529,9 +529,9 @@ If not, they run in CI on the PR.
 ## Where to look next
 
 - [Development guide](development.md) — how to clone, build, run, test, and debug. Pairs with this page.
-- Root [`CLAUDE.md`](https://github.com/avelino/outl/blob/main/CLAUDE.md) — project-wide invariants and conventions.
+- Root [`CLAUDE.md`](https://github.com/outlmd/outl/blob/main/CLAUDE.md) — project-wide invariants and conventions.
 - Per-crate `CLAUDE.md` (e.g.
-  [`crates/outl-core/CLAUDE.md`](https://github.com/avelino/outl/blob/main/crates/outl-core/CLAUDE.md)) — invariants specific to that crate.
+  [`crates/outl-core/CLAUDE.md`](https://github.com/outlmd/outl/blob/main/crates/outl-core/CLAUDE.md)) — invariants specific to that crate.
 - [`docs/architecture.md`](architecture.md) — design decisions.
 - [`docs/crdt.md`](crdt.md) — the algorithm.
 - [`docs/markdown-format.md`](markdown-format.md) — the markdown dialect and sidecar spec.

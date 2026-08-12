@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped (char-cursor parity deliberately unbuilt — see Scope) |
-| **Issue** | [#70](https://github.com/avelino/outl/issues/70), [#80](https://github.com/avelino/outl/issues/80); supporting: #92, #23, #184, #119, #41, #183 (all linked in [Why](#why)) |
+| **Issue** | [#70](https://github.com/outlmd/outl/issues/70), [#80](https://github.com/outlmd/outl/issues/80); supporting: #92, #23, #184, #119, #41, #183 (all linked in [Why](#why)) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [shortcuts.md](../shortcuts.md) |
@@ -19,21 +19,21 @@ Nobody chose that divergence — it is just what happens when a chord table has 
 
 What the users actually reported:
 
-- **A block containing a `[[ref]]` could not be edited from the keyboard at all** ([#70](https://github.com/avelino/outl/issues/70)).
+- **A block containing a `[[ref]]` could not be edited from the keyboard at all** ([#70](https://github.com/outlmd/outl/issues/70)).
   `Enter` in Normal mode fires `OpenRefUnderCursor`, and the desktop, having no character cursor, approximated "the ref under the cursor" as "the *first* ref token in the block".
   So every ref-carrying block navigated away instead of entering Insert.
-- **`Cmd+X` never cut text** ([#80](https://github.com/avelino/outl/issues/80)).
+- **`Cmd+X` never cut text** ([#80](https://github.com/outlmd/outl/issues/80)).
   The catalog bound plain `Cmd+X` to `RunCodeBlock` in Global mode.
   The desktop dispatcher matches Global bindings even with focus inside a block's `<textarea>`, calls `preventDefault()`, and the OS-universal cut is swallowed — by design, from the catalog's point of view.
   `Cmd+Z` was equally dead, and `Cmd+C`/`Cmd+V` working made it read as a bug rather than a decision.
-- **A non-vim user had no keyboard route to a new block in view mode** ([#92](https://github.com/avelino/outl/issues/92)).
+- **A non-vim user had no keyboard route to a new block in view mode** ([#92](https://github.com/outlmd/outl/issues/92)).
   The only path was vim's `o`, gated behind a setting most users never enable.
-- **Pressing `Enter` mid-text did not split the block** ([#184](https://github.com/avelino/outl/issues/184), TUI) — "There seems to be no way to split a block".
+- **Pressing `Enter` mid-text did not split the block** ([#184](https://github.com/outlmd/outl/issues/184), TUI) — "There seems to be no way to split a block".
   The user tried `r`+`Enter`, `I`+`Enter` and `s`+`Enter` before filing.
-- **Pressing `Enter` in the Mac app inserted a newline instead of creating a block** ([#119](https://github.com/avelino/outl/issues/119)).
-- **No arrow-key navigation between blocks on the desktop** ([#41](https://github.com/avelino/outl/issues/41)) — you typed a block, then reached for the mouse.
-- **No way to open a `[text](url)` markdown link from the TUI** ([#183](https://github.com/avelino/outl/issues/183)), with a specific ask: `gx`, and keep code-block execution winning when a fence is under the cursor.
-- **No batch operations on touch** ([#23](https://github.com/avelino/outl/issues/23)) — the TUI had Visual mode, mobile had per-block taps only.
+- **Pressing `Enter` in the Mac app inserted a newline instead of creating a block** ([#119](https://github.com/outlmd/outl/issues/119)).
+- **No arrow-key navigation between blocks on the desktop** ([#41](https://github.com/outlmd/outl/issues/41)) — you typed a block, then reached for the mouse.
+- **No way to open a `[text](url)` markdown link from the TUI** ([#183](https://github.com/outlmd/outl/issues/183)), with a specific ask: `gx`, and keep code-block execution winning when a fence is under the cursor.
+- **No batch operations on touch** ([#23](https://github.com/outlmd/outl/issues/23)) — the TUI had Visual mode, mobile had per-block taps only.
 
 Read individually, these are eight small bugs.
 Read together they are one fact with a corollary.
@@ -193,12 +193,12 @@ No machinery for that exists on the desktop; they are categorised with the char-
 
 **Not covered — per-keystroke undo inside an in-flight draft.**
 The controlled `value={draft()}` binding invalidates the textarea's native undo stack, and auto-pair, suggestion acceptance and `markdown-wrap.ts` all write `ta.value` directly.
-[#80](https://github.com/avelino/outl/issues/80) delivered block-level undo and explicitly deferred this.
+[#80](https://github.com/outlmd/outl/issues/80) delivered block-level undo and explicitly deferred this.
 
 **Not covered — the chord tables themselves.**
 [`docs/shortcuts.md`](../shortcuts.md) is the canonical home for every chord.
 This RFC deliberately lists none of them beyond the three splits it exists to explain.
 
 **Not covered — mobile gesture design.**
-[#23](https://github.com/avelino/outl/issues/23)'s long-press entry, haptics and batch toolbar are client chrome.
+[#23](https://github.com/outlmd/outl/issues/23)'s long-press entry, haptics and batch toolbar are client chrome.
 Only the shared `SelectRange*` actions and the batch mutations they drive are in scope here.

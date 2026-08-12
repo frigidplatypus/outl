@@ -13,7 +13,7 @@ The contributing page is the same content the [Copilot reviewer](.github/copilot
 ## Quick start
 
 ```bash
-git clone https://github.com/avelino/outl.git
+git clone https://github.com/outlmd/outl.git
 cd outl
 cargo build --workspace
 cargo test --workspace

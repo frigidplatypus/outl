@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#38](https://github.com/avelino/outl/issues/38), [#133](https://github.com/avelino/outl/issues/133), [#197](https://github.com/avelino/outl/issues/197) (supporting: [#120](https://github.com/avelino/outl/issues/120)) |
+| **Issue** | [#38](https://github.com/outlmd/outl/issues/38), [#133](https://github.com/outlmd/outl/issues/133), [#197](https://github.com/outlmd/outl/issues/197) (supporting: [#120](https://github.com/outlmd/outl/issues/120)) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [sync.md](../sync.md), [relay.md](../relay.md) |
@@ -14,7 +14,7 @@
 
 Three reports, filed months apart by three different people, all read like "sync is broken" and none of them are about the choice of transport.
 
-**A new user could not pair a second machine at all** ([#197](https://github.com/avelino/outl/issues/197), outl 0.9.0-beta.141, Debian sid).
+**A new user could not pair a second machine at all** ([#197](https://github.com/outlmd/outl/issues/197), outl 0.9.0-beta.141, Debian sid).
 They ran the desktop app on machine A, installed the CLI on machine B in a fresh empty directory, paired with `outl peer pair --ticket …`, both sides accepted, the command exited clean.
 Every sync afterwards was refused:
 
@@ -26,14 +26,14 @@ The two devices were permanently separate graphs, and nothing in the successful 
 The GUI joiner adopted the host's workspace id; the CLI joiner kept its own freshly minted one.
 So the setup most likely to *be* a second device — a headless machine paired from a terminal — was the one path that could never converge.
 
-**Two devices on the same WiFi could not reach each other** ([#133](https://github.com/avelino/outl/issues/133), Mac TUI ↔ iOS, both on `192.168.1.x`).
+**Two devices on the same WiFi could not reach each other** ([#133](https://github.com/outlmd/outl/issues/133), Mac TUI ↔ iOS, both on `192.168.1.x`).
 One trace-level debug session surfaced three independent failures stacked on top of each other.
 All four n0 relays plus pkarr failed TLS with `invalid peer certificate: UnknownIssuer`, because the machine had a corporate root CA that macOS, `curl` and Safari all trust and rustls' bundled Mozilla roots do not.
 With TLS fixed, the relay WebSocket upgrade came back `502 Bad Gateway` from an intercepting proxy.
 With the relay unavailable, the direct LAN path stalled on `MultipathNotNegotiated` and `BrokenPipe`.
 The devices had been paired while on a VPN, so `peers.json` had captured **seven** candidate addresses, of which exactly one was reachable from the current network.
 
-**An iPhone synced the future and not the past** ([#120](https://github.com/avelino/outl/issues/120), outl 0.7.0-beta.90).
+**An iPhone synced the future and not the past** ([#120](https://github.com/outlmd/outl/issues/120), outl 0.7.0-beta.90).
 Pairing a phone into an existing Mac workspace delivered every note written *after* pairing and none written before.
 
 The common subject is not QUIC versus iCloud.
@@ -170,10 +170,10 @@ It also means a workspace whose `.outl/` is read-only pairs successfully and nev
 **Not covered — the relay WebSocket upgrade (#133 issue 2).**
 An intercepting proxy that allows HTTPS but rewrites `Upgrade: websocket` still returns 502 and still kills relay connectivity.
 The only mitigation today is pointing `[sync] relay_url` at a relay the proxy leaves alone.
-Open on [#133](https://github.com/avelino/outl/issues/133).
+Open on [#133](https://github.com/outlmd/outl/issues/133).
 
 **Not covered — peer trust, pairing authentication, and revocation.**
-Whether the connecting identity is on the approved list, and what `peer remove` actually revokes, is [RFC 0155](0155-peer-trust.md) and issues [#158](https://github.com/avelino/outl/issues/158) / [#159](https://github.com/avelino/outl/issues/159).
+Whether the connecting identity is on the approved list, and what `peer remove` actually revokes, is [RFC 0155](0155-peer-trust.md) and issues [#158](https://github.com/outlmd/outl/issues/158) / [#159](https://github.com/outlmd/outl/issues/159).
 
 **Not covered — op signing.**
 Ops are unsigned; a paired device can claim another actor's id.

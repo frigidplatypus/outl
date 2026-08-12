@@ -154,7 +154,7 @@ That needs per-OS scheduling registered ahead of time, and each platform wants s
 - **Windows** — `ScheduledToastNotification`, or a Task Scheduler helper.
 - **Linux** — a systemd user timer firing a helper binary.
 
-All four are tracked as follow-ups to [issue #63](https://github.com/avelino/outl/issues/63).
+All four are tracked as follow-ups to [issue #63](https://github.com/outlmd/outl/issues/63).
 Until they land, a reminder for a day you never open outl will not reach you — worth knowing before you rely on it for something that matters.
 
 ## What converges and what doesn't

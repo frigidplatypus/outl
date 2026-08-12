@@ -1,6 +1,6 @@
 # ASCII Box
 
-> **Capability:** `content-transformer:text` · [Source on GitHub](https://github.com/avelino/outl/tree/main/examples/box)
+> **Capability:** `content-transformer:text` · [Source on GitHub](https://github.com/outlmd/outl/tree/main/examples/box)
 
 Wraps the body of a ` ```box ` fence in a drawn ASCII box.
 The width tracks the longest line, every line is padded to match, and a one-space gutter sits inside the border.

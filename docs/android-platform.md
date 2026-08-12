@@ -170,7 +170,7 @@ Two dependencies in `gen/android/app/build.gradle.kts`:
 ## Release
 
 `release.yml`'s `build_android` job builds an optimized (release) arm64 APK on every release and attaches it to the GitHub Release.
-It is **debug-signed** — the build is a release build, only the signature is a throwaway key; a real upload keystore and a Play track are tracked in [issue #171](https://github.com/avelino/outl/issues/171).
+It is **debug-signed** — the build is a release build, only the signature is a throwaway key; a real upload keystore and a Play track are tracked in [issue #171](https://github.com/outlmd/outl/issues/171).
 The job is best-effort: `publish_release` waits for it but does not require its success, so a broken Android build never blocks the desktop/CLI release.
 
 The NDK is pinned to `27.1.12297006` in CI, matching what the project builds against locally.

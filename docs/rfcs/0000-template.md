@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft \| Accepted \| Shipped \| Superseded by RFC NNNN \| Withdrawn |
-| **Issue** | [#N](https://github.com/avelino/outl/issues/N) |
-| **PR** | [#N](https://github.com/avelino/outl/pull/N) |
+| **Issue** | [#N](https://github.com/outlmd/outl/issues/N) |
+| **PR** | [#N](https://github.com/outlmd/outl/pull/N) |
 | **Date** | YYYY-MM-DD |
 | **Reference doc** | the `docs/*.md` page (or per-crate `CLAUDE.md`) describing the resulting behaviour, or "none" |
 | **Invariant** | root `CLAUDE.md` invariant N, or "none" |

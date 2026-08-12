@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#146](https://github.com/avelino/outl/issues/146) |
+| **Issue** | [#146](https://github.com/outlmd/outl/issues/146) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [templates.md](../templates.md) |

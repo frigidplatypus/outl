@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#129](https://github.com/avelino/outl/issues/129), [#157](https://github.com/avelino/outl/issues/157), [#192](https://github.com/avelino/outl/issues/192) |
+| **Issue** | [#129](https://github.com/outlmd/outl/issues/129), [#157](https://github.com/outlmd/outl/issues/157), [#192](https://github.com/outlmd/outl/issues/192) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [storage.md § Failure modes](../storage.md#failure-modes) |
@@ -158,7 +158,7 @@ That is the one trade this project does not get to make.
 **Op-log compaction / checkpointing (#192, raised in the same benchmark).**
 A full-replace page update costs 7.2 KiB of log forever, so a hot page updated a thousand times leaves 7 MB every boot replays.
 Real, and orthogonal — it shrinks the log, not the number of barriers per user action.
-Phase 3 of [#128](https://github.com/avelino/outl/issues/128); it needs an undo horizon and its own UX.
+Phase 3 of [#128](https://github.com/outlmd/outl/issues/128); it needs an undo horizon and its own UX.
 
 **Make `build_doc` replay incrementally, matching what `merge_update` does at edit time (#129, the issue's own first candidate).**
 It works, and it puts the fix in the *rebuild* while leaving the producer free to keep emitting a state-vector-relative update against an incomplete history.
@@ -260,7 +260,7 @@ Reparsing 211k ops on every open, the snapshot cutoff, and lazy content are [RFC
 That RFC's lazy read path *depends* on decision 3 here, which is why the two cross-reference rather than merge.
 
 **Not covered — op-log compaction.**
-[#110](https://github.com/avelino/outl/issues/110) and Phase 3 of [#128](https://github.com/avelino/outl/issues/128).
+[#110](https://github.com/outlmd/outl/issues/110) and Phase 3 of [#128](https://github.com/outlmd/outl/issues/128).
 Nothing here removes a byte from the log.
 
 **Not covered — per-page op-log shards.**
@@ -268,6 +268,6 @@ Nothing here removes a byte from the log.
 `append_ops` already routes per destination (`batch_calls_append_ops_once_per_destination`), so the batch API is forward-compatible with it.
 
 **Not covered — the `jsonl.rs` split.**
-[#161](https://github.com/avelino/outl/issues/161) moved the file into `jsonl/{mod,read,append}.rs` with no behaviour change, and it is mentioned only because landing #154 and #157 required relaxing the file-size guard on that file once.
+[#161](https://github.com/outlmd/outl/issues/161) moved the file into `jsonl/{mod,read,append}.rs` with no behaviour change, and it is mentioned only because landing #154 and #157 required relaxing the file-size guard on that file once.
 That relaxation was a one-off, and the split is what removed the need for it.
 A pure restructure does not earn an RFC of its own.

@@ -18,7 +18,7 @@ cask "outl-desktop-beta" do
   version "0.12.0-beta.157"
   sha256 "6327e4437908d1b4536ea8a1e3ef0cda9550567d5ba096b70b2466a61aed86c2" # anchor: macos
 
-  url "https://github.com/avelino/outl/releases/download/v#{version}/outl-desktop-macos.dmg"
+  url "https://github.com/outlmd/outl/releases/download/v#{version}/outl-desktop-macos.dmg"
   name "outl Desktop"
   desc "Local-first outliner with CRDT sync (desktop beta — every push to main)"
   homepage "https://outl.app"

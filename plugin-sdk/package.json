@@ -5,7 +5,7 @@
   "license": "MIT",
   "homepage": "https://outl.app/docs/query#plugin-sdk-api-outlquery",
   "bugs": {
-    "url": "https://github.com/avelino/outl/issues"
+    "url": "https://github.com/outlmd/outl/issues"
   },
   "type": "module",
   "main": "./src/index.ts",
@@ -29,7 +29,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/avelino/outl",
+    "url": "https://github.com/outlmd/outl",
     "directory": "plugin-sdk"
   }
 }

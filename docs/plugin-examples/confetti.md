@@ -1,6 +1,6 @@
 # Confetti
 
-> **Capability:** `ui-render` (+ `op-hook`) · [Source on GitHub](https://github.com/avelino/outl/tree/main/examples/confetti)
+> **Capability:** `ui-render` (+ `op-hook`) · [Source on GitHub](https://github.com/outlmd/outl/tree/main/examples/confetti)
 
 Throws a confetti burst every time you mark a block **DONE**.
 
@@ -34,7 +34,7 @@ export default definePlugin({
 });
 ```
 
-See [`src/index.ts`](https://github.com/avelino/outl/tree/main/examples/confetti/src/index.ts) for the full `CONFETTI_HTML`.
+See [`src/index.ts`](https://github.com/outlmd/outl/tree/main/examples/confetti/src/index.ts) for the full `CONFETTI_HTML`.
 
 ## Manifest
 

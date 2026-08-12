@@ -34,10 +34,10 @@ outl picks the parts that worked — the outliner UX, the bi-directional graph, 
 | **Block refs `((blk-XXXXXX))` + embeds `!((blk-XXXXXX))`** | Yes (long uids) | Yes (long uids) | Short, sidecar-backed handles; clean `.md` |
 | **Queries** | `{{query: ...}}` rich | Datalog-ish | `{{query: ...}}` DSL — planned |
 
-[i1]: https://github.com/avelino/outl/issues/1
-[i2]: https://github.com/avelino/outl/issues/2
-[i3]: https://github.com/avelino/outl/issues/3
-[i4]: https://github.com/avelino/outl/issues/4
+[i1]: https://github.com/outlmd/outl/issues/1
+[i2]: https://github.com/outlmd/outl/issues/2
+[i3]: https://github.com/outlmd/outl/issues/3
+[i4]: https://github.com/outlmd/outl/issues/4
 
 ## What outl is **not**
 

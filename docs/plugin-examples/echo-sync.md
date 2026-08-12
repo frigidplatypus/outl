@@ -1,6 +1,6 @@
 # Echo Sync
 
-> **Capability:** `sync-transport` · [Source on GitHub](https://github.com/avelino/outl/tree/main/examples/echo-sync)
+> **Capability:** `sync-transport` · [Source on GitHub](https://github.com/outlmd/outl/tree/main/examples/echo-sync)
 
 An educational skeleton of a sync transport.
 It shows the exact interface a real transport plugs into — `ctx.sync.register({ push, pull })` — with no backend wired in.

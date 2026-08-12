@@ -11,7 +11,7 @@ The repo already had four places recording evolution — `docs/rfcs/0137`, the "
 Adding a fifth format would have broken the [one owner per fact](../contributing.md#one-owner-per-fact--link-dont-duplicate) rule that keeps the shortcut and CLI tables from diverging.
 
 More to the point: an ADR would not have prevented the bug that prompted this process.
-[Issue #166](https://github.com/avelino/outl/issues/166) was documented — issue, changelog entry, code comment explaining the gate.
+[Issue #166](https://github.com/outlmd/outl/issues/166) was documented — issue, changelog entry, code comment explaining the gate.
 What was missing was not a record of the decision taken, it was the question nobody asked: *and in the opposite direction?*
 So the template makes that question a required section, and the process ties every RFC to an invariant and a named test.
 

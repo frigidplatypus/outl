@@ -3,7 +3,7 @@
 ` ```query ` is a fence language that runs a declarative DSL against the workspace and renders matching blocks as **live embed references** (`!((blk-XXXXXX))`), not copies.
 Toggling a TODO on the original block is reflected everywhere the query result appears.
 
-It solves the "tasks scattered across notes" problem ([issue #139](https://github.com/avelino/outl/issues/139)) without introducing a separate task manager — every block is already a potential task via the `TODO` / `DONE` prefix.
+It solves the "tasks scattered across notes" problem ([issue #139](https://github.com/outlmd/outl/issues/139)) without introducing a separate task manager — every block is already a potential task via the `TODO` / `DONE` prefix.
 
 > **Why a line-oriented DSL in a code fence and not datalog:** [RFC 0139](rfcs/0139-query-language.md).
 

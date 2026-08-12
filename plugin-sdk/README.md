@@ -78,7 +78,7 @@ Full field and result-shape reference: <https://outl.app/docs/query#plugin-sdk-a
 - Plugin API reference: <https://outl.app/docs/plugin-api>
 - Plugin architecture: <https://outl.app/docs/plugin-architecture>
 - Tutorial: <https://outl.app/docs/plugin-tutorial>
-- Source: <https://github.com/avelino/outl>
+- Source: <https://github.com/outlmd/outl>
 
 ## License
 

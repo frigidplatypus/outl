@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Phase A shipped; Phase B pending |
-| **Issue** | [#137](https://github.com/avelino/outl/issues/137) |
+| **Issue** | [#137](https://github.com/outlmd/outl/issues/137) |
 | **PR** | 11 PRs across two phases (A done, B pending) — branch `feat/storage-scale-rfc-137` |
 | **Date** | 2026-07-04 |
 | **Reference doc** | [storage.md § Boot reads an index](../storage.md#boot-reads-an-index-not-the-whole-log-rfc-137-front-a) |
@@ -203,7 +203,7 @@ paired device. Tracked separately.
 
 ## References
 
-- Issue: <https://github.com/avelino/outl/issues/137>
+- Issue: <https://github.com/outlmd/outl/issues/137>
 - Companion: `docs/sync.md` Part 2 (the design Phase B implements)
 - Related issues: #37, #128, #110, #109, #108
 - Bench: `crates/outl-core/tests/boot_scale_bench.rs`
@@ -214,7 +214,7 @@ paired device. Tracked separately.
   - `crates/outl-core/src/workspace.rs` (`Workspace::apply_lru_cap`)
   - `crates/outl-config/src/schema.rs` (`[storage] lru_cap`)
 
-[src-cache]: https://github.com/avelino/outl/blob/main/crates/outl-core/src/storage/jsonl.rs#L42
-[src-reload]: https://github.com/avelino/outl/blob/main/crates/outl-core/src/storage/jsonl.rs#L92
-[src-full]: https://github.com/avelino/outl/blob/main/crates/outl-core/src/workspace.rs#L230
+[src-cache]: https://github.com/outlmd/outl/blob/main/crates/outl-core/src/storage/jsonl.rs#L42
+[src-reload]: https://github.com/outlmd/outl/blob/main/crates/outl-core/src/storage/jsonl.rs#L92
+[src-full]: https://github.com/outlmd/outl/blob/main/crates/outl-core/src/workspace.rs#L230
 

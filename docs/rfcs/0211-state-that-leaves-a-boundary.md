@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Accepted |
-| **Issue** | [#211](https://github.com/avelino/outl/issues/211) |
+| **Issue** | [#211](https://github.com/outlmd/outl/issues/211) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [development.md](../development.md), [storage.md](../storage.md) |
@@ -22,7 +22,7 @@ The first hides content, the second deletes it.
 That fix was right: the file rode every sync transport except iCloud, so two devices resolved the same actor and appended to one `ops-<actor>.jsonl` with `flock(2)` unable to arbitrate.
 It also moved the state somewhere with **no test-isolation story**.
 `device_dir()` reads `OUTL_DEVICE_DIR` / `XDG_CONFIG_HOME` — process-wide and machine-wide — and only `outl-core`'s own tests isolate it.
-Result on a dev machine: 64 entries in `~/.config/outl/actors/`, **15 of them orphaned `TempDir` paths written by the test suite**, plus three doctor tests that fail once in seven runs ([#211](https://github.com/avelino/outl/issues/211)).
+Result on a dev machine: 64 entries in `~/.config/outl/actors/`, **15 of them orphaned `TempDir` paths written by the test suite**, plus three doctor tests that fail once in seven runs ([#211](https://github.com/outlmd/outl/issues/211)).
 
 **Three.**
 Three per-crate `CLAUDE.md` files grew past the 40,000-char ceiling the `markdown-size-guard` hook enforces.
@@ -98,7 +98,7 @@ The guard against that is that it applies to *state crossing a boundary*, not to
 
 **What this does not make better.**
 The 15 orphans are still there, and the store still has no GC — a workspace the user deletes leaves its entry forever.
-Preventing new pollution does not clean up old, and nothing in this RFC does ([#211](https://github.com/avelino/outl/issues/211) item 3).
+Preventing new pollution does not clean up old, and nothing in this RFC does ([#211](https://github.com/outlmd/outl/issues/211) item 3).
 
 ## How it cannot regress
 
@@ -115,7 +115,7 @@ Preventing new pollution does not clean up old, and nothing in this RFC does ([#
 ## Scope
 
 **Not covered — GC for the device store.**
-Pruning the 15 orphans and handling workspaces the user deletes is [#211](https://github.com/avelino/outl/issues/211) item 3.
+Pruning the 15 orphans and handling workspaces the user deletes is [#211](https://github.com/outlmd/outl/issues/211) item 3.
 It is a product decision (when is an entry safe to drop?), not a test-hygiene one.
 
 **Not covered — the `CLAUDE.md` ceiling.**

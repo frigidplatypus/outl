@@ -5,6 +5,18 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ## [Unreleased]
 
+### Changed
+
+- **The repository moved from `avelino/outl` to the `outlmd` org: <https://github.com/outlmd/outl>.**
+  GitHub redirects the old URL, old clone remotes and old issue links, so nothing breaks by itself.
+  Two things are re-resolved by name rather than followed, and both need a one-time action:
+
+  **Homebrew tap.** `brew untap avelino/outl && brew tap outlmd/outl https://github.com/outlmd/outl && brew trust outlmd/outl`.
+  Installed formulae keep working until the next `brew upgrade`; untapping uninstalls nothing.
+
+  **Plugin sources.** A plugin installed as `github:avelino/outl/examples/<name>` is pinned by that string in the lockfile.
+  Reinstall it as `github:outlmd/outl/examples/<name>` to keep updates flowing.
+
 ### Added
 
 - **`outl recover` — brings back block text that an `Op::Edit` truncated, reading the op log rather than the `.md`.**
@@ -101,7 +113,7 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 
 - **Markdown containing a blank line inside a block, or a block whose text carried its own indentation, lost everything after that point — silently, and then permanently.**
-  This is the producer behind [issue #210](https://github.com/avelino/outl/issues/210), and it was not where [RFC 0210](docs/rfcs/0210-md-content-outside-op-log.md) guessed.
+  This is the producer behind [issue #210](https://github.com/outlmd/outl/issues/210), and it was not where [RFC 0210](docs/rfcs/0210-md-content-outside-op-log.md) guessed.
   `render → parse` was not a roundtrip:
 
   ```text
@@ -215,7 +227,7 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   Found in code review of the commit that introduced it, by an executable probe, after 1,687 tests and a green `/check` had not.
   `content_lines_missing_from` compared the `.md` against a fresh render of the tree, which answers _"do disk and tree disagree"_ — and every remote edit answers yes to that, since the pre-edit line is on disk and absent from the render.
   So did every remote delete and every reorder.
-  The page then froze showing pre-edit text with nothing surfaced to the user, which is [issue #166](https://github.com/avelino/outl/issues/166) reintroduced for the most ordinary sync case there is.
+  The page then froze showing pre-edit text with nothing surfaced to the user, which is [issue #166](https://github.com/outlmd/outl/issues/166) reintroduced for the most ordinary sync case there is.
   Worse, `outl reconcile --ahead-of-log` (which the error message and `doctor` both recommended) wrote the pre-edit text back as ops on such a page, reverting the peer permanently, since the log is append-only.
 
   The reference is now the **sidecar's blocks**, which are what the log held at the last agreement, so the question asked is the one intended: _does the op log know this line_.
@@ -805,7 +817,7 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Fixed
 
-- **TUI now word-wraps block text to the pane width** ([#99](https://github.com/avelino/outl/issues/99)).
+- **TUI now word-wraps block text to the pane width** ([#99](https://github.com/outlmd/outl/issues/99)).
   Typing past the right edge of the terminal used to run a block off-screen instead of flowing onto the next visual row — terminals don't reflow on their own, and the outline deliberately avoided ratatui's `Paragraph::wrap` because that expands lines _after_ layout and would desync the `selected_line` scroll index.
   The outline now pre-wraps itself (`outl-tui` `view::wrap::push_wrapped`): wrapped rows are emitted up front so the scroll index stays honest, the first visual row keeps the bullet/fold marker, continuations re-indent under the text column, and the `│` indent rails repeat top to bottom.
   Wrapping runs on the already-styled spans (post-tokenization), so a break never splits a `**bold**` / `[[ref]]` token back into its literal markers, and wide glyphs (CJK, emoji) count as two cells.
@@ -1351,4 +1363,4 @@ Single-device editor; sync transport is on the roadmap but the algorithm and op-
 
 MIT.
 
-[0.1.0]: https://github.com/avelino/outl/releases/tag/v0.1.0
+[0.1.0]: https://github.com/outlmd/outl/releases/tag/v0.1.0

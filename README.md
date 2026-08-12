@@ -22,16 +22,16 @@ Tree CRDT sync ([Kleppmann et al. 2022][paper]), per-device append-only op log, 
 
 ```bash
 # macOS / Linux via Homebrew (beta channel — every push to main)
-brew tap avelino/outl https://github.com/avelino/outl
-brew trust avelino/outl # one-time, third-party tap
+brew tap outlmd/outl https://github.com/outlmd/outl
+brew trust outlmd/outl # one-time, third-party tap
 brew install outl-beta # TUI/CLI/MCP
 brew install --cask outl-desktop-beta # GUI
 ```
 
 iOS beta on TestFlight: [join here](https://testflight.apple.com/join/P2GdWAMd). Point the TUI at the same iCloud Drive container _(`<container>/Documents/`)_ and both clients share a workspace.
 
-Android: a signed arm64 APK (`outl-android-arm64.apk`) rides every [release](https://github.com/avelino/outl/releases).
-Sideload-only for now — not on Play, and each release is signed with a fresh key, so a new build means uninstalling the old one first ([#171](https://github.com/avelino/outl/issues/171)).
+Android: a signed arm64 APK (`outl-android-arm64.apk`) rides every [release](https://github.com/outlmd/outl/releases).
+Sideload-only for now — not on Play, and each release is signed with a fresh key, so a new build means uninstalling the old one first ([#171](https://github.com/outlmd/outl/issues/171)).
 
 - **From source / channels:** → [getting started](https://outl.app/docs/getting-started.html), [homebrew](https://outl.app/docs/homebrew.html)
 

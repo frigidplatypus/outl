@@ -1,6 +1,6 @@
 # Greeter
 
-> **Capability:** `config-schema` · [Source on GitHub](https://github.com/avelino/outl/tree/main/examples/greeter)
+> **Capability:** `config-schema` · [Source on GitHub](https://github.com/outlmd/outl/tree/main/examples/greeter)
 
 A `greet` slash command that toasts a friendly hello using a name you set in the
 plugin's config.

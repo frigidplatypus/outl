@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#8](https://github.com/avelino/outl/issues/8) (anchor), [#52](https://github.com/avelino/outl/issues/52), [#64](https://github.com/avelino/outl/issues/64), [#65](https://github.com/avelino/outl/issues/65), [#10](https://github.com/avelino/outl/issues/10), [#147](https://github.com/avelino/outl/issues/147), [#116](https://github.com/avelino/outl/issues/116) |
+| **Issue** | [#8](https://github.com/outlmd/outl/issues/8) (anchor), [#52](https://github.com/outlmd/outl/issues/52), [#64](https://github.com/outlmd/outl/issues/64), [#65](https://github.com/outlmd/outl/issues/65), [#10](https://github.com/outlmd/outl/issues/10), [#147](https://github.com/outlmd/outl/issues/147), [#116](https://github.com/outlmd/outl/issues/116) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [markdown-format.md](../markdown-format.md) |
@@ -13,11 +13,11 @@
 ## Why
 
 Six issues in a year asked for the same shape of thing.
-`==highlight==` ([#52](https://github.com/avelino/outl/issues/52)),
-`> quote` ([#64](https://github.com/avelino/outl/issues/64)),
-`:shortcode:` ([#65](https://github.com/avelino/outl/issues/65)),
-`@mention` ([#10](https://github.com/avelino/outl/issues/10)),
-and `((blk-XXXXXX))` / `!((blk-XXXXXX))` ([#8](https://github.com/avelino/outl/issues/8)).
+`==highlight==` ([#52](https://github.com/outlmd/outl/issues/52)),
+`> quote` ([#64](https://github.com/outlmd/outl/issues/64)),
+`:shortcode:` ([#65](https://github.com/outlmd/outl/issues/65)),
+`@mention` ([#10](https://github.com/outlmd/outl/issues/10)),
+and `((blk-XXXXXX))` / `!((blk-XXXXXX))` ([#8](https://github.com/outlmd/outl/issues/8)).
 Every one of them arrives as "every other note-taker speaks this, outl renders it as literal text", and every one of them reads like a small parser patch.
 
 The parser is not the expensive part.
@@ -34,7 +34,7 @@ Two devices that have never spoken must independently agree on what that handle 
 Disagreeing does not render badly; it resolves the citation to the *wrong block*, which is indistinguishable from correct until the user reads it.
 
 **A token with two owners is a bug report, twice.**
-[#116](https://github.com/avelino/outl/issues/116) ("Block refs not working in Desktop but working in CLI") and [#147](https://github.com/avelino/outl/issues/147) ("rendered as raw handle chips") are the same defect filed by two people.
+[#116](https://github.com/outlmd/outl/issues/116) ("Block refs not working in Desktop but working in CLI") and [#147](https://github.com/outlmd/outl/issues/147) ("rendered as raw handle chips") are the same defect filed by two people.
 The desktop tokenized `((blk))` and `!((blk))` correctly — it even drew distinct chips for the two forms, and its `((` autocomplete found targets workspace-wide.
 The TUI resolved and expanded the same bytes from the same workspace.
 The parser was never wrong; the *resolution* existed once instead of once-per-client-wrapping-one-owner.
@@ -58,7 +58,7 @@ It is also non-negotiable in the reverse direction because rendering is frequent
 An inline form is an `InlineTok` variant plus the matching `InlineToken` variant plus its `InlineToken::from_borrowed` arm, all three in the same change.
 A block-level form is a **text prefix** consumed by a helper — `outl_actions::todo` (`TODO ` / `DONE `) and `outl_actions::quote` (`> `) are the two that exist.
 No `Op` variant, no sidecar version bump, no DTO migration on mobile and desktop.
-Issue [#8](https://github.com/avelino/outl/issues/8) put this in its own body: references are *content* of a block, not *structure* of the tree.
+Issue [#8](https://github.com/outlmd/outl/issues/8) put this in its own body: references are *content* of a block, not *structure* of the tree.
 
 **3. Parse permissively; every ambiguity resolves to `Plain`.**
 The tokenizer never errors and never warns.
@@ -95,7 +95,7 @@ A client that tokenizes a form and then decides for itself what it means has for
 ## Why not the alternatives
 
 **Make the `@` part of the person page's identity** — `pages/@avelino.md`, `title:: @avelino`, and a slugifier taught to preserve a leading `@`.
-This is what issue [#10](https://github.com/avelino/outl/issues/10) proposed in its own body, down to the note that `crates/outl-md/src/slug.rs` "has to keep the leading `@` instead of stripping it as punctuation".
+This is what issue [#10](https://github.com/outlmd/outl/issues/10) proposed in its own body, down to the note that `crates/outl-md/src/slug.rs` "has to keep the leading `@` instead of stripping it as punctuation".
 The cost is that `slugify` gains a punctuation exception every caller inherits, and `avelino` and `@avelino` become two pages.
 A user who writes `[[avelino]]` then misses every mention, and a user who writes both has silently split one person in half.
 Shipped instead: the `@` is a link affordance the resolver strips before lookup, exactly like the `!` in `!((blk-XXXXXX))` is an affordance and not part of the handle.
@@ -197,14 +197,14 @@ That refusal is deliberate and pinned by `alternating_binaries_never_rotate_an_i
 
 **Not covered — where asset bytes live.**
 `![alt](url)` obeys this rule like any other token.
-The file it points at is a deliberate exception to invariant 7 and lives in [RFC 0202](0202-file-assets.md), issues [#202](https://github.com/avelino/outl/issues/202) and [#203](https://github.com/avelino/outl/issues/203).
+The file it points at is a deliberate exception to invariant 7 and lives in [RFC 0202](0202-file-assets.md), issues [#202](https://github.com/outlmd/outl/issues/202) and [#203](https://github.com/outlmd/outl/issues/203).
 
 **Not covered — autocomplete and triggers.**
 The `[[`, `#`, `@`, `((`, `:` popups and their word-initial rules are client wiring, together with the shared `detectRefContext` / `applySuggestion` helpers.
 Owners: [`docs/shortcuts.md`](../shortcuts.md), [`docs/clients.md`](../clients.md), `crates/outl-frontend-shared/CLAUDE.md`.
 
 **Not covered — query tokens.**
-`{{query: …}}` is parsed as opaque text and the ` ```query ` fence is the supported path: [`docs/query.md`](../query.md), issue [#139](https://github.com/avelino/outl/issues/139).
+`{{query: …}}` is parsed as opaque text and the ` ```query ` fence is the supported path: [`docs/query.md`](../query.md), issue [#139](https://github.com/outlmd/outl/issues/139).
 
 **Not covered — forms declined in the source issues.**
 Nested quotes (`>> `), multi-color highlight, and a keybinding per marker were all non-goals in #64 and #52.

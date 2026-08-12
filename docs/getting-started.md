@@ -7,8 +7,8 @@ A minute from clone to first journal entry.
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew tap avelino/outl https://github.com/avelino/outl
-brew trust avelino/outl             # one-time: Homebrew 4.x requires it for third-party taps
+brew tap outlmd/outl https://github.com/outlmd/outl
+brew trust outlmd/outl             # one-time: Homebrew 4.x requires it for third-party taps
 
 # CLI + TUI (Linux + macOS)
 brew install outl-beta              # latest beta — every push to main
@@ -18,6 +18,8 @@ brew install outl-beta              # latest beta — every push to main
 brew install --cask outl-desktop-beta
 ```
 
+> Already on the old `avelino/outl` tap? Run `brew untap avelino/outl` first — the repo moved to the `outlmd` org and a tap name doesn't follow GitHub's redirect. See [Homebrew tap → moved tap](homebrew.md#install-the-cli--tui).
+
 The desktop cask drops `outl.app` into `/Applications`.
 The dmg is unsigned today, so on first launch you'll need to right-click → Open (or `xattr -dr com.apple.quarantine /Applications/outl.app`).
 CLI and desktop coexist; they share the workspace on disk through the op log.
@@ -26,7 +28,7 @@ See [Homebrew tap](homebrew.md) for the channel rules, how switching between GA 
 
 ### Desktop app on Linux
 
-Homebrew doesn't ship GUI casks on Linux, so the desktop app is published as direct download assets on every [GitHub release](https://github.com/avelino/outl/releases).
+Homebrew doesn't ship GUI casks on Linux, so the desktop app is published as direct download assets on every [GitHub release](https://github.com/outlmd/outl/releases).
 Each release carries three formats for `x86_64`:
 
 | Asset | Use it when |
@@ -37,7 +39,7 @@ Each release carries three formats for `x86_64`:
 
 ```bash
 # AppImage — portable, no install
-curl -LO https://github.com/avelino/outl/releases/latest/download/outl-desktop-linux-x86_64.AppImage
+curl -LO https://github.com/outlmd/outl/releases/latest/download/outl-desktop-linux-x86_64.AppImage
 chmod +x outl-desktop-linux-x86_64.AppImage
 ./outl-desktop-linux-x86_64.AppImage
 ```
@@ -48,7 +50,7 @@ The CLI + TUI on Linux still install via Homebrew above.
 ### From source
 
 ```bash
-git clone https://github.com/avelino/outl.git
+git clone https://github.com/outlmd/outl.git
 cd outl
 cargo build --release
 ```

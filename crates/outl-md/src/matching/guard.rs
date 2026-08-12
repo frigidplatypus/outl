@@ -31,7 +31,7 @@
 //!   A guard with no escape hatch is a wall, and RFC 0211 names that as
 //!   its own defect class.
 //!
-//! [issue #210]: https://github.com/avelino/outl/issues/210
+//! [issue #210]: https://github.com/outlmd/outl/issues/210
 
 use std::fmt;
 

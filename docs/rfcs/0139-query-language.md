@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#139](https://github.com/avelino/outl/issues/139) |
+| **Issue** | [#139](https://github.com/outlmd/outl/issues/139) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [query.md](../query.md) |
@@ -12,7 +12,7 @@
 
 ## Why
 
-[#139](https://github.com/avelino/outl/issues/139) states the pain plainly: tasks are scattered across many notes and get lost, and the workaround is searching for them by hand.
+[#139](https://github.com/outlmd/outl/issues/139) states the pain plainly: tasks are scattered across many notes and get lost, and the workaround is searching for them by hand.
 
 The issue offered two shapes — a built-in tasks note, or "a code snippet which the user can insert on any page of their liking".
 Choosing between them, and choosing a *syntax* for the second, is the decision this RFC records.

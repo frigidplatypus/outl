@@ -12,7 +12,7 @@ Otherwise, keep reading.
 ## Day 0 — Install and open
 
 ```bash
-git clone https://github.com/avelino/outl.git
+git clone https://github.com/outlmd/outl.git
 cd outl
 cargo build --release
 cp target/release/outl ~/.local/bin/   # or wherever your PATH leads
@@ -295,5 +295,5 @@ Anything that can't be resolved stays in the file as `((unresolved:UID))` so you
 If something feels off, [open an issue][issues].
 If you wrote a patch, [the contributing guide][contrib] tells you what reviewers look at.
 
-[issues]: https://github.com/avelino/outl/issues
-[contrib]: https://github.com/avelino/outl/blob/main/CONTRIBUTING.md
+[issues]: https://github.com/outlmd/outl/issues
+[contrib]: https://github.com/outlmd/outl/blob/main/CONTRIBUTING.md

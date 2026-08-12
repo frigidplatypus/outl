@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Accepted (two of four holes closed — see Scope) |
-| **Issue** | [#155](https://github.com/avelino/outl/issues/155), [#160](https://github.com/avelino/outl/issues/160); open: [#158](https://github.com/avelino/outl/issues/158), [#159](https://github.com/avelino/outl/issues/159) |
+| **Issue** | [#155](https://github.com/outlmd/outl/issues/155), [#160](https://github.com/outlmd/outl/issues/160); open: [#158](https://github.com/outlmd/outl/issues/158), [#159](https://github.com/outlmd/outl/issues/159) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [sync.md](../sync.md), [privacy.md](../privacy.md) |
@@ -15,7 +15,7 @@
 The sync layer was written as if pairing were a security boundary.
 It is not, and two of the ways it is not were exploitable from a single paired device.
 
-**One peer could kill the other's app, repeatedly** ([#155](https://github.com/avelino/outl/issues/155)).
+**One peer could kill the other's app, repeatedly** ([#155](https://github.com/outlmd/outl/issues/155)).
 Every sync frame starts with a 4-byte length header.
 The reader trusted that number and sized its buffer from it — before reading a byte of body, and before checking whether the sender was even on the same workspace.
 A header of `0xFFFFFFFF` asked the receiver to reserve ~4 GiB.
@@ -23,7 +23,7 @@ On mobile that is an immediate OS kill; on desktop it is an OOM crash.
 The device on the other end does not have to be malicious, only buggy, and the crash repeats on every reconnect.
 The sharpest detail is that the pairing handshake in the *same crate* already capped its payload at 64 KiB (`pairing.rs:212`) — the sync read path simply never got the same guard.
 
-**The peer list silently lost entries** ([#160](https://github.com/avelino/outl/issues/160)).
+**The peer list silently lost entries** ([#160](https://github.com/outlmd/outl/issues/160)).
 `peers.json` was written with a plain overwrite: no atomic replace, no lock.
 Four writers race for it in normal operation — pairing persistence, the ~5s membership gossip tick, the inbound address refresh, and, across processes, the GUI plus the MCP server plus `outl sync` running against one workspace.
 Two of them doing read-modify-write means one saves its stale copy over the other's change.
@@ -31,7 +31,7 @@ A freshly paired device disappears, or a removal undoes itself, and nothing repo
 A reader catching the file mid-write gets truncated JSON and drops that cycle's work.
 The op log solved exactly this for itself years earlier with serialized atomic appends; `peers.json` was the one piece of persistent state left out.
 
-Two further holes were found in the same audit and are **still open**: `peer remove` does not revoke ([#158](https://github.com/avelino/outl/issues/158)) and pairing accepts an unverified identity ([#159](https://github.com/avelino/outl/issues/159)).
+Two further holes were found in the same audit and are **still open**: `peer remove` does not revoke ([#158](https://github.com/outlmd/outl/issues/158)) and pairing accepts an unverified identity ([#159](https://github.com/outlmd/outl/issues/159)).
 They are why this RFC is `Accepted` and not `Shipped`.
 
 ## What we chose
@@ -108,7 +108,7 @@ The trade is deliberate; the failure mode is different, not absent.
 This is the sharpest inversion in this RFC.
 `removed_peer_is_denied_sync` passes, so `peer remove` genuinely refuses the next inbound connection — and then membership gossip re-adds the peer within seconds and it works again.
 The half-fix is *more* misleading than the original behaviour, because the user can now observe a denial and reasonably conclude they are protected.
-Until [#158](https://github.com/avelino/outl/issues/158) lands with a tombstone, `peer remove` is not a security boundary, and this RFC exists partly to say so in a place a contributor will find.
+Until [#158](https://github.com/outlmd/outl/issues/158) lands with a tombstone, `peer remove` is not a security boundary, and this RFC exists partly to say so in a place a contributor will find.
 
 **`peers.json` stays outside the op log, against invariant 7's default.**
 Stated explicitly because the invariant says the opposite is the default position.
@@ -144,12 +144,12 @@ Combined with add-only, the peer set drifts toward "everything anyone has ever s
 
 ## Scope
 
-**Not covered — revocation ([#158](https://github.com/avelino/outl/issues/158), open).**
+**Not covered — revocation ([#158](https://github.com/outlmd/outl/issues/158), open).**
 `peer remove` deletes a local entry and refuses the next inbound connection from that id, and then membership gossip resurrects the entry.
 Real revocation needs a tombstone that propagates, and possibly a workspace-identity rotation so an old device cannot rejoin at all.
 Until then the shared workspace id behaves like a permanent, un-revokable key: a lost or stolen paired laptop cannot be locked out.
 
-**Not covered — pairing authentication ([#159](https://github.com/avelino/outl/issues/159), open).**
+**Not covered — pairing authentication ([#159](https://github.com/outlmd/outl/issues/159), open).**
 Two distinct holes, both live.
 While the host is armed (a ~2-minute window) the **first** device to connect on the pairing channel is accepted and handed the workspace identity, with no PIN, challenge or confirmation that it is the device the invite was meant for.
 And the joiner's device id is read from the handshake payload and stored as-is, never checked against the connection's authenticated identity.
@@ -158,7 +158,7 @@ The sketched fixes are a secret in the invite proven by HMAC, verifying the payl
 
 **Not covered — op signing.**
 Ops are unsigned, so a paired device can forge ops claiming another device's actor id.
-[#38](https://github.com/avelino/outl/issues/38) open question 5, and out of scope for both open issues above.
+[#38](https://github.com/outlmd/outl/issues/38) open question 5, and out of scope for both open issues above.
 
 **Not covered — transport, workspace identity and address resolution.**
 Those are [RFC 0038](0038-sync-transport-and-workspace-identity.md).

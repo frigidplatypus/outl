@@ -85,7 +85,7 @@ Violating any one breaks user trust irreversibly.
    The matching side has the mirrored guard: `reconcile_md_with_guard` refuses a bulk delete instead of trashing an oversized orphan list (`crates/outl-md/src/matching/guard.rs`).
    `outl recover` (op log, a truncating `Op::Edit`'s still-live predecessor) and `outl reconcile --ahead-of-log` (the `.md`, content the log never saw) are the two routes to recover the 1,426 lines this incident already produced.
    See `docs/cli.md` → "outl recover".
-   Full status: [issue #210](https://github.com/avelino/outl/issues/210).
+   Full status: [issue #210](https://github.com/outlmd/outl/issues/210).
 
    **The general rule this is an instance of:** when you fix one direction of a `.md` ↔ tree divergence, state what happens in the opposite direction *before* merging.
    Reconciliation bugs come in mirrored pairs, and the pair that deletes is never the one being reported.
@@ -114,7 +114,7 @@ Violating any one breaks user trust irreversibly.
    0.11.0 moved the write actor out of `.outl/config.toml` into a device-local store, correctly — the file rode every sync transport except iCloud, so two devices resolved the same actor and appended to one `ops-<actor>.jsonl`.
    Question three went unanswered, so the test suite wrote into the developer's real `~/.config/outl` (64 entries, 15 of them orphaned `TempDir` paths) and three doctor tests went flaky.
    Question four is still unanswered: nothing prunes a workspace the user deleted.
-   [RFC 0211](docs/rfcs/0211-state-that-leaves-a-boundary.md), [issue #211](https://github.com/avelino/outl/issues/211).
+   [RFC 0211](docs/rfcs/0211-state-that-leaves-a-boundary.md), [issue #211](https://github.com/outlmd/outl/issues/211).
 
    **The general rule, of which invariant 8 is one instance:** a fix relocates a problem far more often than it removes one.
    After "did I fix it?" comes **"where does the problem live now, and what does that place require that the old one did not?"**
@@ -272,7 +272,7 @@ Don't unilaterally pivot.
 | One `ops-<actor>.jsonl` per device, never shared | Any file transport (iCloud, Syncthing, shared FS) is last-write-wins per file; per-actor files turn that into a non-issue; iroh ships ops directly |
 | MIT license | Simple, widely understood, no patent grant baggage |
 | `outl.app` domain owned | Use for docs/landing later |
-| Repo at `github.com/avelino/outl` | Personal profile, not org (small enough team) |
+| Repo at `github.com/outlmd/outl` | Moved off the personal profile (`avelino/outl`) into the `outlmd` org. GitHub redirects the old URL and the old `git remote`, but a **Homebrew tap name is not a redirect** and neither is a `github:<owner>/<repo>` plugin source — both are re-resolved by name, so both are spelled `outlmd/outl` everywhere. CI is owner-agnostic (`$GITHUB_REPOSITORY`) |
 | `[workspace.package].version` in root `Cargo.toml` is the **single source of truth** | Crate manifests inherit via `version.workspace = true`. `tauri.conf.json` deliberately omits `version`; CI reads `Cargo.toml` and injects it into `cargo tauri ios build` via `--config` (Tauri's iOS path does NOT fall back to `Cargo.toml` on its own — it defaults to `1.0.0`). Bumping the workspace bumps everything. See `crates/outl-mobile/CLAUDE.md` → "Versioning + TestFlight release" before changing release/CI plumbing |
 
 ## What you're NOT building yet

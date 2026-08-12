@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#202](https://github.com/avelino/outl/issues/202) (anchor), [#203](https://github.com/avelino/outl/issues/203) |
-| **PR** | [#201](https://github.com/avelino/outl/pull/201) |
+| **Issue** | [#202](https://github.com/outlmd/outl/issues/202) (anchor), [#203](https://github.com/outlmd/outl/issues/203) |
+| **PR** | [#201](https://github.com/outlmd/outl/pull/201) |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [markdown-format.md § Asset links](../markdown-format.md#asset-links-nameassetshashext) |
 | **Invariant** | root `CLAUDE.md` invariant 7 — **explicit exception**, licensed by content-addressing; see "Why this is not a violation" |
@@ -14,7 +14,7 @@
 
 Users attach files.
 A PDF of a contract, a screenshot of a dashboard, a scan.
-Before [#202](https://github.com/avelino/outl/issues/202) the only way to reference one from a block was to type the path to wherever the file already sat on that machine.
+Before [#202](https://github.com/outlmd/outl/issues/202) the only way to reference one from a block was to type the path to wherever the file already sat on that machine.
 That is a dead link on every other device, and a dead link on the same device the moment the user reorganizes a folder.
 The workspace stopped being self-contained exactly where the user needed it most.
 
@@ -120,7 +120,7 @@ It adds a second persistent store and a second sync surface for something a dire
 That would turn `transport = "file"` from a real opt-out into a degraded mode.
 
 **Keep the OS-open path and never render inline.**
-This was the shipped 0.9 behaviour, and [#203](https://github.com/avelino/outl/issues/203) is why it changed: an imported Roam graph showed clickable text where the user expected to *see* the image.
+This was the shipped 0.9 behaviour, and [#203](https://github.com/outlmd/outl/issues/203) is why it changed: an imported Roam graph showed clickable text where the user expected to *see* the image.
 Rendering is a client concern and it did not move the bytes; it is recorded here only so the two decisions are not confused with each other.
 
 ## The opposite direction
@@ -187,15 +187,15 @@ Nothing tracks this.
 
 **Not covered — orphan asset garbage collection.**
 No block references the file, and the bytes stay forever.
-Listed under "consider" on [#202](https://github.com/avelino/outl/issues/202), with no issue of its own.
+Listed under "consider" on [#202](https://github.com/outlmd/outl/issues/202), with no issue of its own.
 See The opposite direction for why it is more than a disk-space concern.
 
 **Not covered — importing another tool's attachments.**
-Copying Logseq's `assets/`, resolving Obsidian vault-relative embeds, and downloading Roam's remote images are the "in progress" checklist on [#202](https://github.com/avelino/outl/issues/202).
+Copying Logseq's `assets/`, resolving Obsidian vault-relative embeds, and downloading Roam's remote images are the "in progress" checklist on [#202](https://github.com/outlmd/outl/issues/202).
 A referenced-but-missing file becomes an `assets_missing` warning, never a hard failure.
 
 **Not covered — how a client renders an asset.**
-Issue [#203](https://github.com/avelino/outl/issues/203).
+Issue [#203](https://github.com/outlmd/outl/issues/203).
 The `![alt](url)` token itself obeys the dialect rule in [RFC 0008](0008-markdown-dialect-and-sidecar-tokens.md).
 The image / chip / TUI-placeholder split is owned by [`docs/markdown-format.md` → Asset links](../markdown-format.md#asset-links-nameassetshashext) and `crates/outl-frontend-shared/CLAUDE.md`.
 
@@ -203,7 +203,7 @@ The image / chip / TUI-placeholder split is owned by [`docs/markdown-format.md` 
 Kitty and iTerm2 inline images sit on top of the TUI placeholder, out of scope in #203.
 
 **Not covered — Android `content://` pickers, previews and thumbnails.**
-Both on the [#202](https://github.com/avelino/outl/issues/202) roadmap; only the iOS `file://` normalization shipped.
+Both on the [#202](https://github.com/outlmd/outl/issues/202) roadmap; only the iOS `file://` normalization shipped.
 
 **Not covered — encryption at rest.**
 No issue tracks it.

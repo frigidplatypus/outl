@@ -538,7 +538,7 @@ fn apply_all_pages_writes_each_to_disk() {
     assert_eq!(body, "title:: Ideas\n\n- first idea\n");
 }
 
-/// Regression for https://github.com/avelino/outl/issues/120 —
+/// Regression for https://github.com/outlmd/outl/issues/120 —
 /// a page synced from a peer exists in the CRDT tree but has no
 /// `.md` on this device's disk. `open_page_by_slug` calls
 /// `apply_page_md_with_sidecar_if_absent`; without the projection

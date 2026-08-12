@@ -316,11 +316,11 @@ mod tests {
         "version": 1,
         "plugins": [
             { "id": "app.outl.examples.todo-archiver", "name": "TODO Archiver",
-              "description": "Archive DONE blocks.", "repository": "github:avelino/outl/examples/todo-archiver",
+              "description": "Archive DONE blocks.", "repository": "github:outlmd/outl/examples/todo-archiver",
               "category": "productivity", "keywords": ["todo", "archive"],
               "capabilities": ["op-hook"], "permissions": ["read-page"], "latest": "1.0.0" },
             { "id": "app.outl.examples.confetti", "name": "Confetti on Done",
-              "description": "Throws confetti.", "repository": "github:avelino/outl/examples/confetti",
+              "description": "Throws confetti.", "repository": "github:outlmd/outl/examples/confetti",
               "category": "fun", "keywords": ["fun"], "capabilities": ["ui-render"], "permissions": [] }
         ]
     }"#;
@@ -331,7 +331,7 @@ mod tests {
         assert_eq!(idx.plugins.len(), 2);
         assert_eq!(
             idx.plugins[0].repository,
-            "github:avelino/outl/examples/todo-archiver"
+            "github:outlmd/outl/examples/todo-archiver"
         );
     }
 

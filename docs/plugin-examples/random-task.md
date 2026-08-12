@@ -1,6 +1,6 @@
 # Random Task
 
-> **Capability:** `keybinding` · [Source on GitHub](https://github.com/avelino/outl/tree/main/examples/random-task)
+> **Capability:** `keybinding` · [Source on GitHub](https://github.com/outlmd/outl/tree/main/examples/random-task)
 
 Pick one open **TODO** at random and tell you to focus on it.
 A tiny, read-only plugin whose whole point is to show how a keybinding hangs off a command.

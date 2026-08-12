@@ -13,7 +13,7 @@ This policy describes what data the app handles and what it does not.
 - Your workspace lives entirely on your own devices and (optionally) in your own iCloud Drive.
 - There is no account, no sign-in, no email collection.
 
-If anything below is unclear or you have a question, open an issue at <https://github.com/avelino/outl/issues>.
+If anything below is unclear or you have a question, open an issue at <https://github.com/outlmd/outl/issues>.
 
 ## What outl stores, and where
 
@@ -59,7 +59,7 @@ outl is a productivity tool with no social features, no chat, no shared content,
 
 ## Open source
 
-outl is open source under the MIT License. The full source code is at <https://github.com/avelino/outl>. You can verify everything stated above by reading the code.
+outl is open source under the MIT License. The full source code is at <https://github.com/outlmd/outl>. You can verify everything stated above by reading the code.
 
 ## Changes to this policy
 
@@ -67,4 +67,4 @@ If we ever introduce a feature that would change what is described here (for exa
 
 ## Contact
 
-Open an issue at <https://github.com/avelino/outl/issues>.
+Open an issue at <https://github.com/outlmd/outl/issues>.

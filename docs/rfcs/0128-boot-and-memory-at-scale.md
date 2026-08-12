@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#128](https://github.com/avelino/outl/issues/128), [#156](https://github.com/avelino/outl/issues/156), [#179](https://github.com/avelino/outl/issues/179), [#207](https://github.com/avelino/outl/issues/207) |
+| **Issue** | [#128](https://github.com/outlmd/outl/issues/128), [#156](https://github.com/outlmd/outl/issues/156), [#179](https://github.com/outlmd/outl/issues/179), [#207](https://github.com/outlmd/outl/issues/207) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [storage.md § Snapshot strategy](../storage.md#snapshot-strategy) |
@@ -118,7 +118,7 @@ Two hardenings ride along, and both are about a *successful* decode being wrong 
 ## Why not the alternatives
 
 **Do not build a snapshot at all — trust the replay (#33, and this is the version that shipped first).**
-[#33](https://github.com/avelino/outl/issues/33) proposed exactly this feature and was **closed on purpose**.
+[#33](https://github.com/outlmd/outl/issues/33) proposed exactly this feature and was **closed on purpose**.
 Realistic workspaces replayed in milliseconds, no benchmark showed replay was the bottleneck, and the snapshot brings a pile of new problems: graceful shutdown versus crash, corruption recovery, format forward-compat, multi-process election.
 The closing line was *"Trust the replay — reopen when boot time becomes a measured problem on a real workspace."*
 That was right, and #179's 1.4 s over 211k ops is the measurement that reopened it.
@@ -154,7 +154,7 @@ Same advisory problem, and it already accepted the schema bump.
 Once the bump is being paid for anyway, postcard buys the varint win without keeping a flagged crate in the graph.
 
 **Sync the snapshot through the file transport so a fresh peer boots fast (#128 non-goal).**
-Sidecar churn in iCloud is a known UX killer ([#127](https://github.com/avelino/outl/issues/127)).
+Sidecar churn in iCloud is a known UX killer ([#127](https://github.com/outlmd/outl/issues/127)).
 Peer snapshot transfer belongs on iroh — [RFC 0137](0137-storage-scale.md) Phase B, PR 9.
 
 ## The opposite direction
@@ -272,7 +272,7 @@ So the ~35 s delta computation on a 211k-op log is improved only by Front A's fa
 Moving the census and `ops_missing_for` onto the offset index is still open, and lives in `outl-sync-iroh` rather than here.
 
 **Not covered — op-log compaction.**
-[#110](https://github.com/avelino/outl/issues/110), Phase 3 of #128, needs an undo horizon and its own UX.
+[#110](https://github.com/outlmd/outl/issues/110), Phase 3 of #128, needs an undo horizon and its own UX.
 Nothing in this RFC removes a byte from the log; the snapshot only lets boot skip reading it.
 
 **Not covered — the read-side durability rules the index and the lazy text depend on.**

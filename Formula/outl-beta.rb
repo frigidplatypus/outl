@@ -16,18 +16,18 @@ class OutlBeta < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/avelino/outl/releases/download/v#{version}/outl-macos-arm64.tar.gz"
+      url "https://github.com/outlmd/outl/releases/download/v#{version}/outl-macos-arm64.tar.gz"
       sha256 "f439882f5396731af4a61724b1803df14f000f2cd9ebfd67ebbe9ae9407c070e" # anchor: macos-arm64
     end
     on_intel do
-      url "https://github.com/avelino/outl/releases/download/v#{version}/outl-macos-x64.tar.gz"
+      url "https://github.com/outlmd/outl/releases/download/v#{version}/outl-macos-x64.tar.gz"
       sha256 "13284d0c6f0dc508d2492cc976251456840795771b7c78b7f31e19845c90d4dd" # anchor: macos-x64
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/avelino/outl/releases/download/v#{version}/outl-linux-x64.tar.gz"
+      url "https://github.com/outlmd/outl/releases/download/v#{version}/outl-linux-x64.tar.gz"
       sha256 "048c0dffe6a32505a23932fe687aba7eb2b24eead860b5d37c0a41762ee6c19c" # anchor: linux-x64
     end
   end

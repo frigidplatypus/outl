@@ -5,7 +5,7 @@
 > This page stays because it is published at outl.app; read it as the original design note, not as current guidance.
 
 Status: **implemented**
-Tracking issue: [#114 — Pasting from TUI into another app is a complete mess](https://github.com/avelino/outl/issues/114)
+Tracking issue: [#114 — Pasting from TUI into another app is a complete mess](https://github.com/outlmd/outl/issues/114)
 Owner: Avelino
 
 > Shipped: `outl_actions::copy_markdown` / `copy_markdown_nodes` (the serializer), TUI app-yank to clipboard (arboard + OSC 52) plus opt-in `[tui] mouse_capture`, and desktop + mobile copy via the shared `copyMarkdown` command.

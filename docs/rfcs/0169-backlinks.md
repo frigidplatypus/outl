@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#169](https://github.com/avelino/outl/issues/169) (anchor, labelled `RFC`), [#180](https://github.com/avelino/outl/issues/180), [#142](https://github.com/avelino/outl/issues/142) |
+| **Issue** | [#169](https://github.com/outlmd/outl/issues/169) (anchor, labelled `RFC`), [#180](https://github.com/outlmd/outl/issues/180), [#142](https://github.com/outlmd/outl/issues/142) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [clients.md § Backlinks index](../clients.md#backlinks-index-performance) |
@@ -15,7 +15,7 @@
 Three user reports, one subject, and one prior failure that constrains every fix.
 
 **It got slow, and it got slow with the wrong variable.**
-A user opening a template page with 760 backlinks reported "things are rather slow" ([#169](https://github.com/avelino/outl/issues/169), @gitdaveuk).
+A user opening a template page with 760 backlinks reported "things are rather slow" ([#169](https://github.com/outlmd/outl/issues/169), @gitdaveuk).
 The committed bench (`crates/outl-actions/tests/bench_backlinks.rs`, median of 7, `--release`) holds the backlinks fixed at 760 and grows the workspace around them:
 
 | scenario | backlinks | workspace blocks | `backlinks_for_page` |
@@ -31,7 +31,7 @@ The report's own shape — the template channel, a large workspace — took **3.
 The same bench found a second waste: 70–87% of the IPC payload was subtree the renderer immediately discarded, because each `Backlink` shipped `source_block` as a full `OutlineNode` tree while desktop and mobile render only `source_block.tokens`.
 
 **It was fast and meaningless.**
-[#180](https://github.com/avelino/outl/issues/180): a reference nested inside an outline arrived in the panel as a bare leaf.
+[#180](https://github.com/outlmd/outl/issues/180): a reference nested inside an outline arrived in the panel as a bare leaf.
 
 ```
 - Planejamento Q3
@@ -47,7 +47,7 @@ Root-level references were fine; in a real outline most references are not root-
 Mobile was worse — a flat list that did not even group references by their source page.
 
 **It was in the wrong order.**
-[#142](https://github.com/avelino/outl/issues/142): "when I have a lot of backlinks, I have to scroll down to see the latest."
+[#142](https://github.com/outlmd/outl/issues/142): "when I have a lot of backlinks, I have to scroll down to see the latest."
 
 **And the prior failure that shapes all three.**
 There used to be a backlinks cache on `outl_md::index`, and it was deleted on purpose.
@@ -103,7 +103,7 @@ Two independent reasons, both load-bearing:
 
 ### Context is the ancestor chain, not the subtree
 
-This is the part of [#180](https://github.com/avelino/outl/issues/180) that had to be answered *without* undoing the decision above.
+This is the part of [#180](https://github.com/outlmd/outl/issues/180) that had to be answered *without* undoing the decision above.
 The context a nested reference is missing is **upward**, not downward, and upward is `O(depth)` while downward is `O(subtree)`.
 
 `Backlink::ancestors: Vec<BacklinkCrumb>` is root-first, excludes the page root, and is empty when the block sits at the page root.
@@ -127,7 +127,7 @@ Client wiring lives with the clients: [`docs/clients.md` → Backlinks order](..
 **Put the index back on `outl_md::index` / `WorkspaceIndex`.**
 The natural home for an index, and the one that already failed.
 The cost is measured rather than hypothetical: policy in two crates drifted on self-references, one surface hid them, and a user reported it.
-Issue [#81](https://github.com/avelino/outl/issues/81) proposes deriving the *existing* `WorkspaceIndex` from the op log, and lists backlinks as something that could live there.
+Issue [#81](https://github.com/outlmd/outl/issues/81) proposes deriving the *existing* `WorkspaceIndex` from the op log, and lists backlinks as something that could live there.
 If it lands, the two coexist with ownership split: `outl-md` owns facts about `((blk))` handles and text, `outl-actions` owns page-backlink keys **plus** the policy, and neither re-derives the other's.
 
 **Let the index decide what a backlink is** — store resolved verdicts keyed by page instead of mentions keyed by target.
@@ -140,7 +140,7 @@ Collapsing the on-demand API into a wrapper over the index removed the second pa
 
 **Build the index from the in-memory `Workspace` on the client.**
 This is what #169 specified — "a structure derived from the `Workspace`, not from `.md`/disk" — and it shipped, and it had to be changed.
-Reading block text through `Workspace::block_text` on an `O(blocks)` walk forces a lazy-boot vault ([#179](https://github.com/avelino/outl/issues/179)) to materialize entirely, and it holds the workspace lock across the whole walk.
+Reading block text through `Workspace::block_text` on an `O(blocks)` walk forces a lazy-boot vault ([#179](https://github.com/outlmd/outl/issues/179)) to materialize entirely, and it holds the workspace lock across the whole walk.
 Together that pair is the "opening the journal / pressing Esc freezes" regression.
 `build_backlink_index` still exists for the one-shot wrappers and for in-memory tests with no `.md` on disk, and `workspace_build_materializes_everything_the_disk_build_avoids` is a control test that keeps the difference honest.
 
@@ -167,7 +167,7 @@ Sorting by last edit would reorder the whole panel whenever someone fixes a typo
 ULID order gives creation time for free and is stable.
 
 **Newest-first with no option.**
-[#142](https://github.com/avelino/outl/issues/142) asked for the setting explicitly as its own fallback, and the direction is a per-device display preference — a config key is the honest home, not a converged value.
+[#142](https://github.com/outlmd/outl/issues/142) asked for the setting explicitly as its own fallback, and the direction is a per-device display preference — a config key is the honest home, not a converged value.
 
 ## The opposite direction
 
@@ -244,7 +244,7 @@ A page with 100,000 backlinks renders 100,000 rows.
 Already `O(1)` through `outl_md::block_index`'s reverse-ref map, and the dialect side of it belongs to [RFC 0008](0008-markdown-dialect-and-sidecar-tokens.md).
 
 **Not covered — deriving `WorkspaceIndex` from the op log.**
-Issue [#81](https://github.com/avelino/outl/issues/81).
+Issue [#81](https://github.com/outlmd/outl/issues/81).
 This RFC states how the two indices coexist; it does not decide #81.
 
 **Not covered — incremental maintenance as ops apply.**
@@ -259,5 +259,5 @@ No issue tracks it.
 No issue tracks it.
 
 **Not covered — the panel's chrome.**
-Sections, collapsing, keyboard traversal across the separator, and the mobile grouping fix from [#180](https://github.com/avelino/outl/issues/180) are per-client.
+Sections, collapsing, keyboard traversal across the separator, and the mobile grouping fix from [#180](https://github.com/outlmd/outl/issues/180) are per-client.
 Owners: [`docs/clients.md`](../clients.md), [`docs/tui.md`](../tui.md), and the client `CLAUDE.md` files.

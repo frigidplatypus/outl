@@ -43,9 +43,9 @@ The shape of outl is settled:
   Android ships the same way — a signed APK on every release; see [android-platform.md](android-platform.md).
 
 [crdt]: crdt.md
-[chrondb]: https://github.com/avelino/outl/issues/1
-[outl-core]: https://github.com/avelino/outl/tree/main/crates/outl-core
-[outl-md]: https://github.com/avelino/outl/tree/main/crates/outl-md
+[chrondb]: https://github.com/outlmd/outl/issues/1
+[outl-core]: https://github.com/outlmd/outl/tree/main/crates/outl-core
+[outl-md]: https://github.com/outlmd/outl/tree/main/crates/outl-md
 
 ## Status (May 2026)
 
@@ -64,7 +64,7 @@ Where it's headed: the [roadmap lives on the GitHub Project][roadmap].
 
 [roadmap]: https://github.com/users/avelino/projects/2/views/1
 
-[tests]: https://github.com/avelino/outl/actions
+[tests]: https://github.com/outlmd/outl/actions
 
 ## Background reading
 
@@ -75,7 +75,7 @@ Long-form posts about the engineering behind outl, published on [avelino.run](ht
 
 ## Contributing
 
-The [README on GitHub](https://github.com/avelino/outl) has the install bits and the dev workflow.
+The [README on GitHub](https://github.com/outlmd/outl) has the install bits and the dev workflow.
 Before sending a PR, read [Contributing & code review](contributing.md) — the rules of the game are written down so you know exactly what reviewers will look at.
 Open issues to discuss design before sending big PRs; the sync algorithm in particular has a 100% coverage rule on its critical functions.
 

@@ -230,7 +230,7 @@ When ChronDB is ready, the PR adds `outl-core/src/storage/chrondb.rs` implementi
 The `Storage` trait absorbs the new impl — no change in `outl-core/src/tree.rs`, no change in `outl-md`, no change in the TUI.
 That's the whole point of the trait.
 
-Tracked: <https://github.com/avelino/outl/issues/1>.
+Tracked: <https://github.com/outlmd/outl/issues/1>.
 
 ---
 

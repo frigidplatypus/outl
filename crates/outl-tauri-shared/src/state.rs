@@ -104,7 +104,7 @@ impl PageView {
 /// binary to run it with, which is why the copy is per-client and lives
 /// in `@outl/shared/warnings`.
 ///
-/// [RFC 0210]: https://github.com/avelino/outl/blob/main/docs/rfcs/0210-md-content-outside-op-log.md
+/// [RFC 0210]: https://github.com/outlmd/outl/blob/main/docs/rfcs/0210-md-content-outside-op-log.md
 #[derive(Debug, Clone, Serialize)]
 pub struct MdAheadOfLog {
     /// The `.md` that was left alone, for the "which file" question.

@@ -1,6 +1,6 @@
 # outl for Raycast
 
-A thin Raycast client for the [outl](https://github.com/avelino/outl) outliner.
+A thin Raycast client for the [outl](https://github.com/outlmd/outl) outliner.
 Every command shells out to the `outl` CLI — no outliner logic is reimplemented here.
 
 ## Commands

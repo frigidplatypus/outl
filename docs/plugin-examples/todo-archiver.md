@@ -1,6 +1,6 @@
 # TODO Archiver
 
-> **Capabilities:** `op-hook` + `slash-command` + `keybinding` + `config-schema` · [Source on GitHub](https://github.com/avelino/outl/tree/main/examples/todo-archiver)
+> **Capabilities:** `op-hook` + `slash-command` + `keybinding` + `config-schema` · [Source on GitHub](https://github.com/outlmd/outl/tree/main/examples/todo-archiver)
 
 Moves every **DONE** block to a configurable archive page, keeping working pages focused on what's still open.
 
@@ -37,7 +37,7 @@ export default definePlugin({
 });
 ```
 
-See [`src/index.ts`](https://github.com/avelino/outl/tree/main/examples/todo-archiver/src/index.ts) for the full version (with the op-hook and config helpers).
+See [`src/index.ts`](https://github.com/outlmd/outl/tree/main/examples/todo-archiver/src/index.ts) for the full version (with the op-hook and config helpers).
 
 ## Manifest
 

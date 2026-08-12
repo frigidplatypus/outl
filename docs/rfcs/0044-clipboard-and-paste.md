@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#44](https://github.com/avelino/outl/issues/44), [#114](https://github.com/avelino/outl/issues/114) |
+| **Issue** | [#44](https://github.com/outlmd/outl/issues/44), [#114](https://github.com/outlmd/outl/issues/114) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [paste.md](../paste.md), [clients.md § Copy and paste](../clients.md#copy-and-paste) |

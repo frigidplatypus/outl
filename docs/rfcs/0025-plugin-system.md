@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Shipped |
-| **Issue** | [#25](https://github.com/avelino/outl/issues/25) (supporting: [#4](https://github.com/avelino/outl/issues/4)) |
+| **Issue** | [#25](https://github.com/outlmd/outl/issues/25) (supporting: [#4](https://github.com/outlmd/outl/issues/4)) |
 | **PR** | — |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [plugins.md](../plugins.md), [plugin-architecture.md](../plugin-architecture.md) |
@@ -15,7 +15,7 @@
 The plugin system is the most documented feature in the repo.
 Four docs already cover the manifest, capabilities, permissions, packaging and the host API:
 [`plugins.md`](../plugins.md), [`plugin-api.md`](../plugin-api.md), [`plugin-architecture.md`](../plugin-architecture.md), [`plugin-tutorial.md`](../plugin-tutorial.md).
-[#25](https://github.com/avelino/outl/issues/25) carries the full approved design in its own body.
+[#25](https://github.com/outlmd/outl/issues/25) carries the full approved design in its own body.
 
 Exactly one decision shaped every other one and is written nowhere as a *reason* a contributor reads: **which JavaScript engine**.
 It looks like a performance question and is not.
@@ -49,7 +49,7 @@ It remains the documented escape hatch behind `PluginEngine`.
 
 **WASM via `wasmtime` / `extism`.**
 Better isolation, and a JIT-free interpreter mode exists.
-It costs the goal — plugin authors would write Rust or Go, losing the "largest community, lowest barrier" premise of #25, and [#4](https://github.com/avelino/outl/issues/4) had already called WASM isolation heavier than day-one needs.
+It costs the goal — plugin authors would write Rust or Go, losing the "largest community, lowest barrier" premise of #25, and [#4](https://github.com/outlmd/outl/issues/4) had already called WASM isolation heavier than day-one needs.
 
 **Rhai or a bespoke scripting language.**
 No ecosystem, nothing an author already knows, every helper written from scratch.

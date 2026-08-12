@@ -1,6 +1,6 @@
 # Bar Chart
 
-> **Capability:** `content-transformer:rich` · [Source on GitHub](https://github.com/avelino/outl/tree/main/examples/bars)
+> **Capability:** `content-transformer:rich` · [Source on GitHub](https://github.com/outlmd/outl/tree/main/examples/bars)
 
 Turns a ` ```bars ` fence of `label: number` lines into a mini bar chart.
 Each bar's width is proportional to its value, normalized by the largest.

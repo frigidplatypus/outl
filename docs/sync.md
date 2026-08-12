@@ -184,7 +184,7 @@ Nothing is ever silently dropped — if it was, the algorithm couldn't replay hi
 The first four are properties Roam/Logseq can't even claim.
 The fifth is why outl can offer time-travel later (it's the entire premise of the [ChronDB backend][chrondb] tracked in issue #1).
 
-[chrondb]: https://github.com/avelino/outl/issues/1
+[chrondb]: https://github.com/outlmd/outl/issues/1
 
 ---
 
@@ -269,7 +269,7 @@ The cost: we're on the hook for correctness.
 That's why [the test battery][tests] is huge and the coverage target on the four critical functions (`do_op`, `undo_op`, `apply_op`, `creates_cycle`) is **100% — no exceptions**.
 
 [automerge]: https://automerge.org/
-[tests]: https://github.com/avelino/outl/tree/main/crates/outl-core/tests
+[tests]: https://github.com/outlmd/outl/tree/main/crates/outl-core/tests
 
 ---
 

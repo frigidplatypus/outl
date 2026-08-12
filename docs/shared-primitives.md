@@ -13,7 +13,7 @@ Grep all four files together — they are one catalog:
 grep -n 'the_symbol' docs/shared-primitives.md docs/primitives-*.md
 ```
 
-> The catalog is mirrored (in condensed, review-checklist form) at [`.github/instructions/shared-primitives.instructions.md`](https://github.com/avelino/outl/blob/main/.github/instructions/shared-primitives.instructions.md), a path-scoped Copilot instruction file (`applyTo: crates/**`).
+> The catalog is mirrored (in condensed, review-checklist form) at [`.github/instructions/shared-primitives.instructions.md`](https://github.com/outlmd/outl/blob/main/.github/instructions/shared-primitives.instructions.md), a path-scoped Copilot instruction file (`applyTo: crates/**`).
 > When you edit any part, sync that mirror — a `PostToolUse` hook flags drift, but the discipline starts before the hook fires.
 
 For the reuse-first rule (why this matters, past drift incidents, what to do when a primitive doesn't exist yet), see [Contributing → Reuse-first](contributing.md#reuse-first-no-parallel-implementations).

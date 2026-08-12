@@ -180,7 +180,7 @@ pub struct ReprojectOutcome {
 /// this into an error would trade a stale page for no page at all, on
 /// the hottest path in the app.
 ///
-/// [RFC 0210]: https://github.com/avelino/outl/blob/main/docs/rfcs/0210-md-content-outside-op-log.md
+/// [RFC 0210]: https://github.com/outlmd/outl/blob/main/docs/rfcs/0210-md-content-outside-op-log.md
 pub fn reproject_stale_md(
     workspace: &Workspace,
     storage_root: &Path,

@@ -147,7 +147,7 @@ fn index_ts(name: &str) -> String {
  *
  * Starter scaffold: a single `hello` slash command that toasts a message.
  * Grow it by adding capabilities to `plugin.json` and wiring them here —
- * see https://github.com/avelino/outl/blob/main/docs/plugin-api.md
+ * see https://github.com/outlmd/outl/blob/main/docs/plugin-api.md
  */
 
 import {{ definePlugin, type PluginContext }} from "@outl/plugin-sdk";
@@ -167,7 +167,7 @@ fn readme(name: &str, id: &str) -> String {
     format!(
         r#"# {name}
 
-An [outl](https://github.com/avelino/outl) plugin (`{id}`).
+An [outl](https://github.com/outlmd/outl) plugin (`{id}`).
 
 ## Build
 
@@ -191,7 +191,7 @@ Edit `src/index.ts`, rebuild, and reinstall (or drop the folder in
 `<workspace>/.outl/plugins/_dev/{slug}/` to skip the hash check while iterating).
 The full host API — `ctx.blocks`, `ctx.ops.onOp`, `ctx.content.register`,
 `ctx.net.fetch`, `ctx.storage`, … — is documented at
-<https://github.com/avelino/outl/blob/main/docs/plugin-api.md>.
+<https://github.com/outlmd/outl/blob/main/docs/plugin-api.md>.
 "#,
         slug = slugify(name),
     )

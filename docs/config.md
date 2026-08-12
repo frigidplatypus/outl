@@ -136,7 +136,7 @@ See [theming.md](theming.md) for the look of each.
 
 | Field | Type | Default | Read by | Effect |
 |---|---|---|---|---|
-| `lru_cap` | integer (ops) | `20_000` | TUI / desktop / mobile | Maximum number of ops held in `JsonlStorage`'s in-memory cache. `0` keeps the legacy unbounded behaviour (every op resident forever). Any positive value caps the cache so RSS stays roughly constant regardless of workspace history; cold ops stay addressable through the per-actor offset index (`ops-<actor>.idx`). Mobile pins this to `min(lru_cap, 5_000)` to stay well under iOS jetsam. See [RFC #137](https://github.com/avelino/outl/issues/137). |
+| `lru_cap` | integer (ops) | `20_000` | TUI / desktop / mobile | Maximum number of ops held in `JsonlStorage`'s in-memory cache. `0` keeps the legacy unbounded behaviour (every op resident forever). Any positive value caps the cache so RSS stays roughly constant regardless of workspace history; cold ops stay addressable through the per-actor offset index (`ops-<actor>.idx`). Mobile pins this to `min(lru_cap, 5_000)` to stay well under iOS jetsam. See [RFC #137](https://github.com/outlmd/outl/issues/137). |
 
 #### `[tui]`
 

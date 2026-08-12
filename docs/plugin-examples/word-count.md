@@ -1,6 +1,6 @@
 # Word Count
 
-> **Capability:** `op-hook` · [Source on GitHub](https://github.com/avelino/outl/tree/main/examples/word-count)
+> **Capability:** `op-hook` · [Source on GitHub](https://github.com/outlmd/outl/tree/main/examples/word-count)
 
 Counts the words in a block as you type and toasts the first time the block
 crosses a milestone — 50, 100, 250 or 500 words.
