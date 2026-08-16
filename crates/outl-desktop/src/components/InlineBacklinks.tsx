@@ -1,6 +1,11 @@
 import { For, Show } from "solid-js";
 
-import { openRef, setBacklinksOrder } from "@outl/shared/api/commands";
+import {
+  openRef,
+  pageBacklinks,
+  setBacklinksOrder,
+  toggleTodo,
+} from "@outl/shared/api/commands";
 import { MarkdownInline } from "@outl/shared/markdown";
 import { sameCrumbTrail } from "@outl/shared/outline";
 import type { Backlink } from "@outl/shared/api/types";
@@ -49,6 +54,24 @@ export function InlineBacklinks() {
       // freshly-opened outline.
       setAppState("selectedBacklinkBlockId", null);
       setAppState("selectedBlockId", link.block_id);
+    } catch (e) {
+      setAppState("lastError", e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function toggleBacklinkTodo(link: Backlink) {
+    const sourcePage = link.source_page;
+    const currentSlug = appState.page?.slug;
+    if (!sourcePage || !currentSlug) return;
+    try {
+      await toggleTodo(sourcePage.id, link.block_id);
+      // The mutation lands on the *source* page, so nothing on this page
+      // re-renders on its own — and OutlineView's backlink effect is keyed
+      // on the slug, which didn't change. Refetch the projection directly:
+      // this is the one mutation that changes the current page's own
+      // backlinks, the exception that effect's comment calls out.
+      const r = await pageBacklinks(currentSlug);
+      setAppState({ backlinks: r.backlinks, backlinksOrder: r.backlinks_order });
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
     }
@@ -199,22 +222,60 @@ export function InlineBacklinks() {
                               {crumbTrail}
                             </div>
                           </Show>
-                          <button
-                            type="button"
-                            onClick={() => void openBacklink(link)}
-                            onMouseEnter={() =>
-                              setAppState(
-                                "selectedBacklinkBlockId",
-                                link.block_id,
-                              )
-                            }
-                            class="block w-full rounded px-1 py-0.5 text-left text-sm leading-snug opacity-90 hover:bg-(--color-outl-fg)/5 hover:opacity-100"
-                          >
-                            <MarkdownInline
-                              tokens={link.source_block.tokens}
-                              variant="inline"
-                            />
-                          </button>
+                          <div class="flex items-start">
+                            <button
+                              type="button"
+                              data-todo={link.todo ?? "none"}
+                              onClick={() => void toggleBacklinkTodo(link)}
+                              class={`mt-[2px] mr-2 w-3 shrink-0 cursor-pointer text-center text-[13px] leading-none hover:opacity-70 ${
+                                link.todo === "DONE"
+                                  ? "text-(--color-outl-todo-done-fg)"
+                                  : link.todo === "TODO"
+                                    ? "text-(--color-outl-todo-open-fg)"
+                                    : "text-(--color-outl-fg-dimmer)"
+                              }`}
+                              title={
+                                link.todo === "DONE"
+                                  ? "Mark not done"
+                                  : link.todo === "TODO"
+                                    ? "Mark done"
+                                    : "Mark as TODO"
+                              }
+                              aria-label={
+                                link.todo === "DONE"
+                                  ? "Mark not done"
+                                  : link.todo === "TODO"
+                                    ? "Mark done"
+                                    : "Mark as TODO"
+                              }
+                            >
+                              {link.todo === "DONE"
+                                ? "▣"
+                                : link.todo === "TODO"
+                                  ? "▢"
+                                  : "•"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void openBacklink(link)}
+                              onMouseEnter={() =>
+                                setAppState(
+                                  "selectedBacklinkBlockId",
+                                  link.block_id,
+                                )
+                              }
+                              class={`block min-w-0 flex-1 rounded px-1 py-0.5 text-left text-sm leading-snug opacity-90 hover:bg-(--color-outl-fg)/5 hover:opacity-100 ${
+                                link.todo === "DONE"
+                                  ? "line-through opacity-60"
+                                  : ""
+                              }`}
+                            >
+                              <MarkdownInline
+                                tokens={link.source_block.tokens}
+                                variant="inline"
+                              />
+                            </button>
+                          </div>
                         </li>
                       );
                     }}

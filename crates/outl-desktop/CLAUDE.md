@@ -85,6 +85,17 @@ The backend `delete_page` Tauri command is the shared `outl_tauri_shared::comman
 `InlineBacklinks.tsx`'s header direction button (`setBacklinksOrder`) flips newest/oldest; `appState.backlinksOrder` hydrates at boot.
 `OutlineView.tsx` refetches backlinks via `createEffect(on(slug, …))` — per navigation, not per commit (the "Esc is slow" fix; rationale in the code comment).
 
+### Toggling a task from a backlink row (issue #144)
+
+A backlink row carries its own `▢` / `▣` / `•` indicator ahead of the text.
+Clicking it toggles the **source** block's TODO (`toggleTodo`) without leaving the page; clicking the *text* still navigates.
+Two buttons in one flex row, so the gestures can't collide — the bullet-vs-checkbox split again.
+
+Refresh is the non-obvious part.
+The mutation lands on the source page, and `OutlineView`'s backlink effect is keyed on the slug, which didn't change.
+So `toggleBacklinkTodo` refetches `pageBacklinks(currentSlug)` itself — the exception that effect's comment calls out.
+Never refresh it by re-opening via `openRef`: `PageView.backlinks` is always empty now, so that blanks the section.
+
 ## Blockquote chrome
 
 A `"> "`-prefixed block renders with a left border + ~6% tint, right-rounded, body full-colour; the outline bullet stays outside the quote chrome.

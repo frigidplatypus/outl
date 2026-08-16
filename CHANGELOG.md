@@ -37,6 +37,12 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Fixed
 
+- **Desktop: a task in a backlink row could be read but not ticked.**
+  A tag page listed `TODO` blocks from everywhere, and checking one meant navigating to the source page, toggling, and navigating back — so the page that shows you all your open tasks was the one page you could not act on (issue #144).
+  Each backlink row now carries its own indicator and toggles the source block in place, with the surrounding list refreshed from `page_backlinks`.
+  Clicking the row's *text* still opens the source block, unchanged.
+  Thanks to [@SSamDav](https://github.com/SSamDav).
+
 - **A machine running only `outl mcp serve` never synced with anything.**
   It wrote its ops to disk and no peer ever saw them; peers' ops never arrived either, and `outl peer status` on the other device just said "offline" with nothing to explain it.
   Running the TUI once made the device appear, which is what made it look like the MCP server was broken rather than deliberately silent (issue #220).
