@@ -1,9 +1,9 @@
 # This file is maintained by `.github/workflows/release.yml`.
 # Every push to `main` runs the release workflow, which bumps the
 # `version` line (computed from `Cargo.toml` + the workflow run
-# number) and the three `sha256` lines below in place. The `# anchor:`
-# comments are how the workflow finds the right lines — do not remove
-# them.
+# number), the bottle `root_url`, and the six `sha256` lines below in
+# place. The `# anchor:` comments are how the workflow finds the right
+# lines — do not remove them.
 #
 # Values committed here are bootstrap placeholders: `version "0.0.0"`
 # and zeroed SHAs make `brew install outl-beta` fail loudly until the
@@ -13,6 +13,25 @@ class OutlBeta < Formula
   homepage "https://outl.app"
   version "0.12.0-beta.162"
   license "MIT"
+
+  # We ship pre-built binaries and compile nothing here, but a formula
+  # without a bottle counts as "build from source" to Homebrew, which
+  # then runs its fatal dev-tools checks and refuses to install on any
+  # Mac whose Xcode is older than the running macOS wants:
+  #
+  #   Error: Your Xcode (26.6) at /Applications/Xcode.app is too outdated.
+  #
+  # The bottles below are the same binaries repacked into the Cellar
+  # layout (`outl-beta/<version>/bin/outl`), which makes `pour_bottle?`
+  # true and skips those checks entirely. macOS bottle tags fall back to
+  # older releases, so one `ventura` tag per arch covers every macOS
+  # from 13 upwards — no runner on the newest macOS required.
+  bottle do
+    root_url "https://github.com/outlmd/outl/releases/download/v0.12.0-beta.161" # anchor: bottle-root-url
+    sha256 cellar: :any_skip_relocation, arm64_ventura: "0000000000000000000000000000000000000000000000000000000000000000" # anchor: bottle-macos-arm64
+    sha256 cellar: :any_skip_relocation, ventura:       "0000000000000000000000000000000000000000000000000000000000000000" # anchor: bottle-macos-x64
+    sha256 cellar: :any_skip_relocation, x86_64_linux:  "0000000000000000000000000000000000000000000000000000000000000000" # anchor: bottle-linux-x64
+  end
 
   on_macos do
     on_arm do

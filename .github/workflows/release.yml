@@ -163,9 +163,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `bottle_tag` names the Homebrew bottle built from the same
+          # binary (see the "Stage Homebrew bottle" step). We tag the
+          # oldest macOS we support rather than the runner's own
+          # version: Homebrew falls back to bottles built for older
+          # macOS releases, so `ventura` covers 13 and everything
+          # above it — including macOS versions that have no runner
+          # yet. Windows has no bottle (Homebrew doesn't run there).
           - os: blacksmith-6vcpu-macos-15
             target: aarch64-apple-darwin
             artifact: outl-macos-arm64
+            bottle_tag: arm64_ventura
           # Cross-compile to Intel macOS from the Apple Silicon
           # runner. We previously used `macos-13` here, but the Intel
           # macOS pool got depleted and jobs sat queued for ~14h
@@ -174,9 +182,11 @@ jobs:
           - os: blacksmith-6vcpu-macos-15
             target: x86_64-apple-darwin
             artifact: outl-macos-x64
+            bottle_tag: ventura
           - os: blacksmith-8vcpu-ubuntu-2404
             target: x86_64-unknown-linux-gnu
             artifact: outl-linux-x64
+            bottle_tag: x86_64_linux
           - os: blacksmith-4vcpu-windows-2025
             target: x86_64-pc-windows-msvc
             artifact: outl-windows-x64
@@ -230,6 +240,29 @@ jobs:
           tar -C dist -czf ${{ matrix.artifact }}.tar.gz outl LICENSE README.md
           shasum -a 256 ${{ matrix.artifact }}.tar.gz > ${{ matrix.artifact }}.tar.gz.sha256
 
+      - name: Stage Homebrew bottle
+        if: runner.os != 'Windows'
+        shell: bash
+        # A formula with no bottle is "build from source" to Homebrew,
+        # which then runs its fatal dev-tools checks and refuses to
+        # install on any Mac whose Xcode trails the running macOS —
+        # even though we only unpack a pre-built binary. So we ship the
+        # same binary a second time in Homebrew's Cellar layout.
+        #
+        # The filename is not cosmetic: for a non-ghcr `root_url`,
+        # Homebrew resolves the asset as `<name>-<version>.<tag>
+        # .bottle.tar.gz` (one dash between name and version — see
+        # `Bottle::Filename#url_encode`). Miss it and `brew install`
+        # 404s instead of falling back.
+        run: |
+          set -euo pipefail
+          VERSION='${{ needs.prepare.outputs.version }}'
+          BOTTLE="outl-beta-${VERSION}.${{ matrix.bottle_tag }}.bottle.tar.gz"
+          mkdir -p "bottle/outl-beta/${VERSION}/bin"
+          cp dist/outl "bottle/outl-beta/${VERSION}/bin/outl"
+          tar -C bottle -czf "${BOTTLE}" outl-beta
+          shasum -a 256 "${BOTTLE}" > "${BOTTLE}.sha256"
+
       - name: Stage artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -257,6 +290,8 @@ jobs:
             ${{ matrix.artifact }}.tar.gz.sha256
             ${{ matrix.artifact }}.zip
             ${{ matrix.artifact }}.zip.sha256
+            outl-beta-*.bottle.tar.gz
+            outl-beta-*.bottle.tar.gz.sha256
           )
           STAGED=()
           for f in "${ASSETS[@]}"; do
@@ -696,6 +731,25 @@ jobs:
           for arch in macos-arm64 macos-x64 linux-x64; do
             sha=$(awk '{print $1}' "shas/outl-${arch}.tar.gz.sha256")
             sed -i "s|sha256 \"[a-f0-9]*\" # anchor: ${arch}|sha256 \"${sha}\" # anchor: ${arch}|" "$F"
+          done
+
+          # Bottle block: `root_url` points at this release's assets and
+          # each tag carries the sha of its own `.bottle.tar.gz`. The
+          # bottle tags are pinned to the oldest supported macOS (see the
+          # `build` matrix) — Homebrew falls back from newer releases.
+          sed -i \
+            "s|^    root_url .*|    root_url \"https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}\" # anchor: bottle-root-url|" \
+            "$F"
+          for pair in "macos-arm64:arm64_ventura" "macos-x64:ventura" "linux-x64:x86_64_linux"; do
+            arch="${pair%%:*}"
+            tag="${pair##*:}"
+            sha=$(awk '{print $1}' "shas/outl-beta-${VERSION}.${tag}.bottle.tar.gz.sha256")
+            # `brew style` pads the digests into a column, so the run of
+            # spaces after `<tag>:` is captured and put back verbatim —
+            # digests are fixed-width, so alignment survives the bump.
+            sed -i \
+              "s|\(${tag}:[[:space:]]*\)\"[a-f0-9]*\" # anchor: bottle-${arch}|\1\"${sha}\" # anchor: bottle-${arch}|" \
+              "$F"
           done
 
           C=Casks/outl-desktop-beta.rb
