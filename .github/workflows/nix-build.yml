@@ -1,0 +1,69 @@
+name: Nix Build & Cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'hm-module.nix'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/nix-build.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'hm-module.nix'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/nix-build.yml'
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: blacksmith-8vcpu-ubuntu-2404
+            label: linux
+            system: x86_64-linux
+          - os: blacksmith-6vcpu-macos-15
+            label: macos
+            system: aarch64-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: outl
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          pushFilter: '(-source$)'
+
+      - name: Build outl (CLI + TUI)
+        run: nix build .#outl --print-build-logs
+
+      - name: Build outl-desktop
+        run: nix build .#outl-desktop --print-build-logs
+
+      - name: Verify flake
+        run: nix flake check --no-build
