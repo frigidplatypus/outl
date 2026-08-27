@@ -49,5 +49,8 @@
   # git-hooks.hooks.shellcheck.enable = true;
 
   # See full reference at https://devenv.sh/reference/options/
-  cachix.push = "outl";
+  cachix = {
+    push = "outl";
+    pull = [ "outl" ];
+  };
 }
