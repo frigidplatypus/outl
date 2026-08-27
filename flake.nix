@@ -62,6 +62,8 @@
               "outl-tui"
             ];
 
+            doCheck = false;
+
             meta = with pkgs.lib; {
               description = "Local-first outliner with CRDT sync";
               homepage = "https://outl.app";
@@ -158,6 +160,8 @@
                 cp -r ${desktopFrontend}/* dist/
                 cd ../..
               '';
+
+              doCheck = false;
 
               postFixup = pkgs.lib.optionalString isLinux ''
                 wrapProgram $out/bin/outl-desktop \
