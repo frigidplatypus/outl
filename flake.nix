@@ -83,6 +83,10 @@
               nodejs
             ];
 
+            outputHashMode = "recursive";
+            outputHashAlgo = "sha256";
+            outputHash = "sha256-Tpy7kbULEd4IFTpkfVf0gQOc+JohjXxVm1vlGe10BOY=";
+
             buildPhase = ''
               export HOME=$TMPDIR
               cd crates/outl-desktop
