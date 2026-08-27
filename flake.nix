@@ -47,8 +47,9 @@
 
             nativeBuildInputs = commonRustArgs.nativeBuildInputs;
 
-            buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
+            buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (with pkgs; [
               glib
+              gtk3
               dbus
               openssl_3
             ]);
@@ -107,8 +108,8 @@
 
           outl-desktop =
             let
-              isLinux = pkgs.stdenv.isLinux;
-              isDarwin = pkgs.stdenv.isDarwin;
+              isLinux = pkgs.stdenv.hostPlatform.isLinux;
+              isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
             in
             pkgs.rustPlatform.buildRustPackage rec {
               pname = "outl-desktop";
