@@ -50,6 +50,7 @@
             buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (with pkgs; [
               glib
               gtk3
+              webkitgtk_4_1
               dbus
               openssl_3
             ]);
