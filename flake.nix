@@ -72,111 +72,63 @@
             };
           };
 
-          desktopFrontend = pkgs.stdenv.mkDerivation {
-            pname = "outl-desktop-frontend";
-            version = "0.12.0";
-
-            src = self;
-
-            nativeBuildInputs = with pkgs; [
-              bun
-              nodejs
-            ];
-
-            buildPhase = ''
-              export HOME=$TMPDIR
-              cd crates/outl-desktop
-              bun install --frozen-lockfile
-              bun run build
-            '';
-
-            installPhase = ''
-              mkdir -p $out
-              cp -r dist/* $out/
-            '';
-          };
-
-          linuxDeps = with pkgs; [
-            webkitgtk_4_1
-            gtk3
-            cairo
-            gdk-pixbuf
-            glib
-            dbus
-            openssl_3
-            libsoup_3
-            librsvg
-            libappindicator-gtk3
-          ];
+          desktopVersion = "0.12.0-beta.168";
 
           outl-desktop =
             let
               isLinux = pkgs.stdenv.hostPlatform.isLinux;
               isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
             in
-            pkgs.rustPlatform.buildRustPackage rec {
-              pname = "outl-desktop";
-              version = "0.12.0";
+            if isLinux then
+              let
+                appimage = pkgs.fetchurl {
+                  url = "https://github.com/outlmd/outl/releases/download/v${desktopVersion}/outl-desktop-linux-x86_64.AppImage";
+                  hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+                };
+              in
+              pkgs.appimageTools.wrapType2 {
+                name = "outl-desktop";
+                src = appimage;
+                meta = with pkgs.lib; {
+                  description = "Desktop client for outl (Tauri 2)";
+                  homepage = "https://outl.app";
+                  license = licenses.mit;
+                  platforms = platforms.linux;
+                  mainProgram = "outl-desktop";
+                };
+              }
+            else if isDarwin then
+              pkgs.stdenv.mkDerivation {
+                pname = "outl-desktop";
+                version = desktopVersion;
 
-              src = self;
+                src = pkgs.fetchurl {
+                  url = "https://github.com/outlmd/outl/releases/download/v${desktopVersion}/outl-desktop-macos.dmg";
+                  hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+                };
 
-              cargoLock.lockFile = ./Cargo.lock;
+                nativeBuildInputs = with pkgs; [
+                  undmg
+                ];
 
-              buildAndTestSubdir = "crates/outl-desktop/src-tauri";
+                unpackPhase = ''
+                  undmg $src
+                '';
 
-              nativeBuildInputs =
-                commonRustArgs.nativeBuildInputs
-                ++ (with pkgs; [
-                  bun
-                  nodejs
-                  makeWrapper
-                ])
-                ++ pkgs.lib.optionals isLinux (
-                  with pkgs;
-                  [
-                    wrapGAppsHook3
-                    gobject-introspection
-                  ]
-                );
+                installPhase = ''
+                  mkdir -p $out/Applications
+                  cp -r outl.app $out/Applications/
+                '';
 
-              buildInputs =
-                pkgs.lib.optionals isLinux linuxDeps
-                ++ pkgs.lib.optionals isDarwin (
-                  with pkgs.darwin.apple_sdk.frameworks;
-                  [
-                    WebKit
-                    AppKit
-                    Security
-                    SystemConfiguration
-                    Cocoa
-                    CoreFoundation
-                  ]
-                );
-
-              preBuild = ''
-                export HOME=$TMPDIR
-                cd crates/outl-desktop
-                mkdir -p dist
-                cp -r ${desktopFrontend}/* dist/
-                cd ../..
-              '';
-
-              doCheck = false;
-
-              postFixup = pkgs.lib.optionalString isLinux ''
-                wrapProgram $out/bin/outl-desktop \
-                  --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_PATH" \
-                  --prefix GI_TYPELIB_PATH : "$GI_TYPELIB_PATH"
-              '';
-
-              meta = with pkgs.lib; {
-                description = "Desktop client for outl (Tauri 2)";
-                homepage = "https://outl.app";
-                license = licenses.mit;
-                mainProgram = "outl-desktop";
-                platforms = platforms.linux ++ platforms.darwin;
-              };
-            };
+                meta = with pkgs.lib; {
+                  description = "Desktop client for outl (Tauri 2)";
+                  homepage = "https://outl.app";
+                  license = licenses.mit;
+                  platforms = platforms.darwin;
+                };
+              }
+            else
+              throw "outl-desktop is not supported on this platform";
         in
         {
           packages = {
