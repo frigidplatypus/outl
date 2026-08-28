@@ -1,6 +1,15 @@
 {
   description = "outl - local-first outliner with CRDT sync";
 
+  nixConfig = {
+    extra-substituters = [
+      "https://outl.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "outl.cachix.org-1:xHVg/Xb+czttv9YGNHVlyi2YDZu/XAPQK1o2OUgjuqg="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
@@ -30,6 +39,22 @@
           };
           rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
           version = "0.12.0";
+          projectSrc = pkgs.lib.cleanSourceWith {
+            src = self;
+            filter = path: type:
+              let
+                name = pkgs.lib.baseNameOf path;
+              in
+              !builtins.elem name [
+                ".github"
+                "devenv.lock"
+                "devenv.nix"
+                "devenv.yaml"
+                "flake.lock"
+                "flake.nix"
+                "hm-module.nix"
+              ];
+          };
 
           commonRustArgs = {
             nativeBuildInputs = with pkgs; [
@@ -42,7 +67,7 @@
             pname = "outl";
             inherit version;
 
-            src = self;
+            src = projectSrc;
 
             cargoLock.lockFile = ./Cargo.lock;
 
@@ -77,7 +102,7 @@
             pname = "outl-desktop-frontend";
             inherit version;
 
-            src = self;
+            src = projectSrc;
 
             nativeBuildInputs = with pkgs; [
               bun
@@ -125,7 +150,7 @@
               pname = "outl-desktop";
               inherit version;
 
-              src = self;
+              src = projectSrc;
 
               cargoLock.lockFile = ./Cargo.lock;
 
