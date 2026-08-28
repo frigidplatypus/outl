@@ -166,6 +166,10 @@ TUI-specific contracts worth remembering:
 
 ## Visual conventions
 
+- **Chrome icons are Nerd Font glyphs** (`src/icons.rs`, the `nf-fa-*` set) — calendar, file, clock, star, history, bolt, search, cog, paint-brush, warning, save, image, clipboard, moon, hashtag, bell.
+  The terminal must run a [Nerd Font](https://www.nerdfonts.com); on a plain font those cells render as tofu (documented in `docs/tui.md` → Running).
+  No emoji in chrome — user-set page icons (`icon::` property values) render verbatim and may still be emoji; that content is the user's, not ours.
+  Codepoints live in one place (`icons.rs`) and are verified against the Nerd Fonts `glyphnames.json`; don't scatter raw PUA escapes through the view code.
 - Selected block is highlighted with a colored bullet.
 - In Insert mode, a `▏` caret marks cursor position inside the block.
 - In Normal mode on the selected block, a block cursor (white bg) sits on the character under `cursor_col`.
@@ -293,13 +297,17 @@ src/
 ├── input/               # key → action routing (normal/insert/visual/overlay)
 │   ├── chord_adapter.rs # crossterm KeyEvent → outl_shortcuts::Chord
 │   └── plugin_chord.rs  # plugin keybinding dispatch (Normal-only, never shadows native)
+├── icons.rs             # Nerd Font glyph constants for all chrome icons (nf-fa-*)
 ├── view.rs              # render_app orchestrator; thin
 ├── view/
+│   ├── chrome.rs        # top header + bottom powerline footer
+│   ├── sidebar.rs       # mini-calendar / pinned / recent sidebar
 │   ├── inline.rs        # span-level markdown (highlight + pretty)
 │   ├── outline.rs       # outline rendering (render_outline, render_block, …)
 │   ├── wrap.rs          # width-aware word wrap of styled spans (push_wrapped)
 │   ├── overlays.rs      # every modal popup
 │   ├── properties.rs    # the `g p` property editor popup
+│   ├── toasts.rs        # bottom-right transient toast stack
 │   ├── warnings_banner.rs # yellow banner above the outline when the current page has ParseWarnings
 │   └── backlinks.rs     # inline backlinks section (below outline, ─ rule)
 ├── outline_ops.rs       # one-line re-export shim — helpers moved to outl_md::outline_ops so the mobile client can share them

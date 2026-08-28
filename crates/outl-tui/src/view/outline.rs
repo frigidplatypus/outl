@@ -2,6 +2,7 @@
 //! flat `Vec<Line>` for ratatui, with selection / cursor / TODO
 //! decoration.
 
+use crate::icons;
 use crate::outline_ops::path_for_index;
 use crate::state::{App, Focus, Mode};
 use crate::theme::Theme;
@@ -434,11 +435,11 @@ pub(crate) fn emit_block_lines(
                     FoldMarker::Expanded => head.push(Span::styled("▼ ", app.theme.dim)),
                     FoldMarker::Collapsed => head.push(Span::styled("▶ ", app.theme.hint)),
                 }
-                // Blocks with `auto-run::` get a ⚡ before the bullet
-                // so the user can see at a glance which cells re-run
-                // themselves on page open.
+                // Blocks with `auto-run::` get a bolt glyph before the
+                // bullet so the user can see at a glance which cells
+                // re-run themselves on page open.
                 if has_auto_run {
-                    head.push(Span::styled("⚡", app.theme.hint));
+                    head.push(Span::styled(icons::BOLT, app.theme.hint));
                 }
                 head.push(Span::styled("- ", bullet_style));
             }
@@ -448,7 +449,7 @@ pub(crate) fn emit_block_lines(
                 // Mirror the bullet-row's pre-bullet padding so
                 // continuation rows stay aligned with the bullet
                 // column above them (two cells for the fold slot,
-                // one extra cell when `⚡` is present).
+                // one extra cell when the bolt glyph is present).
                 head.push(Span::raw("  "));
                 if has_auto_run {
                     head.push(Span::raw(" "));
@@ -560,9 +561,9 @@ enum CursorStyle {
 /// interpreting it isn't ours to do.
 fn property_glyph(key: &str) -> Option<&'static str> {
     match key.to_ascii_lowercase().as_str() {
-        outl_md::remind::REMIND_KEY => Some("⏰"),
+        outl_md::remind::REMIND_KEY => Some(icons::BELL),
         "auto-run" => Some("▶"),
-        "template" => Some("📋"),
+        "template" => Some(icons::CLIPBOARD),
         _ => None,
     }
 }

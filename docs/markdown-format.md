@@ -297,7 +297,7 @@ Full syntax, defaults, quiet hours, and which clients deliver: [Reminders](remin
 | `#name` | Tag (page reference with classification semantics) |
 | `((blk-XXXXXX))` | Block reference — renders as the source block's text, links to it |
 | `!((blk-XXXXXX))` | Block embed — renders the source block expanded with its subtree |
-| `![alt](url)` | Image / embedded asset — renders inline (`<img>` on desktop/mobile, a `🖼`/`📄` placeholder in the TUI); `url` is a workspace-relative `assets/<hash>.<ext>` path or a remote URL. See [Asset links](#asset-links-nameassetshashext) |
+| `![alt](url)` | Image / embedded asset — renders inline (`<img>` on desktop/mobile, an image/file Nerd Font glyph placeholder in the TUI); `url` is a workspace-relative `assets/<hash>.<ext>` path or a remote URL. See [Asset links](#asset-links-nameassetshashext) |
 | `:shortcode:` | GitHub gemoji shortcode — renders as the unicode glyph (`:tada:` → 🎉) |
 | `{{query: ...}}` | Inline query token (legacy — parsed as opaque; use ` ```query ` code blocks instead, see [Query code blocks](#query-code-blocks) below) |
 | `**bold**`, `*italic*` / `_italic_`, `~~strike~~`, `` `code` `` | Standard CommonMark (underscore emphasis rules apply — see below) |
@@ -363,8 +363,8 @@ The reference takes one of two forms, chosen by the file kind:
 ```
 
 - **Images** (`png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `bmp`, `avif`, `ico`, `tiff`, `tif`) use the **embed form `![alt](url)`** and render **inline**.
-  Desktop and mobile show an `<img>`, the TUI shows a `🖼 alt` placeholder (a terminal can't paint pixels).
-- **Every other file** (PDF, anything) uses the **plain link `[name](url)`** and renders as a **file chip** (`📄 name`); activating it opens the file in the OS default app (TUI `g x`, desktop/mobile tap).
+  Desktop and mobile show an `<img>`, the TUI shows an image-glyph + alt placeholder (a terminal can't paint pixels).
+- **Every other file** (PDF, anything) uses the **plain link `[name](url)`** and renders as a **file chip** (file glyph + name); activating it opens the file in the OS default app (TUI `g x`, desktop/mobile tap).
 
 The importers (`outl import roam|logseq|obsidian`) apply the same rule: an imported image lands as `![…]` and renders inline, while other imported files stay `[…]` links.
 The filename stem is the hex SHA-256 of the file's bytes, so re-uploading identical content reuses the same file and reference everywhere.

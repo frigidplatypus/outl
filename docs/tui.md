@@ -15,6 +15,9 @@ cd ~/notes && outl           # no args: opens TUI in cwd
 The TUI requires a real interactive terminal.
 If stdout isn't a TTY (e.g. CI), it exits with a clear error instead of hanging.
 
+The TUI chrome uses Nerd Font glyphs (the Font Awesome set) for its icons — journal, page, clock, star, warning, and so on.
+If your terminal font isn't a [Nerd Font](https://www.nerdfonts.com), those cells render as tofu boxes; the text around them is unaffected.
+
 ## Copy to clipboard
 
 Every yank (`yy` / `Y` in Normal, `y` in Visual) writes clean canonical outl markdown to the OS clipboard.
@@ -370,12 +373,12 @@ Hooks are dispatched once per mutation; a hook that itself mutates the workspace
 │ ───────────────────────────────────────────────────────────────────────│
 │  Backlinks · 2 ref(s)                                                  │
 │                                                                        │
-│ 📄  Project X                                                          │
+│   Project X                                                          │
 │ - led by [[Avelino]]                                                   │
 │   - milestone A                                                        │
 │   - milestone B                                                        │
 │                                                                        │
-│ 📅  2026-05-24                                                         │
+│   2026-05-24                                                          │
 │ - meeting with [[Avelino]] about Q4                                    │
 ├──┌NORMAL─┐ i edit  o new  K/J move …  ⇇ 2 backlinks ───────────────────┤
 │  └───────┘                                                             │
@@ -422,13 +425,13 @@ For fuzzy title jumps without the pane, `Ctrl+P` (quick switcher) still works wi
 When you open a `.md` that the outl parser had to recover from (a leading `# heading`, a free paragraph between bullets, imported markdown that doesn't fit the dialect), the TUI shows a yellow banner above the outline:
 
 ```
-┌─ ⚠ 3 line(s) outside outl dialect — preserved as blocks ─┐
+┌─  3 line(s) outside outl dialect — preserved as blocks ─┐
 │ line 1: # 2026-06-08 (+2 more)                           │
 └──────────────────────────────────────────────────────────┘
 ```
 
 - Every offending line is preserved as a regular block — nothing is dropped on parse, and the next save normalises the file to the dialect (`- <raw>`).
-- The status line also carries a short `⚠ N line(s) outside outl dialect — preserved` hint for terminals where the banner is not visible.
+- The status line also carries a short warning-glyph hint (`N line(s) outside outl dialect — preserved`) for terminals where the banner is not visible.
 - On a clean file the banner collapses to zero height; the layout looks identical to before the feature landed.
 - Source of truth: `ParsedPage.warnings` (`outl_md::ParseWarning`).
   Mobile + desktop render the same data via `<ParseWarningsBanner>` from `@outl/shared`, and `outl doctor` lists every page with active warnings.

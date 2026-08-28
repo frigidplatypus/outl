@@ -5,6 +5,7 @@
 //! The stack draws *over* everything else (after main, overlays,
 //! help) so a save toast still pops up even when a modal is open.
 
+use crate::icons;
 use crate::state::{App, ToastKind};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -79,7 +80,7 @@ fn icon_and_color(kind: ToastKind) -> (&'static str, Color) {
     match kind {
         ToastKind::Success => ("✓", Color::LightGreen),
         ToastKind::Info => ("ℹ", Color::LightCyan),
-        ToastKind::Warning => ("⚠", Color::LightYellow),
+        ToastKind::Warning => (icons::WARNING, Color::LightYellow),
         ToastKind::Error => ("✕", Color::LightRed),
     }
 }

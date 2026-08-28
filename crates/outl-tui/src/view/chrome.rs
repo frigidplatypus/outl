@@ -9,6 +9,7 @@
 //! the `Rect` the orchestrator already laid out — no layout decisions
 //! here.
 
+use crate::icons;
 use crate::outline_ops::count_todos;
 use crate::state::{App, Mode, View, HELP_HINT_INSERT, HELP_HINT_NORMAL, HELP_HINT_VISUAL};
 use outl_actions::clock;
@@ -112,7 +113,7 @@ fn breadcrumb(app: &App) -> Line<'static> {
 fn view_icon_and_title(app: &App) -> (Option<String>, String) {
     match &app.view {
         View::Journal(date) => (
-            Some("📅".to_string()),
+            Some(icons::CALENDAR.to_string()),
             format!("Journal · {}", date.format("%A, %Y-%m-%d")),
         ),
         View::Page(p) => {
@@ -297,13 +298,13 @@ fn left_segments(app: &App) -> Line<'static> {
 fn right_segments(app: &App) -> Line<'static> {
     let now = clock::now_local().format("%H:%M").to_string();
     let saved = match app.last_saved_at {
-        Some(_) if app.status.is_empty() => " 💾 saved ",
-        Some(_) => " 💾 ",
-        None => " ○ ",
+        Some(_) if app.status.is_empty() => format!(" {} saved ", icons::SAVE),
+        Some(_) => format!(" {} ", icons::SAVE),
+        None => " ○ ".to_string(),
     };
     Line::from(vec![
         Span::styled(
-            format!(" 🕐 {now} "),
+            format!(" {} {now} ", icons::CLOCK),
             Style::default().bg(Color::DarkGray).fg(Color::Gray),
         ),
         Span::raw(" "),
@@ -317,6 +318,8 @@ fn right_segments(app: &App) -> Line<'static> {
 }
 
 fn right_segments_width(_app: &App) -> u16 {
-    // 🕐 HH:MM (10) + saved (10) + help (8) + padding ≈ 32
+    // clock HH:MM (9) + saved (9) + help (8) + padding ≈ 31. The Nerd
+    // Font glyphs are single-width (the old emoji were double-width);
+    // the returned value stays an over-estimate on purpose.
     34
 }

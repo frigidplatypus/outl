@@ -9,6 +9,7 @@
 //! currently has keyboard focus (Tab inside the sidebar) gets a
 //! highlighted border so the user always knows where the cursor lives.
 
+use crate::icons;
 use crate::state::{App, SidebarSection, View};
 use chrono::{Datelike, NaiveDate};
 use outl_actions::clock;
@@ -108,7 +109,7 @@ fn render_calendar(f: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
             app.theme.border
         })
         .title(Span::styled(
-            format!(" 📅 {} ", viewing.format("%B %Y")),
+            format!(" {} {} ", icons::CALENDAR, viewing.format("%B %Y")),
             app.theme.hint,
         ));
     f.render_widget(Paragraph::new(lines).block(block), area);
@@ -146,7 +147,10 @@ fn render_pinned(f: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
         } else {
             app.theme.border
         })
-        .title(Span::styled(" ⭐ Pinned ", app.theme.hint));
+        .title(Span::styled(
+            format!(" {} Pinned ", icons::STAR),
+            app.theme.hint,
+        ));
 
     if pinned.is_empty() {
         f.render_widget(
@@ -165,7 +169,7 @@ fn render_pinned(f: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
         .map(|(title, icon)| {
             let label = match icon {
                 Some(ic) => format!(" {ic} {title}"),
-                None => format!(" 📄 {title}"),
+                None => format!(" {} {title}", icons::FILE),
             };
             ListItem::new(Line::from(Span::raw(label)))
         })
@@ -195,7 +199,10 @@ fn render_recent(f: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
         } else {
             app.theme.border
         })
-        .title(Span::styled(" 🕘 Recent ", app.theme.hint));
+        .title(Span::styled(
+            format!(" {} Recent ", icons::HISTORY),
+            app.theme.hint,
+        ));
 
     if app.recent_paths.is_empty() {
         f.render_widget(
@@ -217,12 +224,12 @@ fn render_recent(f: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
             let entry = app.index.by_slug(stem);
             let (icon, label) = match entry {
-                Some(e) if e.is_journal => ("📅".to_string(), e.title.clone()),
+                Some(e) if e.is_journal => (icons::CALENDAR.to_string(), e.title.clone()),
                 Some(e) => (
-                    e.icon.clone().unwrap_or_else(|| "📄".to_string()),
+                    e.icon.clone().unwrap_or_else(|| icons::FILE.to_string()),
                     e.title.clone(),
                 ),
-                None => ("📄".to_string(), stem.to_string()),
+                None => (icons::FILE.to_string(), stem.to_string()),
             };
             ListItem::new(Line::from(Span::raw(format!(" {icon} {label}"))))
         })

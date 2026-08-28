@@ -5,6 +5,7 @@
 //! markdown source visible with dim delimiters (cursor-bearing blocks
 //! so column-to-byte alignment stays 1:1).
 
+use crate::icons;
 use crate::theme::Theme;
 use outl_actions::TodoState;
 use outl_md::inline::{inline_to_source, tokenize, InlineTok};
@@ -208,9 +209,9 @@ fn render_markdown_inline_impl(
                 // `outl_md::wikilink::is_image_target` so the extension
                 // list stays owned by one place.
                 let glyph = if outl_md::wikilink::is_image_target(url) {
-                    "🖼"
+                    icons::IMAGE
                 } else {
-                    "📄"
+                    icons::FILE
                 };
                 let label = if alt.is_empty() {
                     url.rsplit('/').next().unwrap_or(url)
@@ -515,18 +516,18 @@ mod tests {
         let theme = default_theme();
         let idx = empty_index();
 
-        // Image extension → 🖼 placeholder in the pretty render.
+        // Image extension → image-glyph placeholder in the pretty render.
         let pretty = render_pretty_block_text("![cover](assets/x.png)", &theme, &idx);
         assert!(
-            pretty.iter().any(|s| s.content.contains('🖼')),
-            "expected 🖼 placeholder for an image asset, got {pretty:#?}",
+            pretty.iter().any(|s| s.content.contains(icons::IMAGE)),
+            "expected image placeholder for an image asset, got {pretty:#?}",
         );
 
-        // Non-image extension → 📄 generic-file placeholder.
+        // Non-image extension → file-glyph generic-file placeholder.
         let pretty_doc = render_pretty_block_text("![doc](assets/x.pdf)", &theme, &idx);
         assert!(
-            pretty_doc.iter().any(|s| s.content.contains('📄')),
-            "expected 📄 placeholder for a non-image asset, got {pretty_doc:#?}",
+            pretty_doc.iter().any(|s| s.content.contains(icons::FILE)),
+            "expected file placeholder for a non-image asset, got {pretty_doc:#?}",
         );
 
         // Cursor-bearing render keeps the raw `![alt](url)` delimiters so

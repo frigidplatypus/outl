@@ -92,8 +92,9 @@ pub struct PageMeta {
     pub kind: PageKind,
     /// Optional emoji / icon string the user set on the page (via the
     /// `icon::` page property). `None` when unset — clients pick their
-    /// own fallback (mobile uses the page kind to decide between 📄
-    /// and 📅; TUI uses `📄` for everything by default).
+    /// own fallback (mobile uses the page kind to decide between a
+    /// file and a calendar glyph; the TUI uses a generic file glyph
+    /// for everything by default).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     /// `pinned:: true` page-level property. Surfaces that ship a

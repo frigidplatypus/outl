@@ -6,6 +6,7 @@
 //! on `app.overlay`.
 
 use crate::actions::plugins::value_to_input;
+use crate::icons;
 use crate::state::{
     App, AutocompleteKind, AutocompleteState, CommandState, ErrorState, PluginSettingsState,
     QuickSwitchState, RemindersState, SearchState, SlashState, SwitchKind, TemplatePickerState,
@@ -179,8 +180,8 @@ pub(crate) fn render_quick_switch(
         .enumerate()
         .map(|(i, c)| {
             let icon = match c.kind {
-                SwitchKind::Page => "📄 ",
-                SwitchKind::Journal => "📅 ",
+                SwitchKind::Page => format!("{} ", icons::FILE),
+                SwitchKind::Journal => format!("{} ", icons::CALENDAR),
             };
             let style = if i == qs.selected {
                 app.theme.list_selected
@@ -256,8 +257,8 @@ fn render_preview_pane(f: &mut ratatui::Frame<'_>, area: Rect, app: &App, qs: &Q
     };
 
     let title_prefix = match candidate.kind {
-        SwitchKind::Page => "📄 ",
-        SwitchKind::Journal => "📅 ",
+        SwitchKind::Page => format!("{} ", icons::FILE),
+        SwitchKind::Journal => format!("{} ", icons::CALENDAR),
     };
     let preview = Paragraph::new(body_lines)
         .block(
@@ -551,11 +552,11 @@ pub(crate) fn visual_order(candidates: &[crate::state::SlashCommand]) -> Vec<usi
 
 fn category_icon(cat: &str) -> &'static str {
     match cat {
-        "Actions" => "⚡",
+        "Actions" => icons::BOLT,
         "Navigation" => "↪",
-        "Search" => "🔎",
-        "Settings" => "⚙",
-        "Dates & time" => "📅",
+        "Search" => icons::SEARCH,
+        "Settings" => icons::COG,
+        "Dates & time" => icons::CALENDAR,
         _ => "•",
     }
 }
@@ -566,15 +567,15 @@ fn command_icon(name: &str) -> &'static str {
     match name {
         "run" => "▶",
         "prop" => "≡",
-        "search" | "find" => "🔎",
-        "theme" => "🎨",
+        "search" | "find" => icons::SEARCH,
+        "theme" => icons::PAINT_BRUSH,
         "open" | "switch" => "↪",
         "quit" | "q" => "✕",
-        n if n.starts_with("date") || n == "dt" || n == "dy" || n == "dtm" => "📅",
-        n if n.starts_with("time") => "🕐",
-        n if n.starts_with("iso") => "🔢",
-        n if n.starts_with("week") => "📆",
-        "stamp" => "🕒",
+        n if n.starts_with("date") || n == "dt" || n == "dy" || n == "dtm" => icons::CALENDAR,
+        n if n.starts_with("time") => icons::CLOCK,
+        n if n.starts_with("iso") => icons::HASHTAG,
+        n if n.starts_with("week") => icons::CALENDAR,
+        "stamp" => icons::CLOCK,
         _ => "·",
     }
 }
@@ -594,7 +595,7 @@ pub(crate) fn render_template_picker(
         .split(area);
 
     let input = Paragraph::new(Line::from(vec![
-        Span::styled(" 📋 ", app.theme.help_title),
+        Span::styled(format!(" {} ", icons::CLIPBOARD), app.theme.help_title),
         Span::raw(tp.query.clone()),
         Span::styled("▏", app.theme.cursor_caret),
     ]))
@@ -612,7 +613,11 @@ pub(crate) fn render_template_picker(
         let Some(tpl) = tp.all.get(data_i) else {
             continue;
         };
-        let icon = if tpl.params.is_empty() { "📄" } else { "⚡" };
+        let icon = if tpl.params.is_empty() {
+            icons::FILE
+        } else {
+            icons::BOLT
+        };
         let label = format!(" {icon} {:<20} {}", tpl.name, tpl.slug);
         if vis_i == tp.selected {
             lines.push(Line::from(vec![Span::styled(label, app.theme.help_title)]));
@@ -665,9 +670,9 @@ pub(crate) fn render_reminders(
             None => "—".to_string(),
         };
         let snoozed = if r.snoozed_until_ms.is_some() {
-            " 💤"
+            format!(" {}", icons::MOON)
         } else {
-            ""
+            String::new()
         };
         let label = format!(
             " {:<18} {:<34} {}{}",
@@ -1068,10 +1073,19 @@ fn help_tab_body(tab: usize, theme: &Theme) -> Vec<Line<'static>> {
             Line::from("  Enter       open the highlighted page or journal"),
             Line::from(""),
             Line::from(Span::styled("Sections", theme.help_title)),
-            Line::from("  📅 Calendar  current month — journals marked with ●"),
-            Line::from("  ⭐ Pinned    pages with `pinned:: true` property"),
+            Line::from(format!(
+                "  {} Calendar  current month — journals marked with ●",
+                icons::CALENDAR
+            )),
+            Line::from(format!(
+                "  {} Pinned    pages with `pinned:: true` property",
+                icons::STAR
+            )),
             Line::from("              (toggle with `g P` chord in Normal, or `/pin`)"),
-            Line::from("  🕘 Recent    pages opened this session (LRU, cap 20)"),
+            Line::from(format!(
+                "  {} Recent    pages opened this session (LRU, cap 20)",
+                icons::HISTORY
+            )),
         ],
         "Overlays" => vec![
             Line::from(Span::styled("Open", theme.help_title)),
