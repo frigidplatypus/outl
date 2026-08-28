@@ -45,12 +45,21 @@ in
       description = "Whether to also install the outl-desktop Tauri application.";
     };
 
+    services.sync = {
+      enable = lib.mkEnableOption "outl background sync service";
+
+      workspace = lib.mkOption {
+        type = lib.types.str;
+        description = "Path to the workspace to sync.";
+      };
+    };
+
     settings = lib.mkOption {
       type = lib.types.submodule {
         options = {
           workspace = {
             last = lib.mkOption {
-              type = lib.types.nullOr lib.types.path;
+              type = lib.types.nullOr lib.types.str;
               default = null;
               description = "Absolute path to the last workspace opened.";
             };
@@ -180,6 +189,19 @@ in
               description = "Minimum minutes between automatic snapshots.";
             };
           };
+
+          extraConfig = lib.mkOption {
+            type = lib.types.attrsOf lib.types.anything;
+            default = { };
+            example = lib.literalExpression ''
+              {
+                custom_section = {
+                  key = "value";
+                };
+              }
+            '';
+            description = "Additional configuration to merge into the generated config.toml. Use for fields not yet modeled by this module.";
+          };
         };
       };
       default = { };
@@ -224,8 +246,9 @@ in
             max_bytes = s.assets.maxBytes;
           };
 
-          reminders = lib.filterAttrs (_: v: v != null) {
+          reminders = {
             enabled = s.reminders.enabled;
+          } // lib.filterAttrs (_: v: v != null) {
             quiet_hours = s.reminders.quietHours;
           };
 
@@ -246,7 +269,7 @@ in
             enabled = s.backup.enabled;
             interval_minutes = s.backup.intervalMinutes;
           };
-        };
+        } // s.extraConfig;
 
       configFile = tomlFormat.generate "outl-config" configData;
     in
@@ -254,6 +277,24 @@ in
       home.packages = [ cfg.package ] ++ lib.optional cfg.installDesktop cfg.desktopPackage;
 
       xdg.configFile."outl/config.toml".source = configFile;
+
+      systemd.user.services.outl-sync = lib.mkIf (cfg.services.sync.enable && pkgs.stdenv.isLinux) {
+        Unit = {
+          Description = "outl background sync service";
+          After = [ "network-online.target" ];
+          Wants = [ "network-online.target" ];
+        };
+
+        Service = {
+          ExecStart = "${cfg.package}/bin/outl serve --workspace ${cfg.services.sync.workspace}";
+          Restart = "on-failure";
+          RestartSec = "5s";
+        };
+
+        Install = {
+          WantedBy = [ "default.target" ];
+        };
+      };
     }
   );
 }

@@ -29,6 +29,7 @@
             overlays = [ (import rust-overlay) ];
           };
           rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          version = "0.12.0";
 
           commonRustArgs = {
             nativeBuildInputs = with pkgs; [
@@ -37,9 +38,9 @@
             ];
           };
 
-          outl = pkgs.rustPlatform.buildRustPackage rec {
+          outl = pkgs.rustPlatform.buildRustPackage {
             pname = "outl";
-            version = "0.12.0";
+            inherit version;
 
             src = self;
 
@@ -74,7 +75,7 @@
 
           desktopFrontend = pkgs.stdenv.mkDerivation {
             pname = "outl-desktop-frontend";
-            version = "0.12.0";
+            inherit version;
 
             src = self;
 
@@ -83,6 +84,8 @@
               nodejs
             ];
 
+            # Fixed-output derivation: update hash when frontend code changes
+            # Run build to get the correct hash from the error message
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
             outputHash = "sha256-Tpy7kbULEd4IFTpkfVf0gQOc+JohjXxVm1vlGe10BOY=";
@@ -118,18 +121,19 @@
               isLinux = pkgs.stdenv.hostPlatform.isLinux;
               isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
             in
-            pkgs.stdenv.mkDerivation rec {
+            pkgs.rustPlatform.buildRustPackage {
               pname = "outl-desktop";
-              version = "0.12.0";
+              inherit version;
 
               src = self;
+
+              cargoLock.lockFile = ./Cargo.lock;
+
+              buildAndTestSubdir = "crates/outl-desktop/src-tauri";
 
               nativeBuildInputs = with pkgs; [
                 rustToolchain
                 pkg-config
-                bun
-                nodejs
-                cargo-tauri
                 makeWrapper
               ] ++ pkgs.lib.optionals isLinux [
                 wrapGAppsHook3
@@ -151,34 +155,18 @@
                 );
 
               preBuild = ''
-                export HOME=$TMPDIR
-                cd crates/outl-desktop
-                mkdir -p dist
-                cp -r ${desktopFrontend}/* dist/
+                mkdir -p crates/outl-desktop/dist
+                cp -r ${desktopFrontend}/* crates/outl-desktop/dist/
               '';
 
-              buildPhase = ''
-                cd crates/outl-desktop
-                cargo tauri build --bundles ""
-              '';
-
-              installPhase =
+              postInstall =
                 if isLinux then
                   ''
-                    mkdir -p $out/bin
-                    cp target/release/bundle/appimage/outl-desktop $out/bin/ || \
-                    cp target/release/outl-desktop $out/bin/
                     wrapProgram $out/bin/outl-desktop \
                       --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_PATH" \
                       --prefix GI_TYPELIB_PATH : "$GI_TYPELIB_PATH"
                   ''
-                else if isDarwin then
-                  ''
-                    mkdir -p $out/Applications
-                    cp -r target/release/bundle/macos/outl.app $out/Applications/
-                  ''
-                else
-                  throw "Unsupported platform";
+                else "";
 
               doCheck = false;
 
@@ -198,12 +186,16 @@
           };
 
           devShells.default = pkgs.mkShell {
-            inputsFrom = [ outl ];
+            inputsFrom = [ outl outl-desktop ];
             packages = with pkgs; [
+              rustToolchain
+              cargo-tauri
               bun
               nodejs
             ];
           };
+
+          formatter = pkgs.nixfmt-rfc-style;
         }
       )
     // {
