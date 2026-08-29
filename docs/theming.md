@@ -1,6 +1,6 @@
 # Theming
 
-outl ships nine built-in palettes (`outl`, `outl-light`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`).
+outl ships ten built-in palettes (`outl`, `outl-light`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`, `gruvbox`).
 The hex values live in the shared **`outl-theme`** crate — every styled surface (`ref_link_fg`, `cursor_block_bg`, `bold_fg`, `status_normal_bg`, …) is a named field on a `Palette` struct, and the TUI / desktop / mobile clients each turn those hex strings into whatever their renderer expects.
 
 This means a color change in `outl-theme/src/presets.rs` propagates to every client without a coordinated edit.
@@ -89,6 +89,7 @@ Now that the modal owns all three fields, restoring any of them would silently d
 | `solarized-dark` | Ethan Schoonover's classic. Muted base03 background. |
 | `nord` | Arctic blue-greys. Cool, low-contrast. |
 | `monokai` | Wimer Hazenberg's high-contrast. Hot pink for highlights. |
+| `gruvbox` | morhetz's retro-groove dark. Warm charcoal, cream text, muted yellow/green/aqua. Alias: `gruvbox-dark`. |
 
 `outl theme list` prints them on a terminal.
 `outl theme show <name>` dumps every style in that preset (`ref_link = Style { fg: ..., ... }`).
@@ -167,7 +168,7 @@ The `every_palette_field_is_hex` test catches a typo like `"#xyz123"` or a misse
 
 - **Don't overlap modifiers on the same field across themes.** Solarized's `bold` is `fg(orange) + BOLD`; Dracula's is similar but on orange too.
   Keep modifiers semantic (BOLD for bold, etc.) and let the color carry the personality.
-- **Backgrounds**: the RGB presets (`outl`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`) paint `bg` across the whole TUI canvas and use `fg` as the base text color, so a light theme stays readable on a dark terminal (and vice versa).
+- **Backgrounds**: the RGB presets (`outl`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`, `gruvbox`) paint `bg` across the whole TUI canvas and use `fg` as the base text color, so a light theme stays readable on a dark terminal (and vice versa).
   Only the two ANSI presets (`default-dark`, `light`) keep `Color::Reset` and inherit the terminal's own background/foreground — that's their point.
 - **Underline on `ref_link` and `tag_link` is intentional.** They're the only "clickable" things in pretty-render mode, and the underline is the visual affordance.
 - **Contrast matters more than tone.** Test your theme against a workspace with lots of refs, tags, code, and TODOs.
@@ -176,7 +177,7 @@ The `every_palette_field_is_hex` test catches a typo like `"#xyz123"` or a misse
 
 | Client | What it does with the hex |
 |---|---|
-| **`outl-tui`** | `crates/outl-tui/src/theme.rs::theme_from_palette` converts each `#rrggbb` to `ratatui::Color::Rgb(r, g, b)` and re-applies the consistent modifiers (`BOLD` on `bold`, `UNDERLINED` on links, `ITALIC` on `italic`, `CROSSED_OUT` on `strike`). The six RGB presets (`outl`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`) are one-line delegates; `default-dark` and `light` stay manual on ANSI named colors. |
+| **`outl-tui`** | `crates/outl-tui/src/theme.rs::theme_from_palette` converts each `#rrggbb` to `ratatui::Color::Rgb(r, g, b)` and re-applies the consistent modifiers (`BOLD` on `bold`, `UNDERLINED` on links, `ITALIC` on `italic`, `CROSSED_OUT` on `strike`). The seven RGB presets (`outl`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`, `gruvbox`) are one-line delegates; `default-dark` and `light` stay manual on ANSI named colors. |
 | **`outl-desktop`** | The Tauri commands `list_themes()` and `get_theme(name)` return the `Palette` as JSON. The frontend writes each field as a CSS custom property on `<html>` (`--color-outl-accent`, `--color-outl-ref-link-fg`, …) so Tailwind class utilities like `text-(--color-outl-accent)` resolve at runtime, and flips `color-scheme` (light/dark) from the palette's `bg` luminance so native controls and scrollbars follow. Settings modal exposes the dropdown. Chrome surfaces never hardcode a hue — translucent layers derive from `--color-outl-fg` (`bg-(--color-outl-fg)/10`) so they adapt to light and dark presets alike. |
 | **`outl-mobile`** | Shared `@outl/shared/theme::installTheme` fetches both sides of the configured pair and holds both `Palette` objects in memory, then calls `applyPaletteToRoot` (RFC 0022, issue #22). A `prefers-color-scheme` media-query listener swaps tokens on an OS appearance flip without a second backend round-trip; a fresh default config uses `outl-light` / `outl`. |
 

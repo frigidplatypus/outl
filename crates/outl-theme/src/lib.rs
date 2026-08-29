@@ -46,6 +46,7 @@ pub const PRESETS: &[&str] = &[
     "solarized-dark",
     "nord",
     "monokai",
+    "gruvbox",
 ];
 
 /// Resolve a preset by name. Accepts the canonical name or any of
@@ -74,6 +75,7 @@ pub fn by_name(name: &str) -> Option<Palette> {
         "solarized-dark" | "solarized" => Some(presets::solarized_dark()),
         "nord" => Some(presets::nord()),
         "monokai" => Some(presets::monokai()),
+        "gruvbox" | "gruvbox-dark" => Some(presets::gruvbox()),
         _ => None,
     }
 }
