@@ -227,6 +227,7 @@ pub const PRESETS: &[&str] = &[
     "solarized-dark",
     "nord",
     "monokai",
+    "gruvbox",
 ];
 
 /// Look up a preset by name. Case-insensitive; dashes and underscores
@@ -251,6 +252,7 @@ pub fn by_name(name: &str) -> Option<Theme> {
         "nord" => Some(nord()),
         "monokai" => Some(monokai()),
         "outl-light" => Some(outl_light()),
+        "gruvbox" | "gruvbox-dark" => Some(gruvbox()),
         _ => None,
     }
 }
@@ -444,6 +446,11 @@ pub fn nord() -> Theme {
 /// Monokai — Wimer Hazenberg's high-contrast palette.
 pub fn monokai() -> Theme {
     theme_from_palette("monokai", &outl_theme::presets::monokai())
+}
+
+/// Gruvbox Dark — morhetz's retro-groove palette.
+pub fn gruvbox() -> Theme {
+    theme_from_palette("gruvbox", &outl_theme::presets::gruvbox())
 }
 
 #[cfg(test)]
