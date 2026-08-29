@@ -508,3 +508,69 @@ pub fn monokai() -> Palette {
         help_title_fg: yellow.into(),
     }
 }
+
+/// Gruvbox Dark — morhetz's retro-groove palette. Warm charcoal
+/// background (`#282828`), cream text (`#ebdbb2`), and the classic
+/// muted yellow / green / aqua / purple accents. Hex values sourced
+/// from the canonical gruvbox palette (dark variant).
+pub fn gruvbox() -> Palette {
+    let bg = "#282828"; // bg0
+    let bg_elev = "#3c3836"; // bg1
+    let border = "#504945"; // bg2
+    let fg = "#ebdbb2"; // fg1
+    let fg_soft = "#d5c4a1"; // fg2
+    let fg_dim = "#a89984"; // fg4
+    let fg_dimmer = "#7c6f64"; // fg5
+    let yellow = "#fabd2f";
+    let orange = "#fe8019";
+    let green = "#b8bb26";
+    let aqua = "#8ec07c";
+    let blue = "#458588";
+    let purple = "#d3869b";
+
+    Palette {
+        name: "gruvbox".into(),
+        bg: bg.into(),
+        bg_elev: bg_elev.into(),
+        fg: fg.into(),
+        fg_dim: fg_dim.into(),
+        fg_dimmer: fg_dimmer.into(),
+        border: border.into(),
+        hint: fg_dim.into(),
+        accent: yellow.into(),
+        accent_soft: orange.into(),
+        accent_alt: green.into(),
+        warn: orange.into(),
+        ref_link_fg: aqua.into(),
+        tag_link_fg: purple.into(),
+        md_link_fg: blue.into(),
+        bold_fg: fg.into(),
+        italic_fg: fg_soft.into(),
+        strike_fg: fg_dimmer.into(),
+        highlight_bg: yellow.into(),
+        highlight_fg: bg.into(),
+        code_fg: green.into(),
+        todo_open_fg: orange.into(),
+        todo_done_fg: green.into(),
+        todo_done_body_fg: fg_dimmer.into(),
+        property_key_fg: fg_dimmer.into(),
+        property_value_fg: fg_soft.into(),
+        heading_fg: fg.into(),
+        dim_fg: fg_dimmer.into(),
+        selected_bullet_bg: yellow.into(),
+        selected_bullet_fg: bg.into(),
+        cursor_block_bg: fg.into(),
+        cursor_block_fg: bg.into(),
+        cursor_caret_fg: fg_soft.into(),
+        status_normal_bg: yellow.into(),
+        status_normal_fg: bg.into(),
+        status_insert_bg: green.into(),
+        status_insert_fg: bg.into(),
+        status_visual_bg: purple.into(),
+        status_visual_fg: bg.into(),
+        status_message_fg: orange.into(),
+        list_selected_bg: border.into(),
+        list_selected_fg: fg.into(),
+        help_title_fg: yellow.into(),
+    }
+}

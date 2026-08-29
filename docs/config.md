@@ -33,7 +33,7 @@ last = "/Users/me/iCloud/outl"
 [theme]
 # Palette preset name from `outl_theme::PRESETS`.
 # Choices: "outl" (default), "default-dark", "light", "dracula",
-#          "solarized-dark", "nord", "monokai".
+#          "solarized-dark", "nord", "monokai", "gruvbox".
 preset = "outl"
 
 [editor]
@@ -108,7 +108,7 @@ quiet_hours = "22:00-07:00"
 |---|---|---|---|---|
 | `preset` | string | `"outl"` | TUI, desktop | Active palette. Unknown names fall through to `outl`. |
 
-Available presets: `outl`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`.
+Available presets: `outl`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`, `gruvbox`.
 See [theming.md](theming.md) for the look of each.
 
 #### `[editor]`

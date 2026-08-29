@@ -19,6 +19,7 @@ let
     "solarized-dark"
     "nord"
     "monokai"
+    "gruvbox"
   ];
 in
 {
