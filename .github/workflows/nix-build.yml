@@ -36,10 +36,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: blacksmith-8vcpu-ubuntu-2404
+          - os: ubuntu-24.04
             label: linux
             system: x86_64-linux
-          - os: blacksmith-6vcpu-macos-15
+          - os: macos-15
             label: macos
             system: aarch64-darwin
     steps:
