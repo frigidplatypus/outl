@@ -23,13 +23,15 @@
       flake-utils,
       rust-overlay,
     }:
-    flake-utils.lib.eachSystem
-      [
-        "x86_64-linux"
-        "aarch64-linux"
-        "x86_64-darwin"
-        "aarch64-darwin"
-      ]
+      # Packages are built for Linux only. macOS users get config-file
+      # management via homeManagerModules (see hm-module.nix) but no Nix-built
+      # package: the Tauri desktop build needs Apple SDK frameworks that
+      # current nixpkgs no longer exposes as stable attributes.
+      flake-utils.lib.eachSystem
+        [
+          "x86_64-linux"
+          "aarch64-linux"
+        ]
       (
         system:
         let
@@ -73,13 +75,13 @@
 
             nativeBuildInputs = commonRustArgs.nativeBuildInputs;
 
-            buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (with pkgs; [
+            buildInputs = with pkgs; [
               glib
               gtk3
               webkitgtk_4_1
               dbus
               openssl_3
-            ]);
+            ];
 
             cargoBuildFlags = [
               "-p"
@@ -141,71 +143,50 @@
             libappindicator-gtk3
           ];
 
-          outl-desktop =
-            let
-              isLinux = pkgs.stdenv.hostPlatform.isLinux;
-              isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
-            in
-            pkgs.rustPlatform.buildRustPackage {
-              pname = "outl-desktop";
-              inherit version;
+          outl-desktop = pkgs.rustPlatform.buildRustPackage {
+            pname = "outl-desktop";
+            inherit version;
 
-              src = projectSrc;
+            src = projectSrc;
 
-              cargoLock.lockFile = ./Cargo.lock;
+            cargoLock.lockFile = ./Cargo.lock;
 
-              buildAndTestSubdir = "crates/outl-desktop/src-tauri";
+            buildAndTestSubdir = "crates/outl-desktop/src-tauri";
 
-              nativeBuildInputs = with pkgs; [
-                rustToolchain
-                pkg-config
-                makeWrapper
-              ] ++ pkgs.lib.optionals isLinux [
-                wrapGAppsHook3
-                gobject-introspection
-                desktop-file-utils
-                xdg-utils
-              ];
+            nativeBuildInputs = with pkgs; [
+              rustToolchain
+              pkg-config
+              makeWrapper
+              wrapGAppsHook3
+              gobject-introspection
+              desktop-file-utils
+              xdg-utils
+            ];
 
-              buildInputs =
-                pkgs.lib.optionals isLinux linuxDeps
-                ++ pkgs.lib.optionals isDarwin (
-                  with pkgs.darwin.apple_sdk.frameworks;
-                  [
-                    WebKit
-                    AppKit
-                    Security
-                    SystemConfiguration
-                    Cocoa
-                    CoreFoundation
-                  ]
-                );
+            buildInputs = linuxDeps;
 
-              preBuild = ''
-                mkdir -p crates/outl-desktop/dist
-                cp -r ${desktopFrontend}/* crates/outl-desktop/dist/
-              '';
+            preBuild = ''
+              mkdir -p crates/outl-desktop/dist
+              cp -r ${desktopFrontend}/* crates/outl-desktop/dist/
+            '';
 
-              postInstall =
-                if isLinux then
-                  ''
-                    wrapProgram $out/bin/outl-desktop \
-                      --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_PATH" \
-                      --prefix GI_TYPELIB_PATH : "$GI_TYPELIB_PATH" \
-                      --prefix PATH : "${pkgs.desktop-file-utils}/bin:${pkgs.xdg-utils}/bin"
-                  ''
-                else "";
+            postInstall = ''
+              wrapProgram $out/bin/outl-desktop \
+                --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_PATH" \
+                --prefix GI_TYPELIB_PATH : "$GI_TYPELIB_PATH" \
+                --prefix PATH : "${pkgs.desktop-file-utils}/bin:${pkgs.xdg-utils}/bin"
+            '';
 
-              doCheck = false;
+            doCheck = false;
 
-              meta = with pkgs.lib; {
-                description = "Desktop client for outl (Tauri 2)";
-                homepage = "https://outl.app";
-                license = licenses.mit;
-                mainProgram = "outl-desktop";
-                platforms = platforms.linux ++ platforms.darwin;
-              };
+            meta = with pkgs.lib; {
+              description = "Desktop client for outl (Tauri 2)";
+              homepage = "https://outl.app";
+              license = licenses.mit;
+              mainProgram = "outl-desktop";
+              platforms = platforms.linux;
             };
+          };
         in
         {
           packages = {

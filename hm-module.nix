@@ -275,7 +275,12 @@ in
       configFile = tomlFormat.generate "outl-config" configData;
     in
     {
-      home.packages = [ cfg.package ] ++ lib.optional cfg.installDesktop cfg.desktopPackage;
+      # Packages are only built for Linux (see flake.nix). On other platforms
+      # we still generate the config file below, but install nothing — users
+      # there provide outl themselves (e.g. the official installer).
+      home.packages = lib.optionals pkgs.stdenv.isLinux ([
+        cfg.package
+      ] ++ lib.optional cfg.installDesktop cfg.desktopPackage);
 
       xdg.configFile."outl/config.toml".source = configFile;
 

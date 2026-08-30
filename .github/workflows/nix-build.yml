@@ -32,6 +32,8 @@ jobs:
   build:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
+    # Linux only: outl packages are built for Linux (see flake.nix). macOS
+    # users manage their config via home-manager but install outl themselves.
     strategy:
       fail-fast: false
       matrix:
@@ -39,9 +41,6 @@ jobs:
           - os: ubuntu-24.04
             label: linux
             system: x86_64-linux
-          - os: macos-15
-            label: macos
-            system: aarch64-darwin
     steps:
       - uses: actions/checkout@v4
 
