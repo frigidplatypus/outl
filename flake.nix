@@ -163,6 +163,8 @@
               ] ++ pkgs.lib.optionals isLinux [
                 wrapGAppsHook3
                 gobject-introspection
+                desktop-file-utils
+                xdg-utils
               ];
 
               buildInputs =
@@ -189,7 +191,8 @@
                   ''
                     wrapProgram $out/bin/outl-desktop \
                       --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_PATH" \
-                      --prefix GI_TYPELIB_PATH : "$GI_TYPELIB_PATH"
+                      --prefix GI_TYPELIB_PATH : "$GI_TYPELIB_PATH" \
+                      --prefix PATH : "${pkgs.desktop-file-utils}/bin:${pkgs.xdg-utils}/bin"
                   ''
                 else "";
 
