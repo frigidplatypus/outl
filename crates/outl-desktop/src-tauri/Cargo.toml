@@ -10,6 +10,14 @@ repository.workspace = true
 homepage.workspace = true
 publish = false
 
+[features]
+# Tauri compiles as a *dev* build (webview loads `devUrl` = localhost) unless
+# the `custom-protocol` feature is on. The `tauri` CLI turns it on for
+# `cargo tauri build`, but a plain `cargo build` (Nix) does not — so without
+# this the Nix package points its webview at localhost:1421. Opt-in so
+# `cargo tauri dev` keeps using the Vite dev server.
+production = ["tauri/custom-protocol"]
+
 [lib]
 name = "outl_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

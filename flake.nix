@@ -153,6 +153,11 @@
 
             buildAndTestSubdir = "crates/outl-desktop/src-tauri";
 
+            # Plain `cargo build` (not the tauri CLI) leaves Tauri in dev mode,
+            # so the webview would load localhost:1421. Enable the production
+            # feature to embed the frontend instead.
+            cargoBuildFlags = [ "--features" "production" ];
+
             nativeBuildInputs = with pkgs; [
               rustToolchain
               pkg-config
