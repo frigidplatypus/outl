@@ -8,7 +8,7 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 ### Added
 
 - **`outl peer qr` — turn a pairing ticket into a scannable QR, and stop printing broken ones.**
-  The mobile app pairs by camera, so for a phone the QR is not a convenience, it is the only route in. It has been printed by `outl peer pair` all along — and silently ruined by any terminal narrower than it. A ticket is ~730 characters, the QR is about 101 columns, and an 80-column SSH window wrapped every row of it. A wrapped QR is not a degraded QR: no camera will ever decode it, and nothing on screen said why.
+  The mobile app pairs by camera, so for a phone the QR is not a convenience, it is the only route in. It has been printed by `outl peer pair` all along — and silently ruined by any terminal narrower than it. A ticket carries one entry per network address the host found, so it runs 400 to 750 characters and its QR runs 77 to 101 columns; anything past two direct addresses stops fitting an 80-column SSH window, which wrapped every row of it. A wrapped QR is not a degraded QR: no camera will ever decode it, and nothing on screen said why.
 
   `pair` now measures the terminal before printing, and when the QR will not fit it prints one line naming the width it needed instead of burying the ticket under fifty lines of noise. `outl peer qr [<ticket>|-]` is the way back: it renders any ticket you already have and prints nothing else, so you can copy the ticket out of the narrow window and render it in a wide one. That command always prints — the warning goes to stderr — because a command asked for a QR and nothing else has no useful way to refuse.
 

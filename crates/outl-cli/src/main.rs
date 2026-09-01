@@ -62,7 +62,7 @@ enum PeerCommand {
     Pair {
         /// Accept a ticket from the other device instead of generating one.
         ///
-        /// `-` reads the ticket from stdin, which is how a ~730-character
+        /// `-` reads the ticket from stdin, which is how a 400-to-750-character
         /// ticket gets into a container without going through argv:
         /// `pbpaste | docker compose run -i --rm outl peer pair --ticket -`.
         #[arg(long)]

@@ -61,7 +61,7 @@ docker compose run --rm outl peer pair --ticket <ticket> --name server
 docker compose up -d
 ```
 
-A ticket is ~730 characters, so pasting it as an argument is workable but unpleasant.
+A ticket runs 400 to 750 characters, so pasting it as an argument is workable but unpleasant.
 `--ticket -` reads stdin instead, which is nicer over SSH and pipes straight from a clipboard:
 
 ```bash
@@ -261,12 +261,13 @@ Pairing while the daemon is running is expected and handled — the pairing endp
 **A phone** joins from the QR — the mobile app pairs by camera, so for a phone the QR *is* the route in; there is nothing to paste.
 Which makes the width of your SSH window part of the setup:
 
-> **The QR needs about 101 columns.**
-> A ticket is ~730 characters, so it is a large QR no matter how it is rendered, and one wider than the terminal wraps.
+> **The QR wants up to 101 columns, and an 80-column window is often not enough.**
+> A ticket carries one entry per network address the host found, so a laptop with Tailscale and a few Docker bridges mints a much longer one than a bare VPS: 400 characters at the low end, 750 at the high end, which is 77 to 101 columns of QR.
+> Past about two direct addresses it stops fitting a default terminal, and a QR wider than the terminal wraps.
 > A wrapped QR is not a degraded QR — no camera will ever decode it, and nothing on screen says why.
 > So `outl peer pair` measures the terminal first, and when the QR will not fit it prints one line naming the width it needed rather than burying the ticket under fifty lines of noise.
 
-If the window is narrower than that, widen it and re-run — or render the QR somewhere with room, from the ticket it already printed:
+When that happens, widen the window and re-run — or render the QR somewhere with room, from the ticket it already printed:
 
 ```bash
 pbpaste | outl peer qr -     # on your laptop, in a big window

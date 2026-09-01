@@ -512,18 +512,42 @@ fn verify_pairing_proof(
 /// Render a pairing ticket as a block-character QR for the terminal.
 ///
 /// **Error correction is deliberately `L`, not the crate's `M` default.**
-/// A ticket is ~730 bytes, which is a large QR either way, and every version
-/// step costs four columns of terminal width. The redundancy `M` buys is aimed
-/// at print — a smudged label, a creased page — and this code is on a screen
-/// being photographed from thirty centimetres away, where the failure mode is
-/// "the QR wrapped because the terminal is 80 columns wide", not "a module was
-/// unreadable". Measured on a real ~730-byte ticket: 109 columns at `M`,
-/// 101 at `L`.
+/// Every QR version step costs four columns of terminal width, and the
+/// redundancy `M` buys is aimed at print, a smudged label or a creased page.
+/// This code is on a screen being photographed from thirty centimetres away,
+/// where the failure mode is "the QR wrapped because the terminal is 80
+/// columns wide", not "a module was unreadable". Measured on a 730-byte
+/// ticket: 109 columns at `M`, 101 at `L`.
 ///
 /// Callers that print into a terminal should measure the result against the
 /// terminal width first: the `Dense1x2` renderer emits one character per
-/// module horizontally, and a QR wider than its terminal wraps — which is
-/// not a degraded QR, it is noise.
+/// module horizontally, and a QR wider than its terminal wraps, which is not
+/// a degraded QR, it is noise.
+///
+/// # Why the ticket is as big as it is, and what would actually shrink it
+///
+/// A ticket is not a fixed size. It carries the endpoint's relay URL plus one
+/// entry per **direct address** the endpoint discovered, so it grows with the
+/// host's network interfaces: 378 bytes relay-only (77 columns), 742 on a
+/// laptop running Tailscale and a few Docker bridges (101 columns). The 80th
+/// column, where it stops fitting a default terminal, sits at about two direct
+/// addresses.
+///
+/// The tempting culprit is the encoding. `mint_ticket` wraps a base64-JSON
+/// [`EndpointAddr`] inside another JSON object and base64s that too, which
+/// looks like pure waste. **It is not what makes the QR too wide.** Flattening
+/// it saves ~160 bytes on the eight-address case, taking the QR from 101
+/// columns to 89, which is still over 80 and still suppressed on the terminal
+/// that motivated the change. It would also need `outlpair2.`, and a ticket
+/// prefix bump means a phone on one release cannot pair with a laptop on
+/// another. A format break that does not solve the problem is a bad trade
+/// twice over.
+///
+/// What would actually get under 80 columns is shipping fewer direct
+/// addresses, and that is a networking decision (fewer candidates means more
+/// pairings falling back to the relay), not an encoding cleanup. Nobody has
+/// made that call; this note exists so the next person costs it out before
+/// reaching for the encoding.
 pub fn ticket_qr(ticket: &str) -> Result<String> {
     use qrcode::render::unicode;
     use qrcode::{EcLevel, QrCode};

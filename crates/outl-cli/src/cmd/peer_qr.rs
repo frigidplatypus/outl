@@ -1,13 +1,13 @@
 //! Pairing tickets ↔ terminal QR codes.
 //!
-//! A ticket is ~730 characters, which nobody is going to retype, and the
+//! A ticket runs 400 to 750 characters, which nobody is going to retype, and the
 //! mobile app pairs by pointing its camera at a QR
 //! (`tauri-plugin-barcode-scanner`). So the QR is not decoration — for a phone
 //! it is the only practical way in.
 //!
 //! Which makes width the thing that matters. Rendered with the `Dense1x2`
-//! block renderer a ticket QR is ~97 columns, and a terminal narrower than
-//! that wraps every row. **A wrapped QR is not a degraded QR, it is noise** —
+//! block renderer a ticket QR is 77 to 101 columns, and a terminal narrower
+//! than that wraps every row. **A wrapped QR is not a degraded QR, it is noise** —
 //! the phone will never decode it, and nothing on screen says why. That is the
 //! whole reason this module exists rather than a `println!` at the call site:
 //! somebody has to measure before printing.
@@ -28,8 +28,8 @@ use anyhow::{bail, Context, Result};
 
 /// Resolve the ticket a command was given.
 ///
-/// `None` or `"-"` reads stdin to end-of-file, which is what makes a 730-char
-/// ticket bearable to move into a container:
+/// `None` or `"-"` reads stdin to end-of-file, which is what makes a ticket of
+/// several hundred characters bearable to move into a container:
 ///
 /// ```text
 /// pbpaste | docker compose run -i --rm outl peer pair --ticket -

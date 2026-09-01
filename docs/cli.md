@@ -379,14 +379,16 @@ Pass `--yes` to approve non-interactively (required when stdin is not a TTY).
 `outl peer pair` takes an optional `--name <NAME>` — the label this device advertises to the other (shown in the peer's `outl peer list`).
 It defaults to the machine hostname; the GUI clients default it to "desktop" / "mobile" and let the user edit it before pairing.
 
-`--ticket -` reads the ticket from **stdin** instead of argv, for the ~730-character string nobody wants to paste into a shell — `pbpaste | outl peer pair --ticket -`, or the same piped into `docker compose run -i`.
+`--ticket -` reads the ticket from **stdin** instead of argv, for the 400-to-750-character string nobody wants to paste into a shell — `pbpaste | outl peer pair --ticket -`, or the same piped into `docker compose run -i`.
 
 **The QR, and why it sometimes isn't printed.**
-A ticket QR is about 101 columns wide, and one wider than the terminal wraps.
+A ticket QR runs 77 to 101 columns, because a ticket carries one entry per direct address the endpoint found and a laptop with Tailscale and Docker bridges has plenty.
+Past about two direct addresses it no longer fits an 80-column terminal, and one wider than the terminal wraps.
 A wrapped QR is not a degraded QR — no camera decodes it, and nothing on screen says why — so `outl peer pair` measures the terminal first and prints a single line naming the width it needed instead.
 `outl peer qr [<ticket>|-]` is how you get it back: it renders any ticket you already have and prints nothing else, so you can copy the ticket out of a narrow SSH window and render it in a wide one.
 Unlike `pair`, it always prints (the width warning goes to stderr), because a command asked for a QR and nothing else has no useful way to refuse.
 Error correction is `L` rather than the crate's `M` default, which is ~8 columns narrower — `M`'s redundancy is aimed at print, and this code is on a screen being photographed from close range.
+Flattening the ticket's double base64 encoding looks like the bigger win and is not: it saves ~12 columns, still leaves the worst case over 80, and needs a ticket-format bump that would stop a phone on one release pairing with a laptop on another. The reasoning is on `outl_sync_iroh::ticket_qr`.
 The mobile app pairs by camera, so for a phone the QR is the only practical route in.
 
 `outl peer remove <id>` unpairs a device **on this machine only** — your other devices keep their own peer lists. For a lost or stolen device use `outl peer revoke-all`, which rotates the workspace identity so nothing that is not re-paired can sync again. It prompts for confirmation (`--yes` skips it). Scope, caveats and why rotation rather than a broadcast: [`docs/sync.md` → Managing peers](sync.md#managing-peers).
@@ -433,9 +435,10 @@ Plain `outl serve` only warns: the watcher still has work.
 
 **What it converges is the op log, not the `.md` files.**
 The daemon never re-projects: peer ops land in `ops/`, the materialised tree is reloaded in memory, and the `.md` on that machine keeps whatever text it had.
-They catch up the next time a client opens the workspace, or on the next `outl reconcile`.
+They catch up the next time a client opens the workspace, or when `outl doctor --repair` runs.
+Not on `outl reconcile`: with no flags that command **lists** the pages holding an unreconciled external edit and writes nothing, and its two writing modes (`--ahead-of-log`, `--allow-bulk-delete`) both go `.md` → op log, which is the opposite direction.
+`doctor --repair` is the one that projects, writing every page whose `.md` is absent or drifted under the same invariant-8 guard.
 So a headless box stays a correct *replica*; it is not a place to read current notes off disk.
-`outl doctor --repair` is the way to ask for the projection when you do want it — it writes every page whose `.md` is absent or drifted, under the same invariant-8 guard.
 Re-projecting from a daemon has to clear [invariant 8](../CLAUDE.md) first — overwriting a `.md` that holds content the log never saw is the one failure this project treats as unrecoverable — so it is deliberately not done here.
 
 SIGTERM and SIGINT both shut down cleanly, releasing the endpoint lease.
