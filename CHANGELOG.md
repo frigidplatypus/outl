@@ -7,6 +7,29 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Added
 
+- **`outl peer qr` — turn a pairing ticket into a scannable QR, and stop printing broken ones.**
+  The mobile app pairs by camera, so for a phone the QR is not a convenience, it is the only route in. It has been printed by `outl peer pair` all along — and silently ruined by any terminal narrower than it. A ticket is ~730 characters, the QR is about 101 columns, and an 80-column SSH window wrapped every row of it. A wrapped QR is not a degraded QR: no camera will ever decode it, and nothing on screen said why.
+
+  `pair` now measures the terminal before printing, and when the QR will not fit it prints one line naming the width it needed instead of burying the ticket under fifty lines of noise. `outl peer qr [<ticket>|-]` is the way back: it renders any ticket you already have and prints nothing else, so you can copy the ticket out of the narrow window and render it in a wide one. That command always prints — the warning goes to stderr — because a command asked for a QR and nothing else has no useful way to refuse.
+
+  Error correction dropped from `M` to `L`, which is ~8 columns narrower for the same ticket. `M`'s extra redundancy is aimed at print — a creased page, a smudged label — and this code is on a screen being photographed from thirty centimetres away.
+
+  `outl peer pair --ticket -` reads the ticket from stdin, which is what makes `pbpaste | docker compose run -i --rm outl peer pair --ticket -` work.
+
+- **A Docker image that runs `outl serve`, so a machine you own can be the always-on peer.**
+  P2P sync converges when two devices can reach each other, and a laptop shut at 18:00 never overlaps a phone edited at 22:00. The fix is a third device that is always awake — and until now you had to assemble it yourself, from a binary, a `systemd` unit, and two directories whose importance is not obvious until one of them is gone.
+
+  `Dockerfile` + `docker-compose.yml` + [`docs/self-hosting.md`](docs/self-hosting.md). **Entirely optional** — pairing a laptop and a phone directly is still the normal setup and needs none of this; the doc opens by saying so, because "self-hosting" usually implies there is a hosted thing you are opting out of and here there isn't one. It is also not a server your notes sync *through*: no account, no upload, no service that holds your graph. It is one more peer, doing what your laptop does, that never sleeps. You get convergence without overlap, and a real replica — the op log itself, every op, replayable.
+
+  Two things the doc leads with because getting either wrong is expensive. **The server joins your graph; it never hosts the pairing** — the joiner adopts the host's workspace id, so pairing the wrong way round makes your *laptop* adopt the empty box's identity and stop converging with its own notes. And **`/home/outl` is a volume, not a detail**: it holds `identity.key`, which *is* the node id every peer has stored. Lose it and the container comes back a stranger that every device lists as offline.
+
+  No `HEALTHCHECK`, on purpose, and the reasoning is in the file: `outl workspace info` would lose the per-actor write lock to the running daemon and mint a fresh ephemeral `ops-<ulid>.jsonl` every thirty seconds, and `outl peer status` would fight it for the endpoint lease. The probe would have been the outage.
+
+- **`outl init --bare` — create a workspace with no ops in it.**
+  `init` normally seeds a `templates/journal` page and today's journal. On a workspace that exists only to *become* a replica, that seeding is actively wrong: pairing adopts the host's workspace id but keeps the joiner's ops, so the replica pushes a second `templates/journal` into your graph — two page nodes with one slug, both projecting to `pages/templates/journal.md`.
+
+  `--bare` writes the layout and the config and nothing else. The server image runs it. Don't use it for a workspace you'll write in directly; the journal template won't be there.
+
 - **Every client now tells you when a key does nothing, instead of leaving you guessing.**
   Press a shortcut the client you are using does not implement, and it used to do nothing at all — the desktop logged a line to a browser console you never open. A missing feature and a broken one looked identical from the keyboard.
 

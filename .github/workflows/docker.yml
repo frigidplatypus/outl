@@ -1,0 +1,140 @@
+name: Docker image
+
+# Publishes the headless server image (`outl serve` in a container) to GHCR.
+#
+#   ghcr.io/<owner>/outl-server
+#
+# ┌──────────────────────────┬──────────────────────────────────────────────┐
+# │ push to `main`           │ `:dev`                                       │
+# │ tag `v1.2.3`             │ `:1.2.3`, `:1.2` — and `:latest` if it is    │
+# │                          │ the highest stable tag in the repo           │
+# │ tag `v1.2.3-beta.4`      │ `:1.2.3-beta.4` only — never `:latest`       │
+# │ pull request             │ builds, pushes nothing                       │
+# └──────────────────────────┴──────────────────────────────────────────────┘
+#
+# Every commit also gets `:sha-<short>`, which is the only tag that is
+# guaranteed never to move — the one to pin in a compose file you care about.
+#
+# **Beta tags do not normally land here, and that is on purpose.** `release.yml`
+# tags every push to `main` as `v<version>-beta.<run>`, but it creates that tag
+# with the workflow's own `GITHUB_TOKEN`, and GitHub does not fire workflows for
+# refs pushed by that token. So the beta series produces one image — `:dev`,
+# from the branch trigger — instead of one image per push. A `v*` tag pushed by
+# a human (the GA path) is a real event and does build.
+#
+# Owner-agnostic (`github.repository_owner`): the repo moved from a personal
+# profile into the `outlmd` org once already, and a hardcoded owner is exactly
+# the sort of thing that survives a move and then publishes to the wrong place.
+#
+# See docs/self-hosting.md for what the image is and how it is meant to run.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    # No `paths:` filter. It would apply to tag pushes too, and a `v1.2.3` tag
+    # landing on a docs-only commit would then skip the release build — the one
+    # run that must never be skipped. Wasted branch builds are cheap instead:
+    # `.dockerignore` excludes docs/, so a docs commit reuses every cached
+    # layer and the job finishes in seconds.
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker/**"
+      - ".github/workflows/docker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: build and publish
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history + tags: the `latest` decision below compares this tag
+          # against every other stable tag, and a shallow clone has none.
+          fetch-depth: 0
+
+      # `latest` means "the newest stable release", which is NOT the same as
+      # "this is a stable tag" — the difference is a hotfix. Tag `v1.1.4` after
+      # `v1.2.0` has shipped and `docker/metadata-action`'s `latest=auto` would
+      # hand `:latest` to the older release, silently rolling every `:latest`
+      # puller backwards. So the comparison is explicit.
+      - name: Decide whether this tag is `latest`
+        id: latest
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != refs/tags/v* ]]; then
+            echo "value=false" >> "$GITHUB_OUTPUT"
+            echo "not a tag — no :latest"
+            exit 0
+          fi
+          TAG="${GITHUB_REF#refs/tags/}"
+          # A hyphen is the semver pre-release separator (`v1.2.3-beta.4`).
+          # A pre-release is never `latest`, however new it is.
+          if [[ "${TAG}" == *-* ]]; then
+            echo "value=false" >> "$GITHUB_OUTPUT"
+            echo "${TAG} is a pre-release — no :latest"
+            exit 0
+          fi
+          # `{ grep || true; }` because `set -o pipefail` turns "no stable
+          # tags matched" into a failed job, and a repo whose tags are all
+          # pre-releases is a legitimate state.
+          HIGHEST="$(git tag --list 'v*' | { grep -v -- '-' || true; } | sort -V | tail -n1)"
+          if [[ "${TAG}" == "${HIGHEST}" ]]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+            echo "${TAG} is the highest stable tag — tagging :latest"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+            echo "${TAG} trails ${HIGHEST} — no :latest"
+          fi
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # A pull request from a fork carries no write token, and pushing from one
+      # would be a supply-chain hole regardless. Those runs build and stop.
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/outl-server
+          flavor: latest=${{ steps.latest.outputs.value }}
+          tags: |
+            type=raw,value=dev,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # linux/amd64 only. A cross-built arm64 image would go through QEMU,
+          # and emulating a full release build of this dependency tree turns a
+          # ten-minute job into an hour-plus one. Adding arm64 properly means a
+          # second native runner and a manifest merge — worth doing when
+          # somebody actually needs it, not before.
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

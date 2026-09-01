@@ -17,6 +17,7 @@ outl takes the parts of [Roam Research][roam] and [Logseq][logseq] that work —
 | Install via Homebrew (GA or beta) | [Homebrew tap](homebrew.md) |
 | Understand the pitch vs. Roam/Logseq | [Why outl](why-outl.md) |
 | Know *exactly* how sync works | [Sync, done right](sync.md) |
+| Run an *optional* always-on peer on hardware you own | [Self-hosting](self-hosting.md) |
 | Use the TUI fluently | [TUI manual](tui.md) |
 | Change colors / write a theme | [Theming](theming.md) |
 | Script outl or plug it into Claude Code | [CLI](cli.md) |

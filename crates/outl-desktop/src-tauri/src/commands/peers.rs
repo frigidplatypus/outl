@@ -262,7 +262,7 @@ pub async fn outl_peer_pair_host(
         // This is NOT a precedent: no other GUI path may bind an endpoint.
         None => {
             let (identity, peers_path, root) = one_shot_pairing_inputs(state.inner())?;
-            outl_sync_iroh::host_pairing(identity, &peers_path, &root, alias, |ticket, _qr| {
+            outl_sync_iroh::host_pairing(identity, &peers_path, &root, alias, |ticket| {
                 emit_ticket(ticket)
             })
             .await

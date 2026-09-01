@@ -509,17 +509,27 @@ fn verify_pairing_proof(
     Ok(())
 }
 
-/// Encode an [`EndpointAddr`] into a copy-pasteable ticket string.
+/// Render a pairing ticket as a block-character QR for the terminal.
 ///
-/// A pairing ticket IS a base64-JSON `EndpointAddr`, identical to what a
-/// [`PeerEntry`] stores in its `endpoint_addr` field — so this delegates to the
-/// one codec in [`crate::peers`] rather than carrying a parallel copy.
-/// Render an [`EndpointAddr`]'s ticket as a block-character QR for the terminal.
+/// **Error correction is deliberately `L`, not the crate's `M` default.**
+/// A ticket is ~730 bytes, which is a large QR either way, and every version
+/// step costs four columns of terminal width. The redundancy `M` buys is aimed
+/// at print — a smudged label, a creased page — and this code is on a screen
+/// being photographed from thirty centimetres away, where the failure mode is
+/// "the QR wrapped because the terminal is 80 columns wide", not "a module was
+/// unreadable". Measured on a real ~730-byte ticket: 109 columns at `M`,
+/// 101 at `L`.
+///
+/// Callers that print into a terminal should measure the result against the
+/// terminal width first: the `Dense1x2` renderer emits one character per
+/// module horizontally, and a QR wider than its terminal wraps — which is
+/// not a degraded QR, it is noise.
 pub fn ticket_qr(ticket: &str) -> Result<String> {
     use qrcode::render::unicode;
-    use qrcode::QrCode;
+    use qrcode::{EcLevel, QrCode};
 
-    let code = QrCode::new(ticket.as_bytes()).context("build QR code")?;
+    let code = QrCode::with_error_correction_level(ticket.as_bytes(), EcLevel::L)
+        .context("build QR code")?;
     Ok(code
         .render::<unicode::Dense1x2>()
         .dark_color(unicode::Dense1x2::Light)
@@ -577,7 +587,7 @@ pub(crate) async fn ready_addr(endpoint: &Endpoint) -> EndpointAddr {
 
 /// The generating side of pairing.
 ///
-/// Binds an endpoint, hands its ticket (string + QR) to `on_ticket`, then waits
+/// Binds an endpoint, hands its ticket to `on_ticket`, then waits
 /// for exactly one inbound connection, completes the handshake, persists the
 /// peer to `peers_path`, and returns the entry that was stored.
 ///
@@ -593,7 +603,7 @@ pub async fn host_pairing<F>(
     on_ticket: F,
 ) -> Result<PeerEntry>
 where
-    F: FnOnce(&str, &str),
+    F: FnOnce(&str),
 {
     // Advertise our stable workspace id so the joiner adopts it and both sides
     // land on the same gossip topic + pass the `serve` workspace-id check.
@@ -608,8 +618,7 @@ where
     // joiner can't dial.
     let addr = ready_addr(&endpoint).await;
     let (ticket, secret) = mint_ticket(&addr)?;
-    let qr = ticket_qr(&ticket)?;
-    on_ticket(&ticket, &qr);
+    on_ticket(&ticket);
 
     // Keep accepting until the window closes or a joiner proves it holds the
     // ticket. Accepting exactly one connection made the window itself the

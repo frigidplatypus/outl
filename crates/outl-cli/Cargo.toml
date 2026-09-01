@@ -30,6 +30,10 @@ outl-sync-iroh = { workspace = true }
 outl-config = { workspace = true }
 outl-tui = { workspace = true }
 anyhow = { workspace = true }
+# Terminal width only — a pairing QR wider than the terminal wraps into
+# an unscannable mess, so `outl peer pair` measures before it prints.
+# Already in the tree via `outl-tui`; this is not a new build cost.
+crossterm = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

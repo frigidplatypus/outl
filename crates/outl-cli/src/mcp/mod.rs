@@ -480,7 +480,7 @@ mod tests {
     #[test]
     fn the_peer_ready_channel_survives_a_second_ensure_transport() {
         let dir = tempfile::TempDir::new().expect("tempdir");
-        crate::cmd::init::run(dir.path(), "global").expect("init workspace");
+        crate::cmd::init::run(dir.path(), "global", false).expect("init workspace");
         let wc = ws::open(dir.path()).expect("open workspace");
         let ctx = Arc::new(ServerCtx::new(dir.path().to_path_buf()));
 

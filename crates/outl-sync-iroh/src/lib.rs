@@ -82,6 +82,7 @@ pub use pairing::{
     host_pairing,
     join_pairing,
     mint_ticket,
+    ticket_qr,
     PairingSecret,
     WorkspaceAdoption,
 };
