@@ -55,6 +55,7 @@
                 "flake.lock"
                 "flake.nix"
                 "hm-module.nix"
+                "nixos-module.nix"
               ];
           };
 
@@ -214,5 +215,6 @@
       )
     // {
       homeManagerModules.default = import ./hm-module.nix self;
+      nixosModules.default = import ./nixos-module.nix self;
     };
 }
