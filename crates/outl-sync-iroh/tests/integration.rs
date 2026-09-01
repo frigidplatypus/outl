@@ -66,7 +66,7 @@ async fn pairing_roundtrip() {
                 &host_peers_for_task,
                 &host_root,
                 Some("host-device".into()),
-                |ticket, _qr| {
+                |ticket| {
                     // Fires synchronously inside host_pairing before it blocks
                     // on accept(); forward the ticket to the joiner.
                     if let Some(tx) = ticket_tx.take() {
@@ -848,7 +848,7 @@ async fn a_refused_joiner_does_not_consume_the_pairing_window() {
                 &host_peers_for_task,
                 &host_root,
                 Some("host-device".into()),
-                |ticket, _qr| {
+                |ticket| {
                     if let Some(tx) = ticket_tx.take() {
                         let _ = tx.send(ticket.to_string());
                     }

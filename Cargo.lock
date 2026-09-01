@@ -6225,6 +6225,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "crossterm",
  "dirs",
  "filetime",
  "notify",

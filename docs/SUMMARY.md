@@ -9,6 +9,7 @@
 ## Sync — done right
 
 * [The problem with how the others do it](sync.md)
+* [Self-hosting an always-on peer](self-hosting.md)
 * [Relay & NAT traversal](relay.md)
 * [iroh transport internals](iroh-internals.md)
 * [Tree CRDT walkthrough](crdt.md)

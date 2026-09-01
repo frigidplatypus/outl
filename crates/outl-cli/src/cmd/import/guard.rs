@@ -321,7 +321,7 @@ mod tests {
     fn init_workspace() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().join("notes");
-        crate::cmd::init::run(&root, "global").expect("init");
+        crate::cmd::init::run(&root, "global", false).expect("init");
         (dir, root)
     }
 

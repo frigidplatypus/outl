@@ -50,6 +50,25 @@ Press `?` for keymap, `:` for the command palette, `Ctrl+P` to fuzzy-jump.
 - [Markdown dialect](https://outl.app/docs/markdown-format.html)
 - [Shortcuts](https://outl.app/docs/shortcuts.html)
 
+## Optional: an always-on peer
+
+**You don't need a server.** Pair your laptop and your phone and they sync directly, P2P. That's the normal setup.
+
+But P2P converges only when two devices can reach each other, and a laptop shut at 18:00 never overlaps a phone edited at 22:00.
+If that's you, a third device that never sleeps closes the gap — on hardware you own.
+
+```bash
+docker compose build
+outl peer pair --name laptop                                  # on a device that HAS your notes
+docker compose run --rm outl peer pair --ticket <ticket>      # the server joins
+docker compose up -d
+```
+
+Not a server your notes sync *through* — no account, no upload, nobody else's infrastructure holding your graph.
+Just one more peer that happens to be awake all the time, holding a full replica of the op log.
+Turn it off and your other devices carry on talking to each other.
+[Self-hosting guide](https://outl.app/docs/self-hosting.html).
+
 ## Coming from Logseq or Roam?
 
 ```bash

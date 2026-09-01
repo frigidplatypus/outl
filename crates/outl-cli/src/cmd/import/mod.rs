@@ -195,7 +195,7 @@ fn run_adapter(
         let dst = dst.to_path_buf();
         guard_foreign_destination(&dst, flags.force)?;
         if !dst.exists() {
-            crate::cmd::init::run(&dst, "global")?;
+            crate::cmd::init::run(&dst, "global", false)?;
         }
         let paths = crate::workspace_layout::Paths::at(dst.clone());
         // Read before opening: `ws::open` itself writes nothing to the

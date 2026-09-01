@@ -20,7 +20,17 @@ use std::path::Path;
 /// (`ops/<actor>/<slug>.jsonl`) — boot is proportional to the active
 /// page, not the whole workspace. Default is `"global"` for back-compat
 /// with every existing workspace.
-pub fn run(path: &Path, scope: &str) -> Result<()> {
+///
+/// `bare` skips [`seed_workspace`], so the workspace comes up with the
+/// directory layout and a config and **no ops at all**. It exists for the
+/// one case where seeding is actively wrong: a workspace created only to
+/// become a replica of an existing graph, which then joins it with
+/// `outl peer pair --ticket`. Pairing adopts the host's
+/// [`outl_core::WorkspaceId`] but keeps the joiner's ops, so a seeded
+/// replica pushes its own `templates/journal` page and its own journal
+/// for today into the host's graph — two page nodes with one slug, both
+/// projecting to `pages/templates/journal.md`. See `docs/self-hosting.md`.
+pub fn run(path: &Path, scope: &str, bare: bool) -> Result<()> {
     let paths = Paths::at(path.to_path_buf());
 
     // Create all directories and seed config.
@@ -40,13 +50,18 @@ pub fn run(path: &Path, scope: &str) -> Result<()> {
         _ => PageScope::Global,
     };
 
-    seed_workspace(&paths, actor, initial_scope)?;
+    if !bare {
+        seed_workspace(&paths, actor, initial_scope)?;
+    }
 
-    let journal_path = paths.journal_md(today());
     println!("Initialized outl workspace at {}", paths.root.display());
     println!("  ops:      {}", paths.ops.display());
     println!("  config:   {}", paths.config.display());
-    println!("  journal:  {}", journal_path.display());
+    if bare {
+        println!("  journal:  (none — --bare wrote no ops)");
+    } else {
+        println!("  journal:  {}", paths.journal_md(today()).display());
+    }
     println!("  scope:    {}", scope);
     Ok(())
 }
@@ -127,7 +142,7 @@ mod tests {
     fn init_creates_full_workspace() {
         let dir = TempDir::new().unwrap();
         let root = dir.path().join("notes");
-        run(&root, "global").unwrap();
+        run(&root, "global", false).unwrap();
 
         let paths = Paths::at(&root);
         assert!(paths.dot_outl.is_dir(), ".outl/ should exist");
@@ -164,18 +179,50 @@ mod tests {
     fn init_is_idempotent() {
         let dir = TempDir::new().unwrap();
         let root = dir.path().join("notes");
-        run(&root, "global").unwrap();
+        run(&root, "global", false).unwrap();
         // Second run must not error or wipe state.
-        run(&root, "global").unwrap();
+        run(&root, "global", false).unwrap();
         let paths = Paths::at(&root);
         assert!(paths.ops.is_dir());
+    }
+
+    /// `--bare` exists so a replica can join an existing graph without
+    /// pushing a second `templates/journal` page into it. If seeding
+    /// ever leaks back into this path, the duplicate lands in the
+    /// *user's* graph, where two page nodes share one slug and one
+    /// `.md` path.
+    #[test]
+    fn bare_init_writes_no_ops() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path().join("notes");
+        run(&root, "global", true).unwrap();
+
+        let paths = Paths::at(&root);
+        assert!(paths.ops.is_dir(), "layout is still created");
+        assert!(paths.config.is_file(), "config is still written");
+        assert!(
+            !paths.journal_md(today()).exists(),
+            "--bare must not project today's journal"
+        );
+
+        let cfg = read_config(&paths).unwrap();
+        let actor = cfg.actor().unwrap();
+        let storage =
+            JsonlStorage::open_with_scope_cap(paths.ops.clone(), actor, PageScope::Global, 0)
+                .unwrap();
+        let ws = Workspace::open_with_storage(actor, Box::new(storage), Some(paths.root.clone()))
+            .unwrap();
+        assert!(
+            outl_actions::list_templates(&ws).is_empty(),
+            "--bare must not seed the journal template page"
+        );
     }
 
     #[test]
     fn init_with_per_page_scope_creates_actor_subdir() {
         let dir = TempDir::new().unwrap();
         let root = dir.path().join("notes");
-        run(&root, "per-page").unwrap();
+        run(&root, "per-page", false).unwrap();
 
         let paths = Paths::at(&root);
         // `ops/` exists; the per-actor subdir gets created on first

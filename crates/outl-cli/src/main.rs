@@ -61,12 +61,27 @@ enum PeerCommand {
     /// Pair with another device. Prints a ticket (QR + string); run on both devices.
     Pair {
         /// Accept a ticket from the other device instead of generating one.
+        ///
+        /// `-` reads the ticket from stdin, which is how a 400-to-750-character
+        /// ticket gets into a container without going through argv:
+        /// `pbpaste | docker compose run -i --rm outl peer pair --ticket -`.
         #[arg(long)]
         ticket: Option<String>,
         /// Human-readable name this device advertises to the other (shown in
         /// its `peer list`). Defaults to the machine hostname.
         #[arg(long)]
         name: Option<String>,
+    },
+    /// Render a pairing ticket you already have as a scannable QR code.
+    ///
+    /// `outl peer pair` prints one itself, and skips it when the terminal is
+    /// too narrow for it to be readable. This is the way to get it back:
+    /// widen a window, or pipe the ticket in from wherever you copied it.
+    /// The phone app pairs by camera, so for a phone the QR is the only
+    /// practical route.
+    Qr {
+        /// The ticket. Omit it, or pass `-`, to read stdin.
+        ticket: Option<String>,
     },
     /// List all paired devices.
     List,
@@ -108,6 +123,18 @@ enum Command {
         /// New workspaces default to `global` for back-compat.
         #[arg(long, default_value = "global", value_parser = ["global", "per-page"])]
         scope: String,
+        /// Create the layout and config but write no ops: no
+        /// `templates/journal` page, no journal for today.
+        ///
+        /// For a workspace that exists only to become a replica of an
+        /// existing graph — a self-hosted `outl serve` box — and will
+        /// join it with `outl peer pair --ticket`. Pairing adopts the
+        /// host's workspace id but keeps this device's ops, so a seeded
+        /// replica pushes a second `templates/journal` page into the
+        /// host's graph. Do NOT use it for a workspace you intend to
+        /// write notes in directly; the journal template is missing.
+        #[arg(long)]
+        bare: bool,
     },
     /// Migrate a workspace's op log from `Global` (single file per
     /// actor) to `PerPage` (one file per actor + page). RFC #137
@@ -420,9 +447,9 @@ fn main() -> Result<()> {
             ensure_workspace_or_prompt(&p)?;
             outl_tui::run_with_theme_override(&p, cli.theme.as_deref())
         }
-        Some(Command::Init { path, scope }) => {
+        Some(Command::Init { path, scope, bare }) => {
             let p = resolve_init_path(cli.workspace.as_ref(), path.as_ref())?;
-            cmd::init::run(&p, &scope)
+            cmd::init::run(&p, &scope, bare)
         }
         Some(Command::MigrateToPerPageOps { path }) => {
             let p = resolve_path(cli.workspace.as_ref(), path.as_ref())?;
@@ -587,7 +614,8 @@ fn main() -> Result<()> {
                     let rt = tokio::runtime::Runtime::new()
                         .context("build tokio runtime for pairing")?;
 
-                    if let Some(ticket_str) = ticket {
+                    if let Some(ticket_arg) = ticket {
+                        let ticket_str = cmd::peer_qr::read_ticket(Some(&ticket_arg))?;
                         println!("Connecting to the other device…");
                         let (entry, adopted) = rt.block_on(outl_sync_iroh::join_pairing(
                             identity,
@@ -619,11 +647,15 @@ fn main() -> Result<()> {
                             &peers_path,
                             &ws_root,
                             alias,
-                            |ticket, qr| {
+                            |ticket| {
                                 println!();
-                                println!("Scan this QR on the other device, or copy the ticket:");
-                                println!();
-                                println!("{qr}");
+                                // Rendered here rather than used from `qr`:
+                                // the callback's copy is unconditional, and
+                                // a QR wider than the terminal wraps into
+                                // noise that buries the ticket below it.
+                                if let Err(e) = cmd::peer_qr::print_ticket_qr_if_it_fits(ticket) {
+                                    println!("(could not render the pairing QR: {e:#})");
+                                }
                                 println!("Ticket:");
                                 println!("{ticket}");
                                 println!();
@@ -637,6 +669,7 @@ fn main() -> Result<()> {
                         println!("Paired with {prefix}");
                     }
                 }
+                PeerCommand::Qr { ticket } => cmd::peer_qr::run(ticket.as_deref())?,
                 PeerCommand::List => {
                     let list = peers.list();
                     if list.is_empty() {
@@ -937,7 +970,7 @@ fn ensure_workspace_or_prompt(path: &Path) -> Result<()> {
         .with_context(|| "reading prompt response")?;
     let answer = line.trim().to_lowercase();
     if answer == "y" || answer == "yes" {
-        cmd::init::run(path, "global")?;
+        cmd::init::run(path, "global", false)?;
         Ok(())
     } else {
         anyhow::bail!("aborted — no workspace initialized at {}", path.display());
