@@ -9,15 +9,20 @@ services:
   outl:
     build: .
     image: outl-server:local
-    # Or drop the two lines above and pull a published image instead:
+    # This file builds from the source you cloned. To run a prebuilt image
+    # instead — no clone, no toolchain — follow the quick start in
+    # docs/self-hosting.md, which has a compose file you can paste.
     #
-    #   image: ghcr.io/outlmd/outl-server:latest        # newest stable release
-    #   image: ghcr.io/outlmd/outl-server:1.2           # newest 1.2.x
     #   image: ghcr.io/outlmd/outl-server:dev           # tip of main
     #   image: ghcr.io/outlmd/outl-server:sha-a1b2c3d   # pinned, never moves
+    #   image: ghcr.io/outlmd/outl-server:latest        # newest stable release
+    #   image: ghcr.io/outlmd/outl-server:1.2           # newest 1.2.x
     #
-    # `:latest` follows the highest stable tag, never a pre-release. Pin
-    # `:sha-…` if you would rather choose your own upgrade moments.
+    # Only the first two exist today: the image started being published after
+    # the last release, so `:latest` and the version tags are the naming
+    # scheme rather than something on the registry. `:latest` will follow the
+    # highest stable tag, never a pre-release. Pin `:sha-…` if you would
+    # rather choose your own upgrade moments.
     container_name: outl
     restart: unless-stopped
 

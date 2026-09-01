@@ -41,36 +41,202 @@ Nothing about adding it changes the others: they keep talking to each other dire
 
 ## Quick start
 
+This is the whole setup, step by step.
+It takes about ten minutes, most of which is `docker pull`.
+
+You do **not** need to clone the repo, install Rust, or build anything — one folder and one file is the entire server side.
+
+### Before you start
+
+| You need | Why | Check it with |
+|---|---|---|
+| A machine that stays awake — NAS, VPS, an old laptop in a closet | The whole point is a peer that is up when your others are not | — |
+| Docker with the Compose plugin on that machine | The image is how outl ships this | `docker compose version` |
+| That machine on **`linux/amd64`** | The published image is x86-64 only, see below | `docker info --format '{{.Architecture}}'` |
+| A device that **already has your notes**, with the `outl` CLI | It hosts the pairing; the server joins it | `outl workspace info` |
+| Outbound internet on both | iroh dials peers and the relay; nothing dials *in* | — |
+
+No inbound firewall rule, no port forwarding, no domain, no TLS certificate.
+There is nothing to expose — see [Networking](#networking).
+
+> **On ARM — Apple Silicon, a Raspberry Pi, a Graviton or Ampere VPS — the pull fails.**
+> The image is built for `linux/amd64` only, and Docker's error says so in the least helpful way available:
+> `no matching manifest for linux/arm64/v8 in the manifest list entries`.
+>
+> Two ways through, and the second is the better one on a machine that will run this for months:
+>
+> - **Emulate**, by adding `platform: linux/amd64` next to `image:` in step 2. Works on Docker Desktop, at a real CPU cost for a process that is mostly idle anyway. On a Pi it needs `qemu-user-static` installed and is slow enough to be unpleasant.
+> - **Build it natively** on that machine — the `<details>` at the end of this quick start. The Dockerfile is architecture-agnostic; it is only the *published* image that is single-arch.
+>
+> Native `arm64` images are not published yet because cross-building this dependency tree under QEMU turns a ten-minute CI job into an hour-plus one; doing it properly needs a second native runner and a manifest merge. If you are on ARM and want this, say so on the tracker — that is the signal the [workflow comment](../.github/workflows/docker.yml) is waiting for.
+
+### Step 1 — make a folder on the server
+
+Everything lives in it: the compose file, and the two Docker volumes it declares.
+
 ```bash
-git clone https://github.com/outlmd/outl
-cd outl
-docker compose build
+mkdir -p ~/outl-server && cd ~/outl-server
 ```
 
-Then, **on a device that already has your notes** (laptop, desktop — not the server):
+### Step 2 — write `docker-compose.yml`
+
+Paste this into `~/outl-server/docker-compose.yml`:
+
+```yaml
+services:
+  outl:
+    image: ghcr.io/outlmd/outl-server:dev
+    pull_policy: always
+    container_name: outl
+    restart: unless-stopped
+
+    # ON LINUX, UNCOMMENT THE NEXT LINE. Docker's bridge NAT rewrites the
+    # source port, so every connection ends up pinned to the relay instead
+    # of going direct. On Docker Desktop (macOS / Windows) leave it out.
+    # network_mode: host
+
+    volumes:
+      - outl-data:/data        # your notes — replicated to every paired device
+      - outl-state:/home/outl  # THIS device's identity — see "The two volumes"
+
+    environment:
+      RUST_LOG: info
+
+    # The daemon releases its endpoint lease on SIGTERM, and a lease left
+    # held locks every outl process on this device out of an endpoint.
+    stop_grace_period: 30s
+
+volumes:
+  outl-data:
+  outl-state:
+```
+
+> **Why `:dev`, and not `:latest`?**
+> Right now `:dev` and `:sha-…` are the only tags that exist — the image started being published after the last release, so no stable tag has been cut yet and `docker compose pull` on `:latest` fails with `manifest unknown`.
+> When the next release lands, `:latest` becomes the tag to use and this is a one-line change.
+> The full tag list and what each one follows: [The published image](#the-published-image-and-what-its-tags-mean).
+
+There is deliberately no `ports:` section and no `HEALTHCHECK`.
+Both are explained below ([Networking](#networking), [Health checks](#health-checks)) and both are load-bearing omissions, not oversights.
+
+### Step 3 — pull the image and create the workspace
+
+```bash
+docker compose pull
+```
+
+Nothing is running yet, and that is on purpose: the server has to **join** your graph before its daemon starts, so the next step comes first.
+
+### Step 4 — pair, in this direction
+
+Pairing is asymmetric, and this is the one step on this page that will silently ruin your graph if you do it backwards.
+**The device that has your notes hosts. The empty server joins.**
+
+**4a.** On your laptop — the machine that already has your notes:
 
 ```bash
 outl peer pair --name laptop
-# → prints a ticket; leave it running, it waits 120s for the join
 ```
 
-And back on the server, **hand it that ticket**:
+It prints a QR and a long ticket, then waits 120 seconds for someone to join.
+Leave it running and copy the ticket.
+
+**4b.** On the server, hand it that ticket:
 
 ```bash
 docker compose run --rm outl peer pair --ticket <ticket> --name server
-docker compose up -d
 ```
 
 A ticket runs 400 to 750 characters, so pasting it as an argument is workable but unpleasant.
 `--ticket -` reads stdin instead, which is nicer over SSH and pipes straight from a clipboard:
 
 ```bash
-pbpaste | docker compose run -i --rm outl peer pair --ticket - --name server   # macOS
+pbpaste  | docker compose run -i --rm outl peer pair --ticket - --name server  # macOS
 wl-paste | docker compose run -i --rm outl peer pair --ticket - --name server  # Wayland
 ```
 
+**Read what it prints.**
+`Joined the host's workspace (<id>)` is what you want.
+If it says it *hosted* one instead, the pairing went the wrong way — stop and read [Why the server joins](#why-the-server-joins-and-never-hosts) before starting the daemon.
+
+### Step 5 — start it
+
+```bash
+docker compose up -d
+docker compose logs -f outl
+```
+
+The log names each sync pass.
+Within a few seconds of the laptop being awake you should see ops moving.
+
+### Step 6 — confirm it actually worked
+
+Two checks, and they answer different questions.
+
+**Same graph?** The workspace ids must match.
+
+```bash
+docker compose exec outl cat /data/.outl/workspace-id   # on the server
+outl workspace info                                     # on the laptop
+```
+
+Different ids mean the pairing went the wrong direction. Re-pair with the server as the joiner.
+
+**Talking?** On the laptop:
+
+```bash
+outl peer list
+```
+
+The server should be there under the `--name` you gave it.
+
+> Do not reach for `outl peer status` *inside* the container.
+> The daemon holds the endpoint lease, so it reports "another outl process holds this device's sync endpoint" — which means "unknown", not "offline". Use the logs.
+
+### Step 7 — read the notes on the box (optional)
+
+The container replicates the **op log**, and does not re-render the `.md` files — so `cat /data/pages/foo.md` can show you yesterday even though nothing is missing.
+See [It replicates the op log, not the `.md`](#it-replicates-the-op-log-not-the-md).
+
+When you want the markdown current:
+
+```bash
+docker compose exec outl outl doctor --repair
+```
+
+Run it once after the first pair, when the whole graph is still unprojected.
+
+### Step 8 — make sure it survives a reboot
+
+`restart: unless-stopped` covers a crash and a Docker restart.
+For a machine that reboots, make sure the Docker daemon itself starts at boot:
+
+```bash
+sudo systemctl enable docker    # Linux
+```
+
+On Docker Desktop, that is the *Start Docker Desktop when you sign in* setting.
+
 That is the whole setup.
-`docker compose logs -f outl` shows the sync passes.
+Everything below is reference: what the volumes hold, what to back up, and what to do when something looks wrong.
+
+<details>
+<summary><strong>Building from source instead of pulling the image</strong> (and the way in on ARM)</summary>
+
+Same setup, one different step — you need the repo and a working Docker build:
+
+```bash
+git clone https://github.com/outlmd/outl
+cd outl
+docker compose build
+```
+
+The repo's `docker-compose.yml` already declares `build: .` and the same two volumes, so steps 4 through 8 are unchanged; run them from the clone instead of `~/outl-server`.
+Expect a cold build to take a while — it compiles the CLI from source, including `aws-lc-sys`.
+
+This is also the route on `arm64`: the build is native there, so it produces exactly the image the registry does not carry yet.
+
+</details>
 
 ### Why the server joins, and never hosts
 
@@ -214,7 +380,7 @@ That file is part of the workspace, so the setting reaches every paired device.
 
 ### The published image, and what its tags mean
 
-Building from the repo (what the quick start does) is one option; the other is pulling a prebuilt image from GHCR.
+Pulling a prebuilt image from GHCR is what the quick start does; building from the repo is the alternative.
 
 | Tag | Points at | Use it when |
 |---|---|---|
@@ -224,20 +390,24 @@ Building from the repo (what the quick start does) is one option; the other is p
 | `:dev` | The tip of `main`. | You want what is being worked on, and accept that it is. |
 | `:sha-a1b2c3d` | One commit, forever. **The only tag that never moves.** | The setup you would rather upgrade on purpose. |
 
+> **Only `:dev` and `:sha-…` exist right now.**
+> The image started being published after the last release, so no stable tag has been cut yet: `docker compose pull` on `:latest` or on a version tag fails with `manifest unknown` until the next release runs.
+> The rows above describe what each tag will follow once it exists — they are the naming scheme, not a list of what is on the registry today.
+
 The beta releases that `release.yml` publishes for every push to `main` do **not** get their own image — they are tagged by a workflow token, and GitHub does not fire workflows for those, by design. `:dev` is the equivalent, one image per push rather than one per tag.
 
 ### Upgrading
 
-Building locally:
-
-```bash
-git pull && docker compose build && docker compose up -d
-```
-
-Or, on a published tag:
+On a published tag:
 
 ```bash
 docker compose pull && docker compose up -d
+```
+
+Or, if you built locally:
+
+```bash
+git pull && docker compose build && docker compose up -d
 ```
 
 The volumes survive.
