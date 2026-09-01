@@ -1011,7 +1011,7 @@ fn help_tab_body(tab: usize, theme: &Theme) -> Vec<Line<'static>> {
             Line::from("  Ctrl+S      force save"),
             Line::from("  Ctrl+L      reload workspace from disk"),
             Line::from("  B           toggle inline backlinks"),
-            Line::from("  \\           toggle left sidebar (opens with focus on Pinned)"),
+            Line::from("  Ctrl+E      toggle left sidebar (opens with focus on Pinned)"),
             Line::from("  q q         quit (chord)"),
             Line::from(""),
             Line::from(Span::styled("Properties (key:: value)", theme.help_title)),
@@ -1063,7 +1063,7 @@ fn help_tab_body(tab: usize, theme: &Theme) -> Vec<Line<'static>> {
         ],
         "Sidebar" => vec![
             Line::from(Span::styled("Open / close", theme.help_title)),
-            Line::from("  \\           toggle sidebar (opens with focus on Pinned)"),
+            Line::from("  Ctrl+E      toggle sidebar (opens with focus on Pinned)"),
             Line::from("  Esc         return focus to the outline (sidebar stays open)"),
             Line::from(""),
             Line::from(Span::styled("Inside the sidebar", theme.help_title)),
