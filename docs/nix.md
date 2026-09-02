@@ -162,8 +162,10 @@ The module creates a system user `outl` and two units:
   Runs as `outl` with `HOME`/`XDG_CONFIG_HOME` under `deviceDir` and `OUTL_WORKSPACE` pointing at the workspace.
   Hardened (`ProtectSystem=strict`, `ReadWritePaths` limited to the two state dirs), restarts on failure, and gets a 30 s stop grace so it can release its endpoint lease cleanly.
   It creates a `--bare` workspace on first boot if none exists.
-- **`outl-pair`** — a one-shot, *not* enabled by anything.
-  You run it once to join an existing graph (below).
+- **`outl-pair`** — an enabled one-shot that is a no-op until you place a
+  ticket: it runs at boot and exits 0 when there is nothing to do. You run it
+  once to join an existing graph (below). It is deliberately not disabled —
+  NixOS masks disabled units, which would make the manual start impossible.
 
 ### Joining an existing graph
 

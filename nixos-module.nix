@@ -72,7 +72,7 @@ let
       echo "outl-pair: $PEERS already lists peers — nothing to do (remove it to re-join)" >&2
       exit 0
     fi
-    [ -f "$TICKET" ] || { echo "outl-pair: no ticket at $TICKET" >&2; exit 1; }
+    [ -f "$TICKET" ] || { echo "outl-pair: no ticket at $TICKET — nothing to do" >&2; exit 0; }
     tr -d '[:space:]' < "$TICKET" | ${outlBin} --workspace "$WORKSPACE" peer pair --ticket - --name ${lib.escapeShellArg cfg.name}
     rm -f "$TICKET"
   '';
@@ -177,13 +177,13 @@ in
       };
     };
 
-    # Not enabled by anything: the operator runs `systemctl start outl-pair`
-    # once, after placing a ticket (see the module doc above and
-    # docs/self-hosting.md → Step 4). NixOS enables every defined service by
-    # default, so this must be stated explicitly.
+    # Enabled, but a no-op until the operator places a ticket: it runs at boot
+    # and exits 0 when there is nothing to do, so `systemctl start outl-pair`
+    # works on demand (see the module doc above and docs/self-hosting.md →
+    # Step 4). Deliberately NOT enable = false: NixOS masks disabled units,
+    # which would make the manual start impossible.
     systemd.services.outl-pair = {
       description = "outl one-time graph join (consumes ${cfg.deviceDir}/.pair-ticket)";
-      enable = false;
       after = [ "local-fs.target" ];
       wants = [ "local-fs.target" ];
       serviceConfig = {
