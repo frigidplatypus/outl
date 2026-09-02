@@ -140,6 +140,10 @@ in
     systemd.tmpfiles.rules = [
       "d ${cfg.workspace} 0750 outl outl - -"
       "d ${cfg.deviceDir} 0750 outl outl - -"
+      # tmpfiles applies the mode/owner to the final path element only; without
+      # this line the intermediate .config dir is left root-owned and the
+      # unprivileged wrapper cannot create .config/outl inside it.
+      "d ${cfg.deviceDir}/.config 0750 outl outl - -"
       "d ${cfg.deviceDir}/.config/outl 0750 outl outl - -"
     ];
 
@@ -175,9 +179,11 @@ in
 
     # Not enabled by anything: the operator runs `systemctl start outl-pair`
     # once, after placing a ticket (see the module doc above and
-    # docs/self-hosting.md → Step 4).
+    # docs/self-hosting.md → Step 4). NixOS enables every defined service by
+    # default, so this must be stated explicitly.
     systemd.services.outl-pair = {
       description = "outl one-time graph join (consumes ${cfg.deviceDir}/.pair-ticket)";
+      enable = false;
       after = [ "local-fs.target" ];
       wants = [ "local-fs.target" ];
       serviceConfig = {
