@@ -393,7 +393,8 @@ Hooks are dispatched once per mutation; a hook that itself mutates the workspace
   Descendants are indented by `2 * (depth + 1)` spaces before their `↳ ` so children align under the source's *text*, not under the parent's `↳ `.
   Task checkboxes (`☐` TODO, `◐` DOING, `☑` DONE), page refs, and tags render with their normal styling inside the expansion.
   Recursion is capped at depth 4 to break embed cycles.
-  The cursor-bearing block always keeps the raw `((…))` / `!((…))` literal on its first row so column counting stays exact.
+   The cursor-bearing block always keeps the raw `((…))` / `!((…))` literal on its first row so column counting stays exact.
+   A block whose first line is an ATX heading (`#`–`######` followed by a space) renders as a header: the leading `- ` bullet is replaced by a circled level marker (①–⑥) in the palette's per-level header colour, and the `#` markers are stripped from the displayed text. The cursor-bearing row keeps the raw `#` markers so byte columns stay exact, mirroring the raw-literal rule above.
 - **Backlinks (inline)** — rendered below the outline, separated by a full-width `─` rule.
   Every block in any other page that contains `[[this]]` or `#this` shows up with its children, grouped by source page.
   Pages are ordered by how recently they referenced this page (default: most recent on top); `Ctrl+O` flips the direction, shown in the section header (`↓ newest (^O)` / `↑ oldest (^O)`).

@@ -70,6 +70,7 @@ If you add a new field to `Theme`, **every preset must set it** — the compiler
 | `cursor_caret` | Thin caret (`▏`) at end-of-line or in Insert |
 | `property_key` / `property_value` | `key:: value` lines |
 | `heading` | Page title in the header |
+| `header_levels` | ATX block headers (`#`–`######`) — one style per level, index `level - 1`; the leading `- ` is replaced by a circled level marker (①–⑥) |
 
 ### Inline tokens
 

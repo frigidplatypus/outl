@@ -95,6 +95,20 @@ pub struct Palette {
     /// Delimiter dim (`**`, `~~`, `` ` ``) in raw render.
     pub dim_fg: String,
 
+    // ── block headers (ATX `#`…`######`) ──────────────────────────
+    /// Level-1 header (`# …`) foreground.
+    pub header_fg_1: String,
+    /// Level-2 header (`## …`) foreground.
+    pub header_fg_2: String,
+    /// Level-3 header (`### …`) foreground.
+    pub header_fg_3: String,
+    /// Level-4 header (`#### …`) foreground.
+    pub header_fg_4: String,
+    /// Level-5 header (`##### …`) foreground.
+    pub header_fg_5: String,
+    /// Level-6 header (`###### …`) foreground.
+    pub header_fg_6: String,
+
     // ── selection / cursor ────────────────────────────────────────
     /// Selected bullet — background.
     pub selected_bullet_bg: String,
@@ -164,6 +178,12 @@ impl Palette {
             ("property_value_fg", &self.property_value_fg),
             ("heading_fg", &self.heading_fg),
             ("dim_fg", &self.dim_fg),
+            ("header_fg_1", &self.header_fg_1),
+            ("header_fg_2", &self.header_fg_2),
+            ("header_fg_3", &self.header_fg_3),
+            ("header_fg_4", &self.header_fg_4),
+            ("header_fg_5", &self.header_fg_5),
+            ("header_fg_6", &self.header_fg_6),
             ("selected_bullet_bg", &self.selected_bullet_bg),
             ("selected_bullet_fg", &self.selected_bullet_fg),
             ("cursor_block_bg", &self.cursor_block_bg),

@@ -91,6 +91,26 @@ fn theme_from_palette(name: &'static str, p: &Palette) -> Theme {
         heading: Style::default()
             .fg(hex_to_color(&p.heading_fg))
             .add_modifier(Modifier::BOLD),
+        header_levels: [
+            Style::default()
+                .fg(hex_to_color(&p.header_fg_1))
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(hex_to_color(&p.header_fg_2))
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(hex_to_color(&p.header_fg_3))
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(hex_to_color(&p.header_fg_4))
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(hex_to_color(&p.header_fg_5))
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(hex_to_color(&p.header_fg_6))
+                .add_modifier(Modifier::BOLD),
+        ],
         dim: Style::default().fg(hex_to_color(&p.dim_fg)),
         border: Style::default().fg(hex_to_color(&p.border)),
         hint: Style::default().fg(hex_to_color(&p.hint)),
@@ -178,6 +198,9 @@ pub struct Theme {
     pub property_value: Style,
     /// Page heading shown in the main header.
     pub heading: Style,
+    /// ATX block headers (`#`…`######`) — one style per level, index
+    /// `level - 1`. BOLD; hue from the palette's `header_fg_N`.
+    pub header_levels: [Style; 6],
     /// Dim, used for delimiters in raw render (`**`, `~~`, etc).
     pub dim: Style,
 
@@ -313,6 +336,26 @@ pub fn default_dark() -> Theme {
         property_key: Style::default().fg(Color::DarkGray),
         property_value: Style::default().fg(Color::Gray),
         heading: Style::default().add_modifier(Modifier::BOLD),
+        header_levels: [
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Blue)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Gray)
+                .add_modifier(Modifier::BOLD),
+        ],
         dim: Style::default().fg(Color::DarkGray),
         border: Style::default().fg(Color::DarkGray),
         hint: Style::default().fg(Color::Gray),
@@ -388,6 +431,24 @@ pub fn light() -> Theme {
         heading: Style::default()
             .fg(Color::Black)
             .add_modifier(Modifier::BOLD),
+        header_levels: [
+            Style::default()
+                .fg(Color::Blue)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        ],
         dim: Style::default().fg(Color::Gray),
         border: Style::default().fg(Color::Gray),
         hint: Style::default().fg(Color::DarkGray),

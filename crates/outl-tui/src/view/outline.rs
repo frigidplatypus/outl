@@ -10,7 +10,7 @@ use crate::view::inline::{highlight_inline, render_markdown_inline, render_prett
 use crate::view::wrap::push_wrapped;
 use outl_md::inline::{byte_index_for_char, tokenize, InlineTok};
 use outl_md::parse::{OutlineNode, ParsedPage};
-use outl_md::view::{block_to_rows, BlockRowKind};
+use outl_md::view::{block_to_rows, header_level, BlockRowKind};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
@@ -27,6 +27,12 @@ use ratatui::text::{Line, Span};
 /// expansion ever lands, add a `visited: &HashSet<&str>` argument and
 /// short-circuit when the current handle is already in the set.
 const EMBED_MAX_DEPTH: u32 = 4;
+
+/// Circled-digit glyphs drawn in place of the `- ` bullet on an ATX
+/// header block, indexed by `header_level - 1`. One glyph per level
+/// (①–⑥) so a heading's rank reads at a glance without the raw `#`
+/// markers, which pretty mode strips from the text.
+const HEADER_GLYPHS: [char; 6] = ['①', '②', '③', '④', '⑤', '⑥'];
 
 /// Render the outline into a flat list of `Line`s for ratatui, and
 /// report the visual line index where the *selected* block's bullet
@@ -409,6 +415,13 @@ pub(crate) fn emit_block_lines(
     );
     let rows = block_to_rows(text, indent, cursor_char);
 
+    // Is this block an ATX header? The level drives both the circled
+    // number in the bullet slot and the `#{n} ` prefix we strip in
+    // pretty mode. Computed once from the full block text (only its
+    // first line matters).
+    let header = header_level(text);
+    let header_prefix: Option<String> = header.map(|lvl| format!("{} ", "#".repeat(lvl as usize)));
+
     // TODO/DONE checkbox decoration only fits on single-line bullets
     // (multi-line ones would have the icon floating above body text).
     let single_line_pretty = pretty && rows.len() == 1;
@@ -441,7 +454,16 @@ pub(crate) fn emit_block_lines(
                 if has_auto_run {
                     head.push(Span::styled(icons::BOLT, app.theme.hint));
                 }
-                head.push(Span::styled("- ", bullet_style));
+                match header {
+                    Some(lvl) => {
+                        let idx = (lvl - 1) as usize;
+                        head.push(Span::styled(
+                            format!("{} ", HEADER_GLYPHS[idx]),
+                            app.theme.header_levels[idx],
+                        ));
+                    }
+                    None => head.push(Span::styled("- ", bullet_style)),
+                }
             }
             BlockRowKind::Continuation
             | BlockRowKind::CodeFenceMarker
@@ -459,6 +481,17 @@ pub(crate) fn emit_block_lines(
         }
 
         let mut content: Vec<Span<'static>> = Vec::new();
+        // A header's `#{n} ` marker is chrome, not content: in pretty
+        // mode we drop it from the first row so the heading reads as
+        // prose (the circled number in the bullet slot carries the
+        // level). Raw / cursor rows keep it so columns map 1:1 to the
+        // source bytes the user typed.
+        let display = match (pretty, row.kind, &header_prefix) {
+            (true, BlockRowKind::Bullet, Some(prefix)) => {
+                row.text.strip_prefix(prefix.as_str()).unwrap_or(row.text)
+            }
+            _ => row.text,
+        };
         // If the cursor is on this row we always go raw — we want
         // bytes to line up with what the user typed, regardless of
         // fence state.
@@ -473,13 +506,13 @@ pub(crate) fn emit_block_lines(
                 && row.text.trim_start().starts_with("```");
             match row.kind {
                 _ if pretty && bullet_is_fence_opener => {
-                    content.push(Span::styled(row.text.to_string(), app.theme.dim));
+                    content.push(Span::styled(display.to_string(), app.theme.dim));
                 }
                 BlockRowKind::CodeFenceMarker if pretty => {
-                    content.push(Span::styled(row.text.to_string(), app.theme.dim));
+                    content.push(Span::styled(display.to_string(), app.theme.dim));
                 }
                 BlockRowKind::CodeFenceBody if pretty => {
-                    content.push(Span::styled(row.text.to_string(), app.theme.code));
+                    content.push(Span::styled(display.to_string(), app.theme.code));
                 }
                 BlockRowKind::Bullet if single_line_pretty => {
                     // Single owner for the bullet's pretty render: it
@@ -489,9 +522,9 @@ pub(crate) fn emit_block_lines(
                     // function the embed expansion uses, so the
                     // chrome stays in lockstep between bullet and
                     // embed root.
-                    content.extend(render_pretty_block_text(row.text, &app.theme, &app.index));
+                    content.extend(render_pretty_block_text(display, &app.theme, &app.index));
                 }
-                _ => content.extend(render_markdown_inline(row.text, &app.theme, &app.index)),
+                _ => content.extend(render_markdown_inline(display, &app.theme, &app.index)),
             }
         }
 
@@ -708,6 +741,70 @@ mod tests {
         // re-indents under the text column (two leading spaces).
         assert!(line_text(&lines[0]).contains("- "));
         assert!(line_text(&lines[1]).starts_with("  "));
+    }
+
+    /// A level-2 header in pretty mode draws the circled number in the
+    /// bullet slot and drops the `## ` marker so the heading reads as
+    /// prose.
+    #[test]
+    fn pretty_header_shows_circled_level_and_strips_hashes() {
+        let (app, _dir) = test_app();
+        let out = render_block_lines(
+            &app,
+            RenderMode::Pretty {
+                text: "## Section".into(),
+            },
+            80,
+        );
+        let text = line_text(&out[0]);
+        assert!(text.contains('②'), "expected level-2 glyph, got: {text}");
+        assert!(
+            !text.contains('#'),
+            "pretty header must not show hashes: {text}"
+        );
+        assert!(
+            text.contains("Section"),
+            "heading body must survive: {text}"
+        );
+    }
+
+    /// The same header under the cursor stays raw: the `## ` marker is
+    /// kept so cursor columns map 1:1 to source bytes, while the
+    /// circled number still marks the level in the bullet slot.
+    #[test]
+    fn raw_header_keeps_hashes_for_byte_alignment() {
+        let (app, _dir) = test_app();
+        let out = render_block_lines(
+            &app,
+            RenderMode::NormalCursor {
+                text: "## Section".into(),
+                cursor_char: 0,
+            },
+            80,
+        );
+        let text = line_text(&out[0]);
+        assert!(text.contains('②'), "expected level-2 glyph, got: {text}");
+        assert!(text.contains("##"), "raw header must keep hashes: {text}");
+    }
+
+    /// A non-header block keeps the plain `- ` bullet and never draws a
+    /// circled digit.
+    #[test]
+    fn plain_block_keeps_dash_bullet() {
+        let (app, _dir) = test_app();
+        let out = render_block_lines(
+            &app,
+            RenderMode::Pretty {
+                text: "just text".into(),
+            },
+            80,
+        );
+        let text = line_text(&out[0]);
+        assert!(text.contains("- "), "expected dash bullet, got: {text}");
+        assert!(
+            !text.contains('①'),
+            "non-header must not draw a circled digit: {text}"
+        );
     }
 
     #[test]

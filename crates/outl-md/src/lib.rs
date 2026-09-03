@@ -69,4 +69,4 @@ pub use sidecar::{
 pub use slug::{slugify, UNTITLED_SLUG};
 pub use tag::text_contains_tag;
 pub use unlogged::content_lines_missing_from;
-pub use view::{block_to_rows, char_to_line_col, BlockRow, BlockRowKind};
+pub use view::{block_to_rows, char_to_line_col, header_level, BlockRow, BlockRowKind};

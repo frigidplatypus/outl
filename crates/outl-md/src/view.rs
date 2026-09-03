@@ -130,6 +130,32 @@ pub fn line_col_to_char(s: &str, target_line: usize, target_col: usize) -> usize
     total
 }
 
+/// Classify a block's first line as an ATX markdown header.
+///
+/// Returns the header level (`1..=6`) when the block's **first line**
+/// opens with 1–6 `#` characters followed by a space — the CommonMark
+/// ATX heading form. Seven or more hashes, or no following space, is
+/// *not* a header and returns `None`, matching CommonMark where
+/// `#######` is plain text.
+///
+/// The required space is what keeps this unambiguous with `#tag`:
+/// `#tag` (no space) tokenizes as a tag, while `# tag` (space) is a
+/// level-1 header. A bare `##` with no text is not a header either.
+///
+/// Only the first line is consulted; continuation lines never make a
+/// block a header. This is UI-agnostic — the TUI, desktop, and mobile
+/// clients all call it to decide whether to draw the header indicator,
+/// so the rule lives here rather than being re-derived per client.
+pub fn header_level(text: &str) -> Option<u8> {
+    let first = text.lines().next()?;
+    let hashes = first.bytes().take_while(|b| *b == b'#').count();
+    if (1..=6).contains(&hashes) && first.as_bytes().get(hashes) == Some(&b' ') {
+        Some(hashes as u8)
+    } else {
+        None
+    }
+}
+
 /// Decompose a block's `text` into visual rows.
 ///
 /// `cursor_char`, when present, is a char index into `text` (counting
@@ -304,5 +330,52 @@ mod tests {
     #[test]
     fn line_col_to_char_lands_at_zero_on_origin() {
         assert_eq!(line_col_to_char("anything", 0, 0), 0);
+    }
+
+    #[test]
+    fn header_level_detects_atx_headings() {
+        assert_eq!(header_level("# Title"), Some(1));
+        assert_eq!(header_level("## Title"), Some(2));
+        assert_eq!(header_level("### Sub"), Some(3));
+        assert_eq!(header_level("#### Deep"), Some(4));
+        assert_eq!(header_level("##### Deeper"), Some(5));
+        assert_eq!(header_level("###### Deepest"), Some(6));
+    }
+
+    #[test]
+    fn header_level_rejects_seven_or_more_hashes() {
+        // CommonMark: 7+ hashes is not a heading.
+        assert_eq!(header_level("####### seven"), None);
+        assert_eq!(header_level("######## eight"), None);
+    }
+
+    #[test]
+    fn header_level_requires_a_space_after_hashes() {
+        // No space → not a header (and `#tag` is a tag, not a header).
+        assert_eq!(header_level("#nospace"), None);
+        assert_eq!(header_level("#tag"), None);
+        assert_eq!(header_level("##tight"), None);
+    }
+
+    #[test]
+    fn header_level_rejects_bare_hashes_and_empty() {
+        assert_eq!(header_level("##"), None);
+        assert_eq!(header_level("#"), None);
+        assert_eq!(header_level(""), None);
+    }
+
+    #[test]
+    fn header_level_only_consults_the_first_line() {
+        // A header-looking line below the first is not a header.
+        assert_eq!(header_level("intro\n## not a header"), None);
+        // But a real header on line one wins even with continuations.
+        assert_eq!(header_level("## Header\nbody text"), Some(2));
+    }
+
+    #[test]
+    fn header_level_requires_column_zero() {
+        // Indented hashes are not headers (block text is column-0).
+        assert_eq!(header_level("  # indented"), None);
+        assert_eq!(header_level("\t# tabbed"), None);
     }
 }
