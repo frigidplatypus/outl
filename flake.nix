@@ -23,15 +23,15 @@
       flake-utils,
       rust-overlay,
     }:
-      # Packages are built for Linux only. macOS users get config-file
-      # management via homeManagerModules (see hm-module.nix) but no Nix-built
-      # package: the Tauri desktop build needs Apple SDK frameworks that
-      # current nixpkgs no longer exposes as stable attributes.
-      flake-utils.lib.eachSystem
-        [
-          "x86_64-linux"
-          "aarch64-linux"
-        ]
+    # Packages are built for Linux only. macOS users get config-file
+    # management via homeManagerModules (see hm-module.nix) but no Nix-built
+    # package: the Tauri desktop build needs Apple SDK frameworks that
+    # current nixpkgs no longer exposes as stable attributes.
+    flake-utils.lib.eachSystem
+      [
+        "x86_64-linux"
+        "aarch64-linux"
+      ]
       (
         system:
         let
@@ -43,7 +43,8 @@
           version = "0.12.0";
           projectSrc = pkgs.lib.cleanSourceWith {
             src = self;
-            filter = path: type:
+            filter =
+              path: type:
               let
                 name = pkgs.lib.baseNameOf path;
               in
@@ -116,7 +117,7 @@
             # Run build to get the correct hash from the error message
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
-            outputHash = "sha256-Tpy7kbULEd4IFTpkfVf0gQOc+JohjXxVm1vlGe10BOY=";
+            outputHash = "sha256-NPG2tvhBIHMues8JnbxqDYHCXQ1z1HekgizLQJjx3pE=";
 
             buildPhase = ''
               export HOME=$TMPDIR
@@ -157,7 +158,10 @@
             # Plain `cargo build` (not the tauri CLI) leaves Tauri in dev mode,
             # so the webview would load localhost:1421. Enable the production
             # feature to embed the frontend instead.
-            cargoBuildFlags = [ "--features" "production" ];
+            cargoBuildFlags = [
+              "--features"
+              "production"
+            ];
 
             nativeBuildInputs = with pkgs; [
               rustToolchain
@@ -201,12 +205,16 @@
           };
 
           devShells.default = pkgs.mkShell {
-            inputsFrom = [ outl outl-desktop ];
+            inputsFrom = [
+              outl
+              outl-desktop
+            ];
             packages = with pkgs; [
               rustToolchain
               cargo-tauri
               bun
               nodejs
+              just
             ];
           };
 
