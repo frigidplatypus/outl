@@ -63,6 +63,12 @@ import { detectFence } from "@outl/shared/highlight";
 import { readText as readClipboardText } from "@tauri-apps/plugin-clipboard-manager";
 import { appState, setAppState } from "../lib/store";
 import { handlePopupNav } from "../lib/popup-nav";
+import {
+  HEADER_GLYPHS,
+  headerFgVar,
+  stripHeaderMarkerFromText,
+  stripHeaderMarkerFromTokens,
+} from "../lib/headers";
 import { PropertyEditor } from "./PropertyEditor";
 import {
   assetSlashCommands,
@@ -784,6 +790,15 @@ export function BlockRow(props: {
     );
   }
 
+  /** ATX header level (1–6, else `null`). Backend-derived (single owner
+   *  `outl_md::view::header_level`); a header can't also be a task — the
+   *  `#` must lead the line, so `TODO # x` is never a header. Shown even
+   *  while editing (the TUI keeps the header glyph in the bullet slot
+   *  under the cursor too); the raw `#` marker is what the textarea
+   *  holds in edit mode. */
+  function headerLevel(): number | null {
+    return props.block.header_level;
+  }
   /** Task state to render the bullet by. Edit mode is the
    *  **raw markdown view** — the `TODO `/`DOING `/`DONE ` prefix is
    *  literally visible in the textarea, so the bullet collapses to the
@@ -793,9 +808,12 @@ export function BlockRow(props: {
     return isEditing() ? null : props.block.todo;
   }
 
-  /** Bullet glyph + click action — folds the task states and none into
-   *  a single visual primitive (TUI parity, `▢` / `▨` / `▣` / `•`). */
+  /** Bullet glyph + click action — folds the task states, the neutral
+   *  bullet, and headers into one visual primitive (TUI parity:
+   *  `▢` / `▨` / `▣` / `•` / header glyph). */
   function bulletGlyph(): string {
+    const h = headerLevel();
+    if (h !== null) return HEADER_GLYPHS[h - 1];
     const t = effectiveTodo();
     if (t === "DONE") return "▣";
     if (t === "DOING") return "▨";
@@ -803,6 +821,10 @@ export function BlockRow(props: {
     return "•";
   }
   function bulletClass(): string {
+    // Header colour + weight ride an inline `style` (the `--color-outl-
+    // header-fg-N` var is indexed by level, which Tailwind's JIT can't
+    // see as a literal class). Non-header bullets keep their class.
+    if (headerLevel() !== null) return "";
     const t = effectiveTodo();
     if (t === "DONE") {
       return "text-(--color-outl-todo-done-fg)";
@@ -815,7 +837,10 @@ export function BlockRow(props: {
     return "text-(--color-outl-fg-dimmer)";
   }
   /** Body styling — DONE blocks render dim + struck-through (TUI
-   *  uses theme.todo_done_body which is fg_dimmer + CROSSED_OUT). */
+   *  uses theme.todo_done_body which is fg_dimmer + CROSSED_OUT).
+   *  Headers get their bold + colour on the read-mode branch only, so
+   *  the raw textarea in edit mode stays unadorned (TUI parity: cursor
+   *  rows go raw). */
   function bodyClass(): string {
     return props.block.todo === "DONE" ? "line-through opacity-60" : "";
   }
@@ -939,38 +964,61 @@ export function BlockRow(props: {
           //     the block (Roam/Workflowy focus). When zoom isn't wired
           //     (`onFocusBlock` absent) it falls back to the TODO toggle,
           //     preserving the old "click a plain bullet to add TODO".
-          const zoomableBullet = props.block.todo === null && !!props.cb.onFocusBlock;
+          //   - A header glyph is never a task: click zooms when focus is
+          //     available, else the button is inert (not a silent TODO).
+          const hLevel = headerLevel();
+          const zoomableBullet =
+            props.block.todo === null && !!props.cb.onFocusBlock;
           const bullet = (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
+                if (hLevel !== null) {
+                  if (zoomableBullet) props.cb.onFocusBlock?.(props.block.id);
+                  return;
+                }
                 if (zoomableBullet) props.cb.onFocusBlock?.(props.block.id);
                 else void props.cb.onToggleTodo(props.block.id);
               }}
-              {...(isInteractive() ? { "data-todo": "true" } : {})}
-              class={`outl-row-chrome mt-[5px] mr-2 w-3 shrink-0 cursor-pointer select-none text-center text-[13px] leading-none transition-opacity hover:opacity-70 ${bulletClass()}`}
+              {...(isInteractive() && hLevel === null ? { "data-todo": "true" } : {})}
+              style={
+                hLevel !== null
+                  ? { color: headerFgVar(hLevel) }
+                  : undefined
+              }
+              class={`outl-row-chrome mt-[5px] mr-2 w-3 shrink-0 select-none text-center text-[13px] leading-none transition-opacity ${
+                hLevel != null ? "cursor-pointer hover:opacity-70" : "cursor-default"
+              } ${bulletClass()}${hLevel !== null ? " outl-header-glyph" : ""}`}
               title={
-                props.block.todo === "DONE"
-                  ? "Click to uncheck"
-                  : props.block.todo === "DOING"
-                    ? "Click to mark done"
-                    : props.block.todo === "TODO"
-                      ? "Click to mark doing"
-                      : zoomableBullet
-                        ? "Click to zoom in"
-                        : "Click to mark as TODO"
+                hLevel !== null
+                  ? zoomableBullet
+                    ? `Heading level ${hLevel} — click to zoom in`
+                    : `Heading level ${hLevel}`
+                  : props.block.todo === "DONE"
+                    ? "Click to uncheck"
+                    : props.block.todo === "DOING"
+                      ? "Click to mark done"
+                      : props.block.todo === "TODO"
+                        ? "Click to mark doing"
+                        : zoomableBullet
+                          ? "Click to zoom in"
+                          : "Click to mark as TODO"
               }
               aria-label={
-                props.block.todo === "DONE"
-                  ? "Mark not done"
-                  : props.block.todo === "DOING"
-                    ? "Mark done"
-                    : props.block.todo === "TODO"
-                      ? "Mark doing"
-                      : zoomableBullet
-                        ? "Zoom in on block"
-                        : "Mark as TODO"
+                hLevel !== null
+                  ? zoomableBullet
+                    ? `Zoom in on heading ${hLevel}`
+                    : `Heading level ${hLevel}`
+                  : props.block.todo === "DONE"
+                    ? "Mark not done"
+                    : props.block.todo === "DOING"
+                      ? "Mark done"
+                      : props.block.todo === "TODO"
+                        ? "Mark doing"
+                        : zoomableBullet
+                          ? "Zoom in on block"
+                          : "Mark as TODO"
               }
             >
               {bulletGlyph()}
@@ -1002,15 +1050,30 @@ export function BlockRow(props: {
                       ) : (
                         (() => {
                           // The chrome lives on the wrapper a level
-                          // up — here we just strip the `> ` from the
-                          // tokens so the marker doesn't double-paint.
+                          // up — here we just strip the block-level
+                          // markers (`"> "` quote, `#{n} ` header) from
+                          // the tokens so they don't double-paint; the
+                          // bullet slot already carries the chrome.
                           const split = splitQuote(props.block.text);
+                          const hLevel = headerLevel();
                           const renderedTokens = split.quoted
                             ? stripQuoteFromTokens(props.block.tokens)
-                            : props.block.tokens;
+                            : hLevel !== null
+                              ? stripHeaderMarkerFromTokens(
+                                  props.block.tokens,
+                                  hLevel,
+                                )
+                              : props.block.tokens;
+                          const bodyText =
+                            hLevel !== null
+                              ? stripHeaderMarkerFromText(
+                                  props.block.text,
+                                  hLevel,
+                                )
+                              : props.block.text;
                           const hasContent = split.quoted
                             ? split.body.length > 0
-                            : Boolean(props.block.text);
+                            : Boolean(bodyText);
                           // When the block is *only* an embed (`!((blk-…))`
                           // with no surrounding prose), expand the resolved
                           // source subtree below the `↳ text` line —
@@ -1024,7 +1087,14 @@ export function BlockRow(props: {
                           return (
                             <>
                               <div
-                                class="cursor-text whitespace-pre-wrap break-words"
+                                class={`cursor-text whitespace-pre-wrap break-words ${
+                                  hLevel !== null ? "font-bold" : ""
+                                }`}
+                                style={
+                                  hLevel !== null
+                                    ? { color: headerFgVar(hLevel) }
+                                    : undefined
+                                }
                                 onClick={() => {
                                   setDraft(rawTextWithTodo(props.block));
                                   props.cb.onStartEdit(props.block.id);
@@ -1042,7 +1112,7 @@ export function BlockRow(props: {
                                       {hasContent
                                         ? split.quoted
                                           ? split.body
-                                          : props.block.text
+                                          : bodyText
                                         : "Click to add text…"}
                                     </span>
                                   }

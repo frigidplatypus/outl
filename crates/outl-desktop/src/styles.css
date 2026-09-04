@@ -124,4 +124,11 @@
     background-color: var(--color-outl-bg);
     color: var(--color-outl-fg);
   }
+  /* Header level glyph — Nerd Font Material Design `format_header_N`
+   * icon (U+F026B–U+F0270), subset into `public/fonts/header-icons.woff2`.
+   * Applied only on the bullet of a header row; everything else keeps
+   * the system stack. */
+  .outl-header-glyph {
+    font-family: "outl-header-icons", sans-serif;
+  }
 }

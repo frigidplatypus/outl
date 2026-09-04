@@ -57,3 +57,22 @@ pub const HASHTAG: &str = "\u{f292}";
 
 /// Reminder / bell (`nf-fa-bell`).
 pub const BELL: &str = "\u{f0f3}";
+
+/// ATX header level 1 (`nf-md-format_header_1`) — drawn in place of the
+/// `- ` bullet on a `# …` block. Levels 2–6 follow contiguously.
+pub const HEADER_1: &str = "\u{f026b}";
+
+/// ATX header level 2 (`nf-md-format_header_2`).
+pub const HEADER_2: &str = "\u{f026c}";
+
+/// ATX header level 3 (`nf-md-format_header_3`).
+pub const HEADER_3: &str = "\u{f026d}";
+
+/// ATX header level 4 (`nf-md-format_header_4`).
+pub const HEADER_4: &str = "\u{f026e}";
+
+/// ATX header level 5 (`nf-md-format_header_5`).
+pub const HEADER_5: &str = "\u{f026f}";
+
+/// ATX header level 6 (`nf-md-format_header_6`).
+pub const HEADER_6: &str = "\u{f0270}";

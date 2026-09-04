@@ -35,6 +35,7 @@ function backlink(id: string, todo: TodoState | null): Backlink {
       id,
       text: "task #project",
       todo,
+      header_level: null,
       tokens: [
         { kind: "plain", value: "task " },
         { kind: "tag", value: "#project" },

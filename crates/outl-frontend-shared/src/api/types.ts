@@ -106,6 +106,15 @@ export interface BlockNode {
   text: string;
   todo: TodoState | null;
   /**
+   * ATX header level (1–6) when the block's first text line is `#`…`######`
+   * followed by a space, else `null`. Backend derives it from the block
+   * text via `outl_md::view::header_level` (single owner of "is this a
+   * header"). The desktop renders a per-level header glyph in place of the
+   * bullet; the mobile client ignores it. Mirrors the Rust `Option<u8>
+   * OutlineNode.header_level`.
+   */
+  header_level: number | null;
+  /**
    * Inline markdown tokens for `text` (no TODO/DONE prefix). Backend
    * pre-tokenizes via `outl_md::tokenize_owned` so the renderer
    * doesn't run a second tokenizer in JS. See {@link InlineToken}.

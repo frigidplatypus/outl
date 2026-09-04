@@ -28,11 +28,19 @@ use ratatui::text::{Line, Span};
 /// short-circuit when the current handle is already in the set.
 const EMBED_MAX_DEPTH: u32 = 4;
 
-/// Circled-digit glyphs drawn in place of the `- ` bullet on an ATX
-/// header block, indexed by `header_level - 1`. One glyph per level
-/// (①–⑥) so a heading's rank reads at a glance without the raw `#`
-/// markers, which pretty mode strips from the text.
-const HEADER_GLYPHS: [char; 6] = ['①', '②', '③', '④', '⑤', '⑥'];
+/// Header-level glyphs drawn in place of the `- ` bullet on an ATX
+/// header block, indexed by `header_level - 1`. One Material Design
+/// `format_header_N` glyph per level (H1–H6) so a heading's rank reads
+/// at a glance without the raw `#` markers, which pretty mode strips
+/// from the text. Codepoints live in [`crate::icons`].
+const HEADER_GLYPHS: [&str; 6] = [
+    icons::HEADER_1,
+    icons::HEADER_2,
+    icons::HEADER_3,
+    icons::HEADER_4,
+    icons::HEADER_5,
+    icons::HEADER_6,
+];
 
 /// Render the outline into a flat list of `Line`s for ratatui, and
 /// report the visual line index where the *selected* block's bullet
@@ -483,7 +491,7 @@ pub(crate) fn emit_block_lines(
         let mut content: Vec<Span<'static>> = Vec::new();
         // A header's `#{n} ` marker is chrome, not content: in pretty
         // mode we drop it from the first row so the heading reads as
-        // prose (the circled number in the bullet slot carries the
+        // prose (the header glyph in the bullet slot carries the
         // level). Raw / cursor rows keep it so columns map 1:1 to the
         // source bytes the user typed.
         let display = match (pretty, row.kind, &header_prefix) {
@@ -743,11 +751,11 @@ mod tests {
         assert!(line_text(&lines[1]).starts_with("  "));
     }
 
-    /// A level-2 header in pretty mode draws the circled number in the
+    /// A level-2 header in pretty mode draws the header glyph in the
     /// bullet slot and drops the `## ` marker so the heading reads as
     /// prose.
     #[test]
-    fn pretty_header_shows_circled_level_and_strips_hashes() {
+    fn pretty_header_shows_level_glyph_and_strips_hashes() {
         let (app, _dir) = test_app();
         let out = render_block_lines(
             &app,
@@ -757,7 +765,10 @@ mod tests {
             80,
         );
         let text = line_text(&out[0]);
-        assert!(text.contains('②'), "expected level-2 glyph, got: {text}");
+        assert!(
+            text.contains(HEADER_GLYPHS[1]),
+            "expected level-2 glyph, got: {text}"
+        );
         assert!(
             !text.contains('#'),
             "pretty header must not show hashes: {text}"
@@ -770,7 +781,7 @@ mod tests {
 
     /// The same header under the cursor stays raw: the `## ` marker is
     /// kept so cursor columns map 1:1 to source bytes, while the
-    /// circled number still marks the level in the bullet slot.
+    /// header glyph still marks the level in the bullet slot.
     #[test]
     fn raw_header_keeps_hashes_for_byte_alignment() {
         let (app, _dir) = test_app();
@@ -783,12 +794,15 @@ mod tests {
             80,
         );
         let text = line_text(&out[0]);
-        assert!(text.contains('②'), "expected level-2 glyph, got: {text}");
+        assert!(
+            text.contains(HEADER_GLYPHS[1]),
+            "expected level-2 glyph, got: {text}"
+        );
         assert!(text.contains("##"), "raw header must keep hashes: {text}");
     }
 
     /// A non-header block keeps the plain `- ` bullet and never draws a
-    /// circled digit.
+    /// header glyph.
     #[test]
     fn plain_block_keeps_dash_bullet() {
         let (app, _dir) = test_app();
@@ -802,8 +816,8 @@ mod tests {
         let text = line_text(&out[0]);
         assert!(text.contains("- "), "expected dash bullet, got: {text}");
         assert!(
-            !text.contains('①'),
-            "non-header must not draw a circled digit: {text}"
+            !HEADER_GLYPHS.iter().any(|g| text.contains(g)),
+            "non-header must not draw a header glyph: {text}"
         );
     }
 

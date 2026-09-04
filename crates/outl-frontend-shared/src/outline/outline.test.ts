@@ -35,6 +35,7 @@ function block(
     id,
     text: opts.text ?? id,
     todo: opts.todo ?? null,
+    header_level: null,
     tokens: [],
     collapsed: opts.collapsed ?? false,
     properties: [],
@@ -454,7 +455,7 @@ describe("embedOnlyHandle", () => {
 
 describe("collectBlockRefHandles", () => {
   function node(id: string, tokens: InlineToken[], children: BlockNode[] = []): BlockNode {
-    return { id, text: "", todo: null, tokens, collapsed: false, properties: [], children };
+    return { id, text: "", todo: null, header_level: null, tokens, collapsed: false, properties: [], children };
   }
 
   it("collects both blockref and embed handles", () => {

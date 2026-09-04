@@ -349,6 +349,7 @@ fn shallow_parsed(node: &OutlineNode) -> OutlineNode {
     OutlineNode {
         id: node.id.clone(),
         text: node.text.clone(),
+        header_level: node.header_level,
         todo: node.todo,
         collapsed: node.collapsed,
         properties: node.properties.clone(),

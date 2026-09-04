@@ -67,6 +67,7 @@ function block(id: string, text: string): BlockNode {
     id,
     text,
     todo: null,
+    header_level: null,
     tokens: [],
     collapsed: false,
     properties: [],

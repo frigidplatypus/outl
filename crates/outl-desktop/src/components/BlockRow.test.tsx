@@ -35,12 +35,17 @@ vi.mock("@outl/shared/plugins/transformer-registry", () => ({
 
 let dispose: (() => void) | undefined;
 
-function makeBlock(id: string, text = "hello"): BlockNode {
+function makeBlock(
+  id: string,
+  text = "hello",
+  over: Partial<Pick<BlockNode, "header_level" | "tokens">> = {},
+): BlockNode {
   return {
     id,
     text,
     todo: null,
-    tokens: [],
+    header_level: over.header_level ?? null,
+    tokens: over.tokens ?? [],
     collapsed: false,
     properties: [],
     children: [],
@@ -87,6 +92,27 @@ function mountEditing(block: BlockNode, cb: BlockCallbacks): HTMLTextAreaElement
   const ta = host.querySelector("textarea");
   if (!ta) throw new Error("textarea did not render in edit mode");
   return ta;
+}
+
+function mountRead(
+  block: BlockNode,
+  cb: BlockCallbacks = makeCb(),
+): HTMLElement {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  dispose = render(
+    () => (
+      <BlockRow
+        block={block}
+        depth={0}
+        editingId="__not_editing__"
+        visualSet={null}
+        cb={cb}
+      />
+    ),
+    host,
+  );
+  return host;
 }
 
 afterEach(() => {
@@ -290,5 +316,46 @@ describe("BlockRow commit — the ghost-block policy (#213)", () => {
     await Promise.resolve();
 
     expect(cb.onCommit).toHaveBeenCalledWith("blk-edit", "after");
+  });
+});
+
+describe("BlockRow header rendering", () => {
+  function bulletButton(host: HTMLElement): HTMLButtonElement {
+    // The fold chevron is the *first* `button.outl-row-chrome`; the
+    // bullet renders after it in row DOM order and is the only other
+    // `outl-row-chrome` button (grep the component), so pick the last.
+    const buttons =
+      host.querySelectorAll<HTMLButtonElement>("button.outl-row-chrome");
+    const b = buttons[buttons.length - 1];
+    if (!b) throw new Error("bullet button did not render");
+    return b;
+  }
+
+  it("draws the per-level header glyph as the bullet and strips the marker in read mode", () => {
+    const block = makeBlock("blk-h2", "## Section", { header_level: 2 });
+    const host = mountRead(block);
+    // H2 → HEADER_GLYPHS[1] = U+F026C (md-format_header_2).
+    expect(bulletButton(host).textContent).toBe("\u{f026c}");
+    // The `## ` marker is chrome, not content — dropped from the body.
+    expect(host.textContent).not.toContain("##");
+    expect(host.textContent).toContain("Section");
+  });
+
+  it("never toggles a task when zoom is unwired (inert, not a silent TODO)", () => {
+    const cb = makeCb(); // no onFocusBlock → zoomableBullet is false
+    const block = makeBlock("blk-h1", "# Intro", { header_level: 1 });
+    const host = mountRead(block, cb);
+    bulletButton(host).click();
+    expect(cb.onToggleTodo).not.toHaveBeenCalled();
+  });
+
+  it("zooms into the block when focus is wired, and still never toggles a task", () => {
+    const onFocusBlock = vi.fn();
+    const cb = makeCb({ onFocusBlock });
+    const block = makeBlock("blk-h3", "### Deep", { header_level: 3 });
+    const host = mountRead(block, cb);
+    bulletButton(host).click();
+    expect(onFocusBlock).toHaveBeenCalledWith("blk-h3");
+    expect(cb.onToggleTodo).not.toHaveBeenCalled();
   });
 });

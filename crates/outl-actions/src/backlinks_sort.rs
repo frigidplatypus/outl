@@ -93,6 +93,7 @@ mod tests {
             source_block: OutlineNode {
                 id: block_id.to_string(),
                 text: block_id.to_string(),
+                header_level: None,
                 todo: None,
                 collapsed: false,
                 properties: Vec::new(),

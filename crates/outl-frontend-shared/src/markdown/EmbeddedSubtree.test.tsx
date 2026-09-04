@@ -14,6 +14,7 @@ function node(
     id,
     text,
     todo: opts.todo ?? null,
+    header_level: null,
     tokens,
     collapsed: false,
     properties: [],

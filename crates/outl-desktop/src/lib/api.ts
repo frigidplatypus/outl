@@ -169,6 +169,19 @@ export interface Palette {
   property_key_fg: string;
   property_value_fg: string;
   heading_fg: string;
+  /**
+   * Per-level ATX header colours (index `level - 1`), same set the TUI
+   * draws. The desktop applies `header_fg_{n}` to the header glyph + bold
+   * heading text of a block whose `header_level === n`. Numbered, not an
+   * array, so `applyPaletteToRoot` can write each as a CSS custom
+   * property (`--color-outl-header-fg-1` … `-6`) from `Object.entries`.
+   */
+  header_fg_1: string;
+  header_fg_2: string;
+  header_fg_3: string;
+  header_fg_4: string;
+  header_fg_5: string;
+  header_fg_6: string;
   dim_fg: string;
   selected_bullet_bg: string;
   selected_bullet_fg: string;

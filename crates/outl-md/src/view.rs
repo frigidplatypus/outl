@@ -143,9 +143,10 @@ pub fn line_col_to_char(s: &str, target_line: usize, target_col: usize) -> usize
 /// level-1 header. A bare `##` with no text is not a header either.
 ///
 /// Only the first line is consulted; continuation lines never make a
-/// block a header. This is UI-agnostic — the TUI, desktop, and mobile
-/// clients all call it to decide whether to draw the header indicator,
-/// so the rule lives here rather than being re-derived per client.
+/// block a header. This is UI-agnostic — the TUI calls it directly on
+/// the block body, and `outl-actions` calls it when projecting the
+/// outline DTO (the desktop reads the result as a field; mobile ignores
+/// it), so the rule lives here rather than being re-derived per client.
 pub fn header_level(text: &str) -> Option<u8> {
     let first = text.lines().next()?;
     let hashes = first.bytes().take_while(|b| *b == b'#').count();

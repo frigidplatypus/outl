@@ -8,6 +8,20 @@
     <title>outl</title>
     <style>
       /*
+       * Header level glyphs (H1–H6) are Nerd Font Material Design
+       * `format_header_N` icons, subset to just U+F026B–U+F0270 so the
+       * family carries nothing else. Only the header glyph span applies
+       * it — the rest of the UI keeps the system stack below.
+       */
+      @font-face {
+        font-family: "outl-header-icons";
+        src: url("/fonts/header-icons.woff2") format("woff2");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      /*
        * Boot frame painted before Vite's CSS bundle loads. The
        * var() fallbacks mirror the `outl` brand defaults from
        * styles.css so the user never sees a flash of white.

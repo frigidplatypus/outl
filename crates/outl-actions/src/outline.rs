@@ -125,6 +125,14 @@ pub struct OutlineNode {
     pub id: String,
     /// Block body without the TODO/DONE prefix.
     pub text: String,
+    /// ATX header level (`1..=6`) when the block's first line opens with
+    /// 1–6 `#` followed by a space; `None` otherwise.
+    ///
+    /// Computed once here via [`outl_md::view::header_level`] so GUI clients
+    /// render the header indicator from a single owner instead of re-deriving
+    /// the rule per client. The TUI reads its own parsed AST and calls
+    /// [`outl_md::view::header_level`] directly rather than this field.
+    pub header_level: Option<u8>,
     /// `None` for a plain bullet, `Some(Todo)` / `Some(Done)` otherwise.
     #[serde(serialize_with = "serialize_todo_state")]
     pub todo: Option<TodoState>,
@@ -255,6 +263,7 @@ pub(crate) fn project_outline_node_shallow(workspace: &Workspace, node: NodeId) 
     OutlineNode {
         id: node.to_string(),
         text: body.to_string(),
+        header_level: outl_md::view::header_level(body),
         todo,
         collapsed: workspace.tree().is_collapsed(node),
         properties,
@@ -276,6 +285,7 @@ fn project_node(workspace: &Workspace, node: NodeId, index: Option<&ChildrenInde
     OutlineNode {
         id: node.to_string(),
         text: body.to_string(),
+        header_level: outl_md::view::header_level(body),
         todo,
         collapsed: workspace.tree().is_collapsed(node),
         properties,
@@ -463,6 +473,7 @@ fn outline_from_parsed(
     OutlineNode {
         id,
         text: body.to_string(),
+        header_level: outl_md::view::header_level(body),
         todo,
         collapsed: false,
         properties,
@@ -480,6 +491,7 @@ mod tests {
         OutlineNode {
             id: format!("test-{text}"),
             text: text.into(),
+            header_level: None,
             todo: None,
             collapsed: false,
             properties: Vec::new(),
@@ -586,6 +598,7 @@ mod tests {
         OutlineNode {
             id: id.to_string(),
             text: text.into(),
+            header_level: None,
             todo: None,
             collapsed: false,
             properties: Vec::new(),
@@ -685,6 +698,7 @@ mod tests {
         let n = OutlineNode {
             id: "x".into(),
             text: "ship it".into(),
+            header_level: None,
             todo: Some(TodoState::Done),
             collapsed: false,
             properties: vec![("priority".into(), "high".into())],
