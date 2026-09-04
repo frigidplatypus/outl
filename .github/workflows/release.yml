@@ -119,9 +119,16 @@ jobs:
     if: always() && needs.prepare.result == 'success' && (needs.tag.result == 'success' || needs.tag.result == 'skipped')
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
+      # Check out the commit, not the tag we just pushed. The runner
+      # fetches through a caching git mirror, and that mirror can be hours
+      # behind: this job died on `A branch or tag with the name
+      # 'v0.12.0-beta.176' could not be found` while the tag was already on
+      # origin, and the same fetch also missed beta.174 and beta.175 from
+      # runs seven hours earlier. `github.sha` is what the `tag` job tagged,
+      # so it names the same tree and is already in the mirror.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Create release as draft
@@ -194,7 +201,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Install toolchain
         run: |
@@ -326,7 +333,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Install Rust toolchain (arm64 + x86_64 targets)
         # Plain `rustup target add` instead of `dtolnay/rust-toolchain`
@@ -427,7 +434,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -543,7 +550,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Install Rust toolchain (Android arm64 target)
         run: |
