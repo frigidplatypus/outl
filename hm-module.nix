@@ -53,6 +53,25 @@ in
         type = lib.types.str;
         description = "Path to the workspace to sync.";
       };
+
+      watch = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Run the file watcher (reconciles .md written into the workspace from outside into the op log). Disable for a pure endpoint holder: cheaper to leave running beside a GUI or TUI, since it takes no per-actor write lock.";
+      };
+
+      sync = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Hold this device's iroh endpoint so paired peers converge continuously.";
+      };
+
+      rustLog = lib.mkOption {
+        type = lib.types.str;
+        default = "info";
+        example = "outl=debug,iroh=info";
+        description = "RUST_LOG for the daemon. Use outl=debug when diagnosing a pairing that will not connect.";
+      };
     };
 
     settings = lib.mkOption {
@@ -249,7 +268,8 @@ in
 
           reminders = {
             enabled = s.reminders.enabled;
-          } // lib.filterAttrs (_: v: v != null) {
+          }
+          // lib.filterAttrs (_: v: v != null) {
             quiet_hours = s.reminders.quietHours;
           };
 
@@ -270,7 +290,8 @@ in
             enabled = s.backup.enabled;
             interval_minutes = s.backup.intervalMinutes;
           };
-        } // s.extraConfig;
+        }
+        // s.extraConfig;
 
       configFile = tomlFormat.generate "outl-config" configData;
     in
@@ -278,29 +299,53 @@ in
       # Packages are only built for Linux (see flake.nix). On other platforms
       # we still generate the config file below, but install nothing — users
       # there provide outl themselves (e.g. the official installer).
-      home.packages = lib.optionals pkgs.stdenv.isLinux ([
-        cfg.package
-      ] ++ lib.optional cfg.installDesktop cfg.desktopPackage);
+      home.packages = lib.optionals pkgs.stdenv.isLinux (
+        [
+          cfg.package
+        ]
+        ++ lib.optional cfg.installDesktop cfg.desktopPackage
+      );
 
       xdg.configFile."outl/config.toml".source = configFile;
 
-      systemd.user.services.outl-sync = lib.mkIf (cfg.services.sync.enable && pkgs.stdenv.isLinux) {
-        Unit = {
-          Description = "outl background sync service";
-          After = [ "network-online.target" ];
-          Wants = [ "network-online.target" ];
-        };
+      # Both combinations below make `outl serve` exit non-zero, which under
+      # Restart=on-failure becomes a crash loop — refuse them at eval time.
+      # The { assertion, message } shape is what home-manager's check pass
+      # expects; a bare bool here breaks every evaluation of this module.
+      assertions = lib.optionals cfg.services.sync.enable [
+        {
+          assertion = cfg.services.sync.watch || cfg.settings.sync.transport != "file";
+          message = "programs.outl.services.sync.watch = false with settings.sync.transport = \"file\" has nothing left to do: outl serve refuses that combination";
+        }
+        {
+          assertion = cfg.services.sync.watch || cfg.services.sync.sync;
+          message = "programs.outl.services.sync: watch = false and sync = false is a usage error for outl serve";
+        }
+      ];
 
-        Service = {
-          ExecStart = "${cfg.package}/bin/outl serve --workspace ${cfg.services.sync.workspace}";
-          Restart = "on-failure";
-          RestartSec = "5s";
-        };
+      systemd.user.services.outl-sync =
+        lib.mkIf (cfg.services.sync.enable && pkgs.stdenv.hostPlatform.isLinux)
+          {
+            Unit = {
+              Description = "outl background sync service";
+              After = [ "network-online.target" ];
+              Wants = [ "network-online.target" ];
+            };
 
-        Install = {
-          WantedBy = [ "default.target" ];
-        };
-      };
+            Service = {
+              Environment = [ "RUST_LOG=${cfg.services.sync.rustLog}" ];
+              ExecStart =
+                "${cfg.package}/bin/outl serve --workspace ${lib.escapeShellArg cfg.services.sync.workspace}"
+                + lib.optionalString (!cfg.services.sync.watch) " --no-watch"
+                + lib.optionalString (!cfg.services.sync.sync) " --no-sync";
+              Restart = "on-failure";
+              RestartSec = "5s";
+            };
+
+            Install = {
+              WantedBy = [ "default.target" ];
+            };
+          };
     }
   );
 }
