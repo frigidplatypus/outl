@@ -47,4 +47,7 @@ pub mod workspace_open;
 pub use host::{AppHost, StorageRootProvider};
 pub use plugin_service::PluginService;
 pub use projection::ProjectionWriter;
-pub use state::{CreateBlockReply, PageView, TemplateDto, WorkspaceSummary, ERR_LOADING};
+pub use state::{
+    CreateBlockReply, CutBlockReply, PageView, ProjectionWriteFailed, TemplateDto,
+    WorkspaceSummary, ERR_LOADING, PROJECTION_WRITE_FAILED_EVENT,
+};

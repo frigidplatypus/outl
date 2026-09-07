@@ -14,6 +14,7 @@ use outl_actions::{
     toggle_quote as action_toggle_quote, toggle_todo as action_toggle_todo, ActionError,
     PasteAnchor,
 };
+use outl_md::index::WorkspaceIndex;
 use tracing::warn;
 
 use crate::helpers::{
@@ -21,7 +22,7 @@ use crate::helpers::{
     with_ws, with_ws_mut,
 };
 use crate::host::AppHost;
-use crate::state::{CreateBlockReply, PageView};
+use crate::state::{CreateBlockReply, CutBlockReply, PageView};
 
 /// Create a block. Precedence: `before_id` (vim `O` /
 /// `Cmd/Ctrl+Shift+Enter` at col 0) wins over `after_id` (vim `o` /
@@ -243,17 +244,33 @@ pub fn move_block_after<S: AppHost>(
         // delete content the op log never saw (invariant 8). The move
         // itself is already in the log; only the on-disk `.md` lags, and
         // the open path raises a banner explaining why.
-        if let Err(e) = apply_page_md_with_sidecar_guarded(ws, &root, page) {
+        let destination_failure = apply_page_md_with_sidecar_guarded(ws, &root, page).err();
+        if let Some(e) = &destination_failure {
             warn!("destination page md+sidecar sync skipped: {e}");
         }
-        if let Some(src) = source_page {
-            if src != page {
-                if let Err(e) = apply_page_md_with_sidecar_guarded(ws, &root, src) {
-                    warn!("source page md+sidecar sync skipped: {e}");
-                }
+        let source_failure = if let Some(src) = source_page.filter(|src| *src != page) {
+            let failure = apply_page_md_with_sidecar_guarded(ws, &root, src).err();
+            if let Some(e) = &failure {
+                warn!("source page md+sidecar sync skipped: {e}");
+            }
+            failure.map(|e| (src, e))
+        } else {
+            None
+        };
+        let mut view = build_page_view(ws, &root, page).map_err(|e| e.to_string())?;
+        if let Some(e) = destination_failure {
+            let failure = crate::state::ProjectionWriteFailed::from_error(page, &e);
+            view.md_ahead_of_log = failure.md_ahead_of_log.clone();
+            view.projection_error = failure.md_ahead_of_log.is_none().then_some(failure.error);
+        }
+        if let Some((src, e)) = source_failure {
+            // The reply renders the destination, so notify the source page via
+            // the event bridge instead of attaching its notice to this view.
+            if let Some(writer) = state.projection_writer() {
+                writer.report_failure(src, &e);
             }
         }
-        build_page_view(ws, &root, page).map_err(|e| e.to_string())
+        Ok(view)
     })
 }
 
@@ -282,6 +299,32 @@ pub fn paste_block_after<S: AppHost>(
     finish_in_page(state, page, |ws| {
         action_paste_markdown(ws, state.hlc(), PasteAnchor::AfterBlock(after), &text).map(|_| ())
     })
+}
+
+/// Cut the block `id` (and its subtree): renders it to clipboard
+/// markdown exactly like [`copy_block_markdown`], then removes it via
+/// `outl_actions::delete` — `Op::Move(node, TRASH_ROOT)`, never a
+/// physical removal (root `CLAUDE.md` invariant 6).
+///
+/// Paste with [`paste_block_after`], which mints fresh ids for the
+/// pasted copy — a cut+paste round trip duplicates identity rather
+/// than preserving it. That is deliberately different from the
+/// desktop frontend's own view-mode Cmd+X/Cmd+V (which reparents the
+/// block via [`move_block_after`] and keeps every `((blk-…))` ref
+/// valid): this command exists for a client whose block clipboard is
+/// a plain markdown string, with no anchor back to the original node
+/// once the cut has happened — the mobile long-press "Cut" gesture,
+/// RFC 0254 phase 4.
+pub fn cut_block<S: AppHost>(
+    state: &S,
+    page_id: String,
+    id: String,
+) -> Result<CutBlockReply, String> {
+    let page = parse_node_id(&page_id)?;
+    let node = parse_node_id(&id)?;
+    let markdown = with_ws(state, |ws| Ok(render_block_md(ws, node)))?;
+    let view = finish_in_page(state, page, |ws| delete(ws, state.hlc(), node))?;
+    Ok(CutBlockReply { markdown, view })
 }
 
 /// Set or flip the `collapsed` flag on a block. Deliberately bypasses
@@ -378,4 +421,27 @@ pub fn copy_markdown<S: AppHost>(state: &S, block_ids: Vec<String>) -> Result<St
         .map(|id| parse_node_id(id))
         .collect::<Result<_, _>>()?;
     with_ws(state, |ws| Ok(action_copy_markdown(ws, &roots)))
+}
+
+/// Produce the `((blk-XXXXXX))` reference string for block `id`
+/// (issue #18) — the mobile/desktop counterpart of the TUI's `y r`
+/// chord (`outl-tui/src/actions/yank.rs::yank_current_ref`).
+///
+/// Reuses the **same** handle the TUI copies: `WorkspaceIndex` (built
+/// fresh from disk, same as [`crate::commands::page::search_blocks`])
+/// is the one owner of ref-handle assignment, including the lazy
+/// collision expansion past the default 6-char tail — deriving the
+/// handle straight from the `NodeId` here would produce a ref that
+/// silently disagrees with the sidecar's expanded form and never
+/// resolves. Errors when the block has no sidecar entry yet (created
+/// this session, not saved) — an unresolvable ref is worse than none.
+pub fn copy_block_ref<S: AppHost>(state: &S, id: String) -> Result<String, String> {
+    let node = parse_node_id(&id)?;
+    let root = state.storage_root()?;
+    let index = WorkspaceIndex::build(&root);
+    let entry = index
+        .block_index()
+        .get(node)
+        .ok_or_else(|| "no ref handle yet — save and retry".to_string())?;
+    Ok(format!("(({}))", entry.ref_handle))
 }

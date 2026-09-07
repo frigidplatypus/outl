@@ -242,6 +242,7 @@ impl Theme {
 /// List of preset names exposed to users (CLI / config / `outl theme list`).
 pub const PRESETS: &[&str] = &[
     "outl",
+    "outl-light",
     "default-dark",
     "light",
     "logseq-light",
@@ -274,6 +275,7 @@ pub fn by_name(name: &str) -> Option<Theme> {
         "nord" => Some(nord()),
         "monokai" => Some(monokai()),
         "gruvbox" | "gruvbox-dark" => Some(gruvbox()),
+        "outl-light" => Some(outl_light()),
         _ => None,
     }
 }
@@ -290,6 +292,11 @@ pub fn default_theme() -> Theme {
 /// and lemon highlight; this is the default theme.
 pub fn outl() -> Theme {
     theme_from_palette("outl", &outl_theme::presets::outl())
+}
+
+/// outl-light — the brand's light counterpart to [`outl`].
+pub fn outl_light() -> Theme {
+    theme_from_palette("outl-light", &outl_theme::presets::outl_light())
 }
 
 /// Default dark — the original outl-tui palette.

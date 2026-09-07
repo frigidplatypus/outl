@@ -1,13 +1,9 @@
-import { For, Show, createResource, createSignal, onMount } from "solid-js";
+import { For, Show, createMemo, createResource, createSignal, onMount } from "solid-js";
 
-import {
-  getSettings,
-  getTheme,
-  listThemes,
-  updateSettings,
-  type Settings,
-} from "../lib/api";
-import { applyPaletteToRoot } from "../lib/palette";
+import { listThemes } from "@outl/shared/api/commands";
+import { installTheme, pickSide, type ThemeConfig, type ThemeMode } from "@outl/shared/theme";
+
+import { getSettings, updateSettings, type Settings } from "../lib/api";
 import { appState, setAppState } from "../lib/store";
 import { SyncPanel } from "./SyncPanel";
 
@@ -23,6 +19,7 @@ import { SyncPanel } from "./SyncPanel";
 export function SettingsModal() {
   const [draft, setDraft] = createSignal<Settings | null>(null);
   const [busy, setBusy] = createSignal(false);
+  let activeTheme: ThemeConfig | null = null;
   const [themes] = createResource(async () => {
     try {
       return await listThemes();
@@ -31,13 +28,43 @@ export function SettingsModal() {
     }
   });
 
-  function close() {
+  /**
+   * Which side of the light/dark pair is actually painted right now.
+   * Reuses `pickSide` — the one function that answers "which side am
+   * I on" (`installTheme` in `App.tsx` calls the same function) —
+   * rather than re-deriving the OS-appearance check here, which is
+   * exactly the "two answers to one question" defect class RFC 0022
+   * exists to remove.
+   *
+   * Reads `theme_mode` straight off the draft (not a separate fetch):
+   * the modal now owns that field, so the moment the user flips the
+   * mode selector this must follow it live, the same way it already
+   * follows an OS appearance change.
+   */
+  const renderedSide = createMemo(() =>
+    pickSide(
+      (draft()?.theme_mode ?? "auto") as ThemeMode,
+      !window.matchMedia("(prefers-color-scheme: dark)").matches,
+    ),
+  );
+
+  function themeConfig(s: Settings): ThemeConfig {
+    return {
+      mode: s.theme_mode as ThemeMode,
+      preset: s.theme,
+      presetDark: s.theme_dark,
+    };
+  }
+
+  function close(restore = true) {
+    if (restore && activeTheme) void installTheme(activeTheme);
     setAppState("settingsOpen", false);
   }
 
   onMount(async () => {
     try {
       const s = await getSettings();
+      activeTheme = themeConfig(s);
       setDraft(s);
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
@@ -50,10 +77,9 @@ export function SettingsModal() {
    * it from the dropdown, so they can preview without committing.
    * Save (or Cancel) is what persists / reverts.
    */
-  async function previewTheme(name: string) {
+  async function previewTheme(next: ThemeConfig) {
     try {
-      const palette = await getTheme(name);
-      applyPaletteToRoot(palette);
+      await installTheme(next);
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
     }
@@ -65,8 +91,10 @@ export function SettingsModal() {
     setBusy(true);
     try {
       const persisted = await updateSettings(d);
+      activeTheme = themeConfig(persisted);
       setDraft(persisted);
-      close();
+      await installTheme(activeTheme);
+      close(false);
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
     } finally {
@@ -109,25 +137,78 @@ export function SettingsModal() {
                 />
               </label>
 
-              <label class="block">
+              <div>
                 <div class="mb-1 text-sm font-medium">Theme</div>
-                <select
-                  value={draft()!.theme}
-                  onChange={(e) => {
-                    const next = e.currentTarget.value;
-                    setDraft({ ...draft()!, theme: next });
-                    void previewTheme(next);
-                  }}
-                  class="w-full rounded border border-(--color-outl-fg)/15 bg-(--color-outl-fg)/5 px-2 py-1 text-sm outline-none focus:border-(--color-outl-fg)/30"
-                >
-                  <For each={themes() ?? []}>
-                    {(name) => <option value={name}>{name}</option>}
-                  </For>
-                </select>
+
+                <label class="mb-2 block">
+                  <div class="mb-1 text-xs opacity-60">Mode</div>
+                  <select
+                    value={draft()!.theme_mode}
+                    onChange={(e) => {
+                      const d = draft()!;
+                      const nextMode = e.currentTarget.value as ThemeMode;
+                      const next = { ...d, theme_mode: nextMode };
+                      setDraft(next);
+                      void previewTheme(themeConfig(next));
+                    }}
+                    class="w-full rounded border border-(--color-outl-fg)/15 bg-(--color-outl-fg)/5 px-2 py-1 text-sm outline-none focus:border-(--color-outl-fg)/30"
+                  >
+                    <option value="auto">Auto — follow the OS appearance</option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                  </select>
+                </label>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <label class="block">
+                    <div class="mb-1 text-xs opacity-60">
+                      Light
+                      <Show when={renderedSide() === "light"}> — active</Show>
+                    </div>
+                    <select
+                      value={draft()!.theme}
+                      onChange={(e) => {
+                        const next = e.currentTarget.value;
+                        const updated = { ...draft()!, theme: next };
+                        setDraft(updated);
+                        void previewTheme(themeConfig(updated));
+                      }}
+                      class="w-full rounded border border-(--color-outl-fg)/15 bg-(--color-outl-fg)/5 px-2 py-1 text-sm outline-none focus:border-(--color-outl-fg)/30"
+                    >
+                      <For each={themes() ?? []}>
+                        {(name) => <option value={name}>{name}</option>}
+                      </For>
+                    </select>
+                  </label>
+
+                  <label class="block">
+                    <div class="mb-1 text-xs opacity-60">
+                      Dark
+                      <Show when={renderedSide() === "dark"}> — active</Show>
+                    </div>
+                    <select
+                      value={draft()!.theme_dark}
+                      onChange={(e) => {
+                        const next = e.currentTarget.value;
+                        const updated = { ...draft()!, theme_dark: next };
+                        setDraft(updated);
+                        void previewTheme(themeConfig(updated));
+                      }}
+                      class="w-full rounded border border-(--color-outl-fg)/15 bg-(--color-outl-fg)/5 px-2 py-1 text-sm outline-none focus:border-(--color-outl-fg)/30"
+                    >
+                      <For each={themes() ?? []}>
+                        {(name) => <option value={name}>{name}</option>}
+                      </For>
+                    </select>
+                  </label>
+                </div>
+
                 <div class="mt-1 text-xs opacity-50">
                   Live preview — pick to see, Save to persist, Cancel to revert.
+                  "Active" marks the side currently on screen for the chosen
+                  mode.
                 </div>
-              </label>
+              </div>
 
               <label class="block">
                 <div class="mb-1 text-sm font-medium">Font size (px)</div>
@@ -227,7 +308,7 @@ export function SettingsModal() {
           <footer class="flex shrink-0 justify-end gap-2 border-t border-(--color-outl-fg)/10 px-5 py-3">
             <button
               type="button"
-              onClick={close}
+              onClick={() => close()}
               class="rounded px-3 py-1 text-sm opacity-70 hover:opacity-100"
             >
               Cancel

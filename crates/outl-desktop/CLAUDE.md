@@ -148,9 +148,15 @@ Convention: [`docs/clients.md` → Surfacing a page that stopped syncing](../../
 
 ## Theme tokens
 
-`src/lib/palette.ts::applyPaletteToRoot` writes the canonical `--color-outl-*` namespace plus the legacy `--color-ios-*` one `MarkdownInline` still consumes.
-New desktop code uses only `--color-outl-*`.
-Both namespaces, the boot defaults in `styles.css`, and the condition for deleting the legacy writes: [`docs/theming.md`](../../docs/theming.md#desktop-css-custom-property-namespaces).
+`applyPaletteToRoot` (now `@outl/shared/theme`, moved out of this crate's `src/lib/palette.ts` by RFC 0022) writes only the canonical `--color-outl-*` namespace.
+The legacy `--color-ios-*` / `--color-iosd-*` writes are gone.
+`@outl/shared/markdown` (`MarkdownInline`, `EmbeddedSubtree`) reads `--color-outl-*` too, so the desktop's OS appearance setting no longer changes markdown block elevation through Tailwind's `dark:` variant.
+`src/styles.css`'s `@theme` block declares only the `--color-outl-*` namespace now — the legacy `--color-ios-*` / `--color-iosd-*` tokens were deleted once nothing read them (RFC 0022).
+Details: [`docs/theming.md`](../../docs/theming.md#desktop-css-custom-property-namespaces).
+
+`commands/theme.rs`'s `list_themes` / `get_theme` are now thin wrappers over `outl_tauri_shared::commands::theme` (RFC 0022).
+The body moved to the shared crate so mobile can register the identical two commands instead of hardcoding palette hex values.
+This crate keeps only the `#[tauri::command]` attribute + `invoke_handler!` registration; no logic lives here anymore.
 
 ## Running
 
@@ -352,19 +358,16 @@ See [`outl-sync-iroh/CLAUDE.md`](../outl-sync-iroh/CLAUDE.md) for what the trans
 
 ## Settings
 
-Stored at `<app_config_dir>/settings.json`:
-
-- macOS: `~/Library/Application Support/app.outl.desktop/`
-- Linux: `~/.config/app.outl.desktop/`
-- Windows: `%APPDATA%\app.outl.desktop\`
-
-Schema (`crates/outl-desktop/src-tauri/src/settings.rs::Settings`):
+Stored through `outl-config` at the shared global config path (`~/.config/outl/config.toml` on macOS/Linux, the platform config directory on Windows).
+The frontend still receives this flat JSON DTO from `crates/outl-desktop/src-tauri/src/settings.rs::Settings`:
 
 ```jsonc
 {
   "last_workspace": "/Users/me/iCloud/outl",
   "vim_mode": false,
-  "theme": "auto",       // "light" | "dark" | "auto"
+  "theme": "outl-light",
+  "theme_dark": "outl",
+  "theme_mode": "auto",       // "light" | "dark" | "auto"
   "font_size": 15,
   "sync_transport": "iroh",  // "iroh" (P2P, default) | "file" (iCloud/fs)
   "backlinks_order": "newest"  // "newest" (default) | "oldest" — read-only, see below
@@ -374,6 +377,10 @@ Schema (`crates/outl-desktop/src-tauri/src/settings.rs::Settings`):
 The Sync transport select in `SettingsModal` writes `sync_transport`.
 `settings.rs` maps it to/from `[sync] transport` and preserves `relay_url` on save; takes effect on next launch.
 `backlinks_order` is read-only here — `save` restores it from disk (same pattern as `[calendar]`) so the modal can't clobber the dedicated `set_backlinks_order` command's write.
+`theme`, `theme_dark`, and `theme_mode` carry the complete RFC 0022 pair and are owned by the modal.
+Live preview goes through the shared `installTheme`; Save installs the persisted reply, while Cancel or backdrop click reinstalls the configuration captured on open.
+`settings.rs::restore_unmodeled_sections` lists only fields the modal does not own.
+A new unmodeled config field omitted there will get silently dropped on the next modal save.
 
 The actor id (one per device) lives next to it as `actor` — a plain ULID.
 Switching workspaces does not rotate it.

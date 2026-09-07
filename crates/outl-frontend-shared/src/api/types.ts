@@ -8,6 +8,85 @@
  */
 
 /**
+ * Palette returned by `get_theme`. Mirrors `outl_theme::Palette`
+ * field-for-field — every value is a `#rrggbb` (or `#rrggbbaa`)
+ * string that `applyPaletteToRoot` (`@outl/shared/theme`) writes as
+ * a CSS custom property. Every GUI client (`outl-desktop`,
+ * `outl-mobile`) registers the same `get_theme` / `list_themes`
+ * commands and shares this one wire type (RFC 0022).
+ */
+export interface Palette {
+  name: string;
+  bg: string;
+  bg_elev: string;
+  fg: string;
+  fg_dim: string;
+  fg_dimmer: string;
+  border: string;
+  hint: string;
+  accent: string;
+  accent_soft: string;
+  accent_alt: string;
+  warn: string;
+  /** Destructive action colour — delete, remove, irreversible. */
+  destructive: string;
+  ref_link_fg: string;
+  tag_link_fg: string;
+  md_link_fg: string;
+  bold_fg: string;
+  italic_fg: string;
+  strike_fg: string;
+  highlight_bg: string;
+  highlight_fg: string;
+  code_fg: string;
+  todo_open_fg: string;
+  todo_done_fg: string;
+  todo_done_body_fg: string;
+  property_key_fg: string;
+  property_value_fg: string;
+  heading_fg: string;
+  /** Per-level ATX header colours (index `level - 1`). */
+  header_fg_1: string;
+  header_fg_2: string;
+  header_fg_3: string;
+  header_fg_4: string;
+  header_fg_5: string;
+  header_fg_6: string;
+  dim_fg: string;
+  selected_bullet_bg: string;
+  selected_bullet_fg: string;
+  cursor_block_bg: string;
+  cursor_block_fg: string;
+  cursor_caret_fg: string;
+  status_normal_bg: string;
+  status_normal_fg: string;
+  status_insert_bg: string;
+  status_insert_fg: string;
+  status_visual_bg: string;
+  status_visual_fg: string;
+  status_message_fg: string;
+  list_selected_bg: string;
+  list_selected_fg: string;
+  help_title_fg: string;
+}
+
+/**
+ * The `[theme]` section resolved for a client, from `get_theme_config`.
+ * Mirrors `outl_tauri_shared::commands::theme::ThemeConfigDto`.
+ *
+ * `preset_dark` is **already resolved** through `ThemeCfg::dark()` on
+ * the Rust side — never empty, and never a value to fall back from.
+ * A config that only ever set `preset` comes back with `preset_dark`
+ * equal to `preset` (RFC 0022's backwards-compatibility guarantee);
+ * treat that as correct, not as a signal to re-derive a fallback here.
+ */
+export interface ThemeConfig {
+  preset: string;
+  preset_dark: string;
+  mode: "light" | "dark" | "auto";
+}
+
+/**
  * One entry of the workspace's property-key catalogue: the key as most
  * of its uses spell it, and how many properties use it.
  *
@@ -299,6 +378,8 @@ export interface PageView {
    * Mirrors `outl_tauri_shared::state::PageView.md_ahead_of_log_checked`.
    */
   md_ahead_of_log_checked?: boolean;
+  /** Non-refusal projection failure after this mutation already committed. */
+  projection_error?: string;
 }
 
 /**
@@ -319,6 +400,13 @@ export interface MdAheadOfLog {
   lines: number;
   /** One of those lines, already quoted by the backend. */
   sample: string;
+}
+
+/** A projection failure reported after its mutation already committed. */
+export interface ProjectionWriteFailed {
+  page_id: string;
+  md_ahead_of_log?: MdAheadOfLog;
+  error: string;
 }
 
 /**
@@ -374,6 +462,20 @@ export interface ParseWarning {
 export interface CreateBlockReply {
   view: PageView;
   new_id: string;
+}
+
+/**
+ * Reply of `cutBlock` (RFC 0254 phase 4). `markdown` is the cut
+ * block's subtree, rendered *before* the delete — the same shape
+ * `copyBlockMarkdown` produces, so it drops straight into the block
+ * clipboard `pasteBlockAfter` already reads. `view` is the page with
+ * the block already moved to trash (`Op::Move`, root `CLAUDE.md`
+ * invariant 6 — never a physical removal). Mirrors the Rust
+ * `outl_tauri_shared::state::CutBlockReply`.
+ */
+export interface CutBlockReply {
+  markdown: string;
+  view: PageView;
 }
 
 /**
@@ -560,6 +662,8 @@ export interface PluginRunReply {
 export interface PluginSyncHooksReply {
   view?: PageView;
   views: string[];
+  /** Projection failures after hook mutations were already saved. */
+  errors: string[];
 }
 
 /**
