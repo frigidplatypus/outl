@@ -300,9 +300,19 @@ fn run_tool(name: &str, args: &Value, ctx: &Arc<ServerCtx>) -> Result<Value, Api
         "outl_query" => {
             let q = query_cmd::QueryArgs {
                 tag: opt_str(args, "tag").map(str::to_string),
+                not_tag: opt_str(args, "notTag").map(str::to_string),
                 priority: opt_str(args, "priority").map(str::to_string),
                 props: args
                     .get("props")
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                not_props: args
+                    .get("notProps")
                     .and_then(Value::as_array)
                     .map(|arr| {
                         arr.iter()

@@ -23,12 +23,19 @@ pub struct QueryArgs {
     /// Page must mention `#<tag>` somewhere in its subtree.
     #[arg(long)]
     pub tag: Option<String>,
+    /// Page must NOT mention `#<tag>` anywhere in its subtree.
+    #[arg(long = "not-tag")]
+    pub not_tag: Option<String>,
     /// Page must carry property `priority::` matching this value.
     #[arg(long)]
     pub priority: Option<String>,
     /// Generic property filter: `--prop key=value`. Repeatable.
     #[arg(long = "prop", value_name = "KEY=VALUE")]
     pub props: Vec<String>,
+    /// Generic property exclusion: `--not-prop key=value` or `--not-prop key`.
+    /// Repeatable. Without `=value`, excludes any page carrying that key.
+    #[arg(long = "not-prop", value_name = "KEY[=VALUE]")]
+    pub not_props: Vec<String>,
     /// Only return journals whose date is within the last N days
     /// (`7d`, `30d`, …) or after an explicit ISO date.
     #[arg(long)]
@@ -70,6 +77,7 @@ pub fn handler(ctx: &WsCtx, args: &QueryArgs) -> Result<Value, ApiError> {
 
     let cutoff = args.since.as_deref().map(parse_since).transpose()?;
     let parsed_props = parse_prop_filters(&args.props, args.priority.as_deref())?;
+    let parsed_not_props = parse_not_prop_filters(&args.not_props)?;
 
     let mut matches: Vec<Value> = Vec::new();
     for meta in outl_actions::list_pages(&ctx.workspace) {
@@ -94,6 +102,12 @@ pub fn handler(ctx: &WsCtx, args: &QueryArgs) -> Result<Value, ApiError> {
             }
         }
 
+        if let Some(not_tag) = &args.not_tag {
+            if super::page::page_has_tag(&ctx.workspace, id, not_tag) {
+                continue;
+            }
+        }
+
         let mut props_ok = true;
         for (key, value) in &parsed_props {
             if !page_property_matches(&ctx.workspace, id, key, value) {
@@ -102,6 +116,26 @@ pub fn handler(ctx: &WsCtx, args: &QueryArgs) -> Result<Value, ApiError> {
             }
         }
         if !props_ok {
+            continue;
+        }
+
+        let mut not_props_ok = true;
+        for (key, value) in &parsed_not_props {
+            if let Some(val) = value {
+                // Exclude if page has this exact key=value
+                if page_property_matches(&ctx.workspace, id, key, val) {
+                    not_props_ok = false;
+                    break;
+                }
+            } else {
+                // Exclude if page has this key at all
+                if ctx.workspace.tree().property(id, key).is_some() {
+                    not_props_ok = false;
+                    break;
+                }
+            }
+        }
+        if !not_props_ok {
             continue;
         }
 
@@ -153,6 +187,20 @@ fn parse_prop_filters(
             )
         })?;
         out.push((k.trim().to_string(), v.trim().to_string()));
+    }
+    Ok(out)
+}
+
+fn parse_not_prop_filters(
+    not_props: &[String],
+) -> Result<Vec<(String, Option<String>)>, ApiError> {
+    let mut out: Vec<(String, Option<String>)> = Vec::new();
+    for raw in not_props {
+        if let Some((k, v)) = raw.split_once('=') {
+            out.push((k.trim().to_string(), Some(v.trim().to_string())));
+        } else {
+            out.push((raw.trim().to_string(), None));
+        }
     }
     Ok(out)
 }

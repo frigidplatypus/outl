@@ -283,10 +283,15 @@ pub fn list() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "tag": { "type": "string" },
+                    "notTag": { "type": "string" },
                     "priority": { "type": "string" },
                     "since": { "type": "string" },
                     "kind": { "type": "string", "enum": ["page", "journal"] },
                     "props": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "notProps": {
                         "type": "array",
                         "items": { "type": "string" }
                     }
