@@ -54,8 +54,9 @@ The name survives as a language alias: `tasks` and `query` resolve to the same r
 ## The opposite direction
 
 **What this makes worse: the implicit AND is a ceiling, and it is silent.**
-"Open tasks *not* tagged `#someday`" is unexpressible today, and the user gets no error saying so — an unknown *key* is rejected with a line number, but a missing *capability* just reads as a query returning too much.
+An unknown *key* is rejected with a line number, but a missing *capability* just reads as a query returning too much.
 That is the failure mode this DSL trades for a syntax nobody has to learn.
+`not-tag`, `not-prop`, `prop`, and `page` now cover the most common negation and property-filtering needs; full boolean combinators remain out of scope.
 
 **Cost of the live-view choice.**
 Because fences auto-run, a page with five query blocks pays five full `WorkspaceIndex` builds from disk on every open; there is no incremental index.
@@ -77,9 +78,9 @@ A query narrowing from 300 hits to 3 shrinks that page again, and only the fence
 
 ## Scope
 
-**Not covered — `or`, `not`, `between`, filter by page slug, filter by block property.**
-`prop`, `page` and `group` are named as planned in [`docs/query.md` → Extensibility](../query.md#extensibility), and `prop` additionally needs the block index to expose properties.
-Nothing on that list has an issue yet.
+**Not covered — `or`, `between`, grouping.**
+`prop`, `not-tag`, `not-prop`, and `page` are now implemented. `group` remains planned (see [`docs/query.md` → Extensibility](../query.md#extensibility)).
+Boolean combinators (`or`, arbitrary `not` nesting) would need a real expression parser; the current line-oriented AND-only design trades expressiveness for simplicity and independent line-level error reporting.
 
 **Not covered — inline `{{query: …}}`.**
 If ever wanted it is a new parser token, never a reuse of this runtime.

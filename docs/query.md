@@ -40,6 +40,10 @@ Blank lines and `#`-prefixed comments are ignored.
 |-----|---------|-------------|
 | `status` | `status: todo` | Filter by task state: `todo` (not started), `doing` (started), `done` (completed), or `open` (**any** task, DONE included) |
 | `tag` | `tag: ops` | Block text contains `#ops` (partial match — `#ops/deploy` matches `tag: ops`) |
+| `not-tag` | `not-tag: western` | Block text does **not** contain `#western` (partial match, same as `tag`) |
+| `prop` | `prop priority: high` | Block has property `priority` with value `high` (case-insensitive). Also accepts `prop priority high` (space instead of colon) |
+| `not-prop` | `not-prop: status` | Block does **not** have property `status` (any value). Also accepts `not-prop: status: done` to exclude a specific key-value pair |
+| `page` | `page: inbox` | Block lives on page with slug `inbox` |
 | `kind` | `kind: journal` | Hosting page kind: `journal` or `page` |
 | `since` | `since: 7d` | Journal within N days. Units: `d` (days), `w` (weeks), `m` (months) |
 | `text` | `text: deploy` | Substring in block text (case-insensitive) |
@@ -108,6 +112,45 @@ Blank lines and `#`-prefixed comments are ignored.
   ```
 ````
 
+### Open tasks NOT tagged #western
+
+````markdown
+- ```query
+  status: todo
+  not-tag: western
+  sort: page
+  ```
+````
+
+### Tasks with a specific property value
+
+````markdown
+- ```query
+  status: open
+  prop priority: high
+  sort: page
+  ```
+````
+
+### Tasks on a specific page
+
+````markdown
+- ```query
+  status: todo
+  page: inbox
+  ```
+````
+
+### Open tasks without a `status` property
+
+````markdown
+- ```query
+  status: open
+  not-prop: status
+  sort: page
+  ```
+````
+
 ## How results render
 
 The query runtime returns `OutputFormat::Embeds`, which tells the orchestrator to render each result as a child bullet with an embed reference instead of dumping stdout text.
@@ -161,8 +204,6 @@ Planned filters (not yet implemented):
 
 | Key | Description |
 |-----|-------------|
-| `prop` | Filter by block property (`prop priority: high`) — requires the block index to expose properties |
-| `page` | Filter by hosting page slug (`page: inbox`) |
 | `group` | Group results by field (`group: page`) |
 
 New filters are `enum Filter` variants in `crates/outl-exec/src/runtimes/query.rs` — one match arm per filter, no parser change needed beyond recognizing the key.
@@ -193,6 +234,10 @@ for (const t of tasks) {
 |-------|------|-------------|
 | `status` | `"todo"` \| `"doing"` \| `"done"` \| `"open"` | Filter by task state (`"open"` is any task, DONE included) |
 | `tag` | `string` | Block contains `#tag` (partial match) |
+| `notTag` | `string` | Block does **not** contain `#tag` |
+| `prop` | `[string, string]` | Block has property key=value (case-insensitive) |
+| `notProp` | `[string, string?]` | Block does not have property key (or key=value if second element given) |
+| `page` | `string` | Block lives on page with this slug |
 | `kind` | `"journal"` \| `"page"` | Hosting page kind |
 | `since` | `string` | Duration: `"7d"`, `"2w"`, `"3m"` |
 | `text` | `string` | Substring search (case-insensitive) |
