@@ -130,7 +130,7 @@ pub fn get(ctx: &WsCtx, page: &str, key: &str) -> Result<Value, ApiError> {
         Some(value) => Ok(json!({
             "page": page,
             "key": key,
-            "value": stringify(value),
+            "value": value.flatten(),
         })),
         None => Err(ApiError::new(
             codes::PROP_NOT_FOUND,
@@ -149,7 +149,7 @@ pub fn list(ctx: &WsCtx, page: &str) -> Result<Value, ApiError> {
     let mut props: Vec<(String, String)> = Vec::new();
     for key in well_known_property_keys() {
         if let Some(value) = ctx.workspace.tree().property(id, key) {
-            props.push((key.to_string(), stringify(value)));
+            props.push((key.to_string(), value.flatten()));
         }
     }
     Ok(json!({
@@ -168,13 +168,6 @@ pub fn list(ctx: &WsCtx, page: &str) -> Result<Value, ApiError> {
 fn resolve_page(ctx: &WsCtx, slug: &str) -> Result<NodeId, ApiError> {
     find_by_slug(&ctx.workspace, slug)
         .ok_or_else(|| ApiError::new(codes::PAGE_NOT_FOUND, format!("page `{slug}` not found")))
-}
-
-fn stringify(value: &PropValue) -> String {
-    match value {
-        PropValue::Text(s) | PropValue::PageRef(s) | PropValue::Tag(s) => s.clone(),
-        PropValue::List(items) => items.iter().map(stringify).collect::<Vec<_>>().join(", "),
-    }
 }
 
 /// Property keys we know the workspace surface uses. We can't iterate

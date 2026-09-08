@@ -356,8 +356,9 @@ It fires when the user picks the command from the slash menu, the palette, or ru
 We fall back to the default page when it's unset.
 
 **`ctx.blocks.query(filter)`** → `Block[]` — finds blocks.
-The filter is `{ page?, todo?, textContains? }`, all optional and ANDed; an empty `{}` matches every block.
-Each `Block` is `{ id, text, todo?, page }` — note `text` is **clean**, with no `TODO `/`DONE ` prefix.
+The filter is `{ page?, todo?, textContains?, prop? }`, all optional and ANDed; an empty `{}` matches every block.
+`prop` matches blocks whose properties equal **every** `key → value` pair exactly (flattened strings, no substring, no case folding; a block missing a key never matches).
+Each `Block` is `{ id, text, todo?, page, properties? }` — note `text` is **clean**, with no `TODO `/`DONE ` prefix, and `properties` is a flat `key → value` map (list values flattened to `"a, b"`), absent when the block has none.
 Needs `read-page`.
 
 **`ctx.page.appendTree(slug, tree)`** — appends a whole `TreeNode[]` (`{ text, children? }`, recursive) under a page, creating the page if it's missing.

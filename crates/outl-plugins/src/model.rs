@@ -6,6 +6,8 @@
 //! through `outl-actions`. Nothing here borrows the workspace — every type is
 //! owned and `serde`-serializable so it can be handed to Boa as plain JSON.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::permission::Permission;
@@ -53,6 +55,11 @@ pub struct BlockView {
     pub parent: Option<String>,
     /// Slug of the page this block belongs to.
     pub page: String,
+    /// Block properties as flat `key → value` pairs (values flattened via
+    /// `PropValue::flatten`). Absent when the block carries none — queryable
+    /// through the `prop` filter on `ctx.blocks.query`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub properties: BTreeMap<String, String>,
 }
 
 /// A page as the JS side sees it.

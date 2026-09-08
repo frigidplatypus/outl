@@ -520,7 +520,14 @@ fn read_query(model: &ReadModel, query_json: &str) -> String {
     serde_json::to_string(&result).unwrap_or_else(|_| "null".into())
 }
 
-/// Apply a `{ page?, todo?, textContains? }` filter to a block.
+/// Apply a `{ page?, todo?, textContains?, prop? }` filter to a block.
+///
+/// `prop` is an object of `key → value` pairs; **every** pair must hold —
+/// the block carries the key and its flattened value equals the given string
+/// exactly (no case folding, no substring). A block with no properties fails
+/// any non-empty `prop` filter. Values were flattened by the host through
+/// `PropValue::flatten`, so comparing against the flat string is the whole
+/// match — this surface owns no second opinion about what a value is.
 fn block_matches(b: &crate::model::BlockView, filter: &Value) -> bool {
     if let Some(page) = filter.get("page").and_then(Value::as_str) {
         if b.page != page {
@@ -535,6 +542,16 @@ fn block_matches(b: &crate::model::BlockView, filter: &Value) -> bool {
     if let Some(needle) = filter.get("textContains").and_then(Value::as_str) {
         if !b.text.contains(needle) {
             return false;
+        }
+    }
+    if let Some(props) = filter.get("prop").and_then(Value::as_object) {
+        for (key, expected) in props {
+            let Some(want) = expected.as_str() else {
+                return false;
+            };
+            if b.properties.get(key).map(String::as_str) != Some(want) {
+                return false;
+            }
         }
     }
     true
@@ -714,6 +731,7 @@ mod tests {
                 todo: Some("DONE".into()),
                 parent: None,
                 page: "p".into(),
+                properties: Default::default(),
             },
             BlockView {
                 id: "b".into(),
@@ -721,6 +739,7 @@ mod tests {
                 todo: Some("TODO".into()),
                 parent: None,
                 page: "p".into(),
+                properties: Default::default(),
             },
             BlockView {
                 id: "c".into(),
@@ -728,6 +747,7 @@ mod tests {
                 todo: Some("DONE".into()),
                 parent: None,
                 page: "p".into(),
+                properties: Default::default(),
             },
         ]);
         let config = serde_json::json!({ "archivePage": "archive" });
@@ -745,6 +765,95 @@ mod tests {
             }
         );
         assert_eq!(out.notifications, vec!["2 archived"]);
+    }
+
+    fn block_with_props(id: &str, props: &[(&str, &str)]) -> BlockView {
+        BlockView {
+            id: id.into(),
+            text: "t".into(),
+            todo: None,
+            parent: None,
+            page: "p".into(),
+            properties: props
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn prop_filter_matches_exact_values() {
+        let b = block_with_props("a", &[("verse", "16"), ("chapter", "3")]);
+        assert!(block_matches(
+            &b,
+            &serde_json::json!({ "prop": { "verse": "16" } })
+        ));
+        assert!(block_matches(
+            &b,
+            &serde_json::json!({ "prop": { "verse": "16", "chapter": "3" } })
+        ));
+    }
+
+    #[test]
+    fn prop_filter_is_exact_not_substring_or_casefolded() {
+        let b = block_with_props("a", &[("verse", "16")]);
+        assert!(!block_matches(
+            &b,
+            &serde_json::json!({ "prop": { "verse": "1" } })
+        ));
+        assert!(!block_matches(
+            &b,
+            &serde_json::json!({ "prop": { "verse": "6" } })
+        ));
+        assert!(!block_matches(
+            &b,
+            &serde_json::json!({ "prop": { "VERSE": "16" } })
+        ));
+    }
+
+    #[test]
+    fn prop_filter_requires_every_key_to_hold() {
+        let b = block_with_props("a", &[("verse", "16"), ("chapter", "3")]);
+        // verse holds, chapter does not → AND fails.
+        assert!(!block_matches(
+            &b,
+            &serde_json::json!({ "prop": { "verse": "16", "chapter": "4" } })
+        ));
+    }
+
+    #[test]
+    fn prop_filter_rejects_absent_keys_and_untagged_blocks() {
+        let tagged = block_with_props("a", &[("verse", "16")]);
+        let untagged = block_with_props("b", &[]);
+        let missing_key = serde_json::json!({ "prop": { "book": "john" } });
+        assert!(!block_matches(&tagged, &missing_key));
+        assert!(!block_matches(&untagged, &missing_key));
+        // An empty `prop` object constrains nothing.
+        assert!(block_matches(&untagged, &serde_json::json!({ "prop": {} })));
+    }
+
+    #[test]
+    fn prop_filter_ignores_a_non_object_prop_and_rejects_non_string_values() {
+        let b = block_with_props("a", &[("verse", "16")]);
+        // `prop` not an object → treated as absent (other filters still apply).
+        assert!(block_matches(&b, &serde_json::json!({ "prop": "16" })));
+        // A non-string value can never equal a flattened string.
+        assert!(!block_matches(
+            &b,
+            &serde_json::json!({ "prop": { "verse": 16 } })
+        ));
+    }
+
+    #[test]
+    fn prop_filter_combines_with_the_other_filters() {
+        let hit = block_with_props("a", &[("verse", "16")]);
+        let other_page = block_with_props("b", &[("verse", "16")]);
+        let f = serde_json::json!({ "page": "p", "prop": { "verse": "16" } });
+        assert!(block_matches(&hit, &f));
+        // Same props, wrong page → page filter still wins.
+        let mut off = other_page;
+        off.page = "elsewhere".into();
+        assert!(!block_matches(&off, &f));
     }
 
     #[test]

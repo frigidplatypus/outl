@@ -860,3 +860,154 @@ fn append_tree_seeds_a_fresh_page_in_one_turn() {
     assert!(texts.iter().any(|t| t.starts_with("Sleep")));
     assert!(texts.iter().any(|t| t.starts_with("Readiness")));
 }
+
+// --- ctx.blocks.query({ prop }) ---------------------------------------------
+
+const PROP_QUERY_PLUGIN: &str = r#"
+    globalThis.__outl_register({
+        activate(ctx) {
+            const show = (f) => {
+                const hits = ctx.blocks.query(f);
+                ctx.ui.notify(hits.length + ':' + hits.map(b => b.properties.verse || '-').join('|'));
+            };
+            ctx.commands.register('exact', () => show({ page: 'john', prop: { verse: '1' } }));
+            ctx.commands.register('and', () => show({ page: 'john', prop: { chapter: '3', verse: '16' } }));
+            ctx.commands.register('and-miss', () => show({ page: 'john', prop: { chapter: '3', verse: '1' } }));
+            ctx.commands.register('missing-value', () => show({ page: 'john', prop: { verse: '99' } }));
+            ctx.commands.register('absent-key', () => show({ page: 'john', prop: { book: 'john' } }));
+        }
+    });
+"#;
+
+fn prop_query_host() -> PluginHost {
+    let mut host = PluginHost::new([Capability::SlashCommand].into_iter().collect());
+    let manifest = PluginManifest::parse(
+        br#"{
+            "id": "run.x.prop", "name": "Prop", "version": "1.0.0", "api": "^1.0", "main": "i.js",
+            "capabilities": ["slash-command"],
+            "contributes": { "commands": [
+                { "id": "exact", "title": "Exact" },
+                { "id": "and", "title": "And" },
+                { "id": "and-miss", "title": "And Miss" },
+                { "id": "missing-value", "title": "Missing Value" },
+                { "id": "absent-key", "title": "Absent Key" }
+            ] }
+        }"#,
+    )
+    .unwrap();
+    host.load_plugin(
+        manifest,
+        PROP_QUERY_PLUGIN,
+        PermissionSet::new(vec![Permission::ReadPage]),
+        Value::Null,
+    )
+    .unwrap();
+    host
+}
+
+/// A workspace shaped like a Bible page: two tagged verse blocks plus one
+/// untagged block on page `john`.
+fn bible_ws() -> (Workspace, HlcGenerator) {
+    use outl_core::property::PropValue;
+
+    let (mut ws, hlc) = ws();
+    let page = page::open_or_create(&mut ws, &hlc, "john", "John", PageKind::Page).unwrap();
+    let v1 = block::create_under(&mut ws, &hlc, page, Some("*1* In the beginning")).unwrap();
+    let v16 = block::create_under(&mut ws, &hlc, page, Some("*16* For God so loved")).unwrap();
+    let _plain = block::create_under(&mut ws, &hlc, page, Some("untagged prose")).unwrap();
+    for (node, key, value) in [
+        (v1, "verse", "1"),
+        (v1, "chapter", "1"),
+        (v16, "verse", "16"),
+        (v16, "chapter", "3"),
+    ] {
+        page::set_property(
+            &mut ws,
+            &hlc,
+            node,
+            key,
+            Some(PropValue::Text(value.into())),
+        )
+        .unwrap();
+    }
+    (ws, hlc)
+}
+
+#[test]
+fn read_model_carries_flattened_block_properties() {
+    use outl_core::property::PropValue;
+
+    let (mut ws, hlc) = ws();
+    let page = page::open_or_create(&mut ws, &hlc, "p", "P", PageKind::Page).unwrap();
+    let tagged = block::create_under(&mut ws, &hlc, page, Some("tagged")).unwrap();
+    let bare = block::create_under(&mut ws, &hlc, page, Some("bare")).unwrap();
+    page::set_property(
+        &mut ws,
+        &hlc,
+        tagged,
+        "tags",
+        Some(PropValue::List(vec![
+            PropValue::Tag("a".into()),
+            PropValue::Tag("b".into()),
+        ])),
+    )
+    .unwrap();
+
+    let rm = build_read_model(&ws);
+    let view = rm
+        .blocks
+        .iter()
+        .find(|v| v.id == tagged.to_string())
+        .unwrap();
+    // A `List` value is flattened through the single owner, not serialized raw.
+    assert_eq!(
+        view.properties.get("tags").map(String::as_str),
+        Some("a, b")
+    );
+    let json = serde_json::to_value(view).unwrap();
+    assert_eq!(json["properties"]["tags"], "a, b");
+
+    // A block with no properties carries an empty map…
+    let bare_view = rm.blocks.iter().find(|v| v.id == bare.to_string()).unwrap();
+    assert!(bare_view.properties.is_empty());
+    // …and serializes without the field at all (skip-if-empty).
+    let json = serde_json::to_value(bare_view).unwrap();
+    assert!(json.get("properties").is_none());
+}
+
+#[test]
+fn query_by_block_property_end_to_end() {
+    let (mut ws, hlc) = bible_ws();
+    let mut host = prop_query_host();
+
+    // Exact match: verse "1" hits only v1 — not v16's "16" (no substring).
+    let run = host
+        .run_command(&mut ws, &hlc, "run.x.prop", "exact")
+        .unwrap();
+    assert!(run.errors.is_empty(), "errors: {:?}", run.errors);
+    assert_eq!(run.notifications, vec!["1:1"]);
+
+    // AND across keys: chapter 3 + verse 16 → only v16.
+    let run = host
+        .run_command(&mut ws, &hlc, "run.x.prop", "and")
+        .unwrap();
+    assert_eq!(run.notifications, vec!["1:16"]);
+
+    // AND where one key holds and the other does not → nothing.
+    let run = host
+        .run_command(&mut ws, &hlc, "run.x.prop", "and-miss")
+        .unwrap();
+    assert_eq!(run.notifications, vec!["0:"]);
+
+    // A value no block carries → nothing.
+    let run = host
+        .run_command(&mut ws, &hlc, "run.x.prop", "missing-value")
+        .unwrap();
+    assert_eq!(run.notifications, vec!["0:"]);
+
+    // A key no block carries (incl. the untagged block) → nothing.
+    let run = host
+        .run_command(&mut ws, &hlc, "run.x.prop", "absent-key")
+        .unwrap();
+    assert_eq!(run.notifications, vec!["0:"]);
+}

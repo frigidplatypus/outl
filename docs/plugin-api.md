@@ -209,7 +209,8 @@ The typed signatures live in `@outl/plugin-sdk`; the runtime ships the subset be
 | `ctx.ui` | `notify(m)` | — |
 | `ctx.ui` | `render(html)` — run author-written HTML/JS in a sandboxed iframe overlay (GUI only) | capability `ui-render` |
 
-`Block` is `{ id, text, parent, todo?, page }` — `text` has the task prefix stripped, `todo` is `"TODO" \| "DOING" \| "DONE"` or absent, and `parent` is the parent block id or `null` for a top-level child of the page (use it to reconstruct hierarchy from a `query`).
+`Block` is `{ id, text, parent, todo?, page, properties? }` — `text` has the task prefix stripped, `todo` is `"TODO" \| "DOING" \| "DONE"` or absent, `parent` is the parent block id or `null` for a top-level child of the page (use it to reconstruct hierarchy from a `query`), and `properties` is a flat `key → value` map of the block's properties (absent when the block has none).
+List-valued properties are flattened by the host before they reach you: `tags:: #a #b` arrives as `"a, b"`, so you never see a nested structure.
 Branch on the state you care about and treat the rest as unfinished, rather than assuming `todo !== "DONE"` means `"TODO"`: a plugin written against two states counts every started block as neither.
 
 `TreeNode` (what `appendTree` takes) is `{ text, children? }`, recursive.
@@ -222,6 +223,9 @@ A few load-bearing notes:
   Your own writes never re-fire your hook (the host advances its log mark past them).
 - **`ctx.blocks` splits by permission** — reading (`query`/`get`) needs `read-page`; every mutating call (`edit`/`create`/`createAfter`/`move`/`toggleTodo`/`delete`) needs `write-page`.
   A plugin granted only `read-page` can read but every write is dropped with a recorded error, never a crash.
+- **The `query` filter is `{ page?, todo?, textContains?, prop? }`**, all optional and ANDed; an empty `{}` matches every block.
+  `prop` restricts to blocks whose properties match **every** `key → value` pair as an **exact flattened string** — no substring, no case folding, and a block missing any key does not match (so `{ prop: { verse: "16" } }` never hits an untagged block).
+  Example: `ctx.blocks.query({ page: "john", prop: { chapter: "3", verse: "16" } })`.
 - **Reads are a turn snapshot, writes are deferred.**
   `query`/`get` read the workspace as it was at the start of the turn; a write you emit is *not* visible to a later read in the same handler — it lands on the next turn.
   This is the describe → apply model ([architecture](plugin-architecture.md#execution-model-describe--apply)).

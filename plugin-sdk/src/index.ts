@@ -61,6 +61,12 @@ export interface Block {
   page: PageSlug;
   /** TODO state, or `null` when the block is not a task. */
   todo: TodoState | null;
+  /**
+   * Block properties as flat `key → value` pairs (e.g. `{ verse: "16", chapter: "3" }`).
+   * Values are flattened by the host: a list property like `tags:: #a #b` arrives
+   * as `"a, b"`. Absent when the block carries no properties.
+   */
+  properties?: Record<string, string>;
 }
 
 /**
@@ -77,6 +83,13 @@ export interface BlockFilter {
   todo?: TodoState;
   /** Substring the block text must contain (case-insensitive on the host). */
   textContains?: string;
+  /**
+   * Restrict to blocks whose properties match **every** `key → value` pair,
+   * compared as exact flattened strings (no substring, no case folding).
+   * A block missing any key does not match. Example:
+   * `{ page: "john", prop: { chapter: "3", verse: "16" } }`.
+   */
+  prop?: Record<string, string>;
 }
 
 /**

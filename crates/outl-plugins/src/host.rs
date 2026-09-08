@@ -13,6 +13,7 @@
 //! (`last_seen`). Ops a plugin itself produces advance `last_seen` too, so they
 //! never re-trigger hooks — no plugin → op → plugin cycle.
 
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 use std::str::FromStr;
 
@@ -732,6 +733,18 @@ fn build_read_model(workspace: &Workspace) -> ReadModel {
         })
         .collect();
 
+    // One pass over the whole property map, grouped by node — asking
+    // `properties_of` per block would be O(nodes × properties). Values are
+    // flattened through the single owner (`PropValue::flatten`) so the JS
+    // side and any future query surface compare the same strings.
+    let mut props_by_node: HashMap<NodeId, BTreeMap<String, String>> = HashMap::new();
+    for (node, key, value) in workspace.tree().iter_properties() {
+        props_by_node
+            .entry(node)
+            .or_default()
+            .insert(key.to_string(), value.flatten());
+    }
+
     let mut blocks = Vec::new();
     for (node, parent, _pos) in workspace.tree().iter_nodes() {
         if node == NodeId::root() || node == NodeId::trash() {
@@ -761,6 +774,7 @@ fn build_read_model(workspace: &Workspace) -> ReadModel {
             todo: todo.map(|t| t.as_str().to_string()),
             parent: parent_id,
             page: page_slug_of(workspace, node).unwrap_or_default(),
+            properties: props_by_node.remove(&node).unwrap_or_default(),
         });
     }
     ReadModel {
