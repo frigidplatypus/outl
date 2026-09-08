@@ -11,7 +11,7 @@
 class OutlBeta < Formula
   desc "Local-first outliner with CRDT sync (beta channel — every push to main)"
   homepage "https://outl.app"
-  version "0.12.0-beta.179"
+  version "0.12.0-beta.181"
   license "MIT"
 
   # We ship pre-built binaries and compile nothing here, but a formula
@@ -27,27 +27,27 @@ class OutlBeta < Formula
   # older releases, so one `ventura` tag per arch covers every macOS
   # from 13 upwards — no runner on the newest macOS required.
   bottle do
-    root_url "https://github.com/outlmd/outl/releases/download/v0.12.0-beta.179" # anchor: bottle-root-url
-    sha256 cellar: :any_skip_relocation, arm64_ventura: "aab62b9a80b861b79988d27fba5f9dcbf86d86ba742e229aec5f3ac15045be28" # anchor: bottle-macos-arm64
-    sha256 cellar: :any_skip_relocation, ventura:       "799631d18e5cc7dbaccf380c6465114b0c940f643c46f496d74d1c9a0fa28ddf" # anchor: bottle-macos-x64
-    sha256 cellar: :any_skip_relocation, x86_64_linux:  "f27d45c0dfafa303907250a6a7dccde495d605f6bfb16add942ca23f424a831c" # anchor: bottle-linux-x64
+    root_url "https://github.com/outlmd/outl/releases/download/v0.12.0-beta.181" # anchor: bottle-root-url
+    sha256 cellar: :any_skip_relocation, arm64_ventura: "1e107302cb68029fd27ac51ee3325e7b44bf7284b47fe51ced54c265ae8b78f9" # anchor: bottle-macos-arm64
+    sha256 cellar: :any_skip_relocation, ventura:       "6cc13f58ae027f1fe149e9a976a9ee88eb32efa1e51f3b16ed857d4a3e2af518" # anchor: bottle-macos-x64
+    sha256 cellar: :any_skip_relocation, x86_64_linux:  "29af5e7eb2e5b492f50b8f3e3808d151189d0abb05fea29dbcaded349818c9d3" # anchor: bottle-linux-x64
   end
 
   on_macos do
     on_arm do
       url "https://github.com/outlmd/outl/releases/download/v#{version}/outl-macos-arm64.tar.gz"
-      sha256 "68e4dbfd3cbf1c2f4d64c6a16520a70c518050d55586e22f8be32a10317d22b9" # anchor: macos-arm64
+      sha256 "1288b68536d64788a9638feb963032c8b06aa7e803f82d33c35f343601b58729" # anchor: macos-arm64
     end
     on_intel do
       url "https://github.com/outlmd/outl/releases/download/v#{version}/outl-macos-x64.tar.gz"
-      sha256 "6dc9ed8539016b4817c97a13ef45554488385c4c97130479db0e6c4a77129830" # anchor: macos-x64
+      sha256 "17850a016a7cb007b090c1cdb90ff7abbb546da8795842d8bb7d278b47d7f9fd" # anchor: macos-x64
     end
   end
 
   on_linux do
     on_intel do
       url "https://github.com/outlmd/outl/releases/download/v#{version}/outl-linux-x64.tar.gz"
-      sha256 "7507fcf9cd677e3735dd32563d4ade97dfbb34570c06991c9682984ea8ac26ac" # anchor: linux-x64
+      sha256 "0773665da8d8536e72f067804e8c3aa123f90040d1c879419a35436e4edae131" # anchor: linux-x64
     end
   end
 
