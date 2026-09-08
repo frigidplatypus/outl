@@ -33,6 +33,14 @@ pub struct QueryParams {
     pub status: Option<String>,
     /// Partial tag match (without `#`).
     pub tag: Option<String>,
+    /// Exclude blocks containing this tag.
+    pub not_tag: Option<String>,
+    /// Filter by block property (key, value).
+    pub prop: Option<(String, String)>,
+    /// Exclude blocks with this property key (any value) or key-value pair.
+    pub not_prop: Option<(String, Option<String>)>,
+    /// Filter by hosting page slug.
+    pub page: Option<String>,
     /// `"journal"` or `"page"`.
     pub kind: Option<String>,
     /// Duration like `"7d"`, `"2w"`, `"3m"`.
@@ -129,6 +137,18 @@ fn build_query_from_params(p: &QueryParams) -> Result<dsl::Query, String> {
     }
     if let Some(t) = &p.tag {
         filters.push(dsl::Filter::Tag(t.clone()));
+    }
+    if let Some(t) = &p.not_tag {
+        filters.push(dsl::Filter::NotTag(t.clone()));
+    }
+    if let Some((k, v)) = &p.prop {
+        filters.push(dsl::Filter::Prop(k.clone(), v.clone()));
+    }
+    if let Some((k, v)) = &p.not_prop {
+        filters.push(dsl::Filter::NotProp(k.clone(), v.clone()));
+    }
+    if let Some(slug) = &p.page {
+        filters.push(dsl::Filter::Page(slug.clone()));
     }
     if let Some(k) = &p.kind {
         filters.push(dsl::Filter::Kind(match k.as_str() {
@@ -235,6 +255,14 @@ pub(crate) mod dsl {
     pub enum Filter {
         Status(StatusFilter),
         Tag(String),
+        /// Exclude blocks containing this tag.
+        NotTag(String),
+        /// Filter by block property (key, value).
+        Prop(String, String),
+        /// Exclude blocks with this property key (any value) or key-value pair.
+        NotProp(String, Option<String>),
+        /// Filter by hosting page slug.
+        Page(String),
         Kind(KindFilter),
         Since(u32),
         Text(String),
@@ -287,6 +315,39 @@ pub(crate) mod dsl {
                 continue;
             }
 
+            // `prop` and `not-prop` take the rest of the line as their
+            // value (which itself contains a key-value pair), so they
+            // need special handling before the generic split_kv.
+            // Word-boundary check: `prop` must be followed by `:`,
+            // space, or end-of-line — otherwise `property: foo`
+            // silently becomes `prop erty: foo`.
+            if line == "prop" || line.starts_with("prop ") || line.starts_with("prop:") {
+                let rest = line[4..].trim();
+                let rest = rest.strip_prefix(':').map(|s| s.trim()).unwrap_or(rest);
+                if rest.is_empty() {
+                    return Err(ParseError {
+                        line: i + 1,
+                        msg: "prop requires 'key: value' or 'key value'".into(),
+                    });
+                }
+                let (pk, pv) = parse_prop(rest, i)?;
+                filters.push(Filter::Prop(pk, pv));
+                continue;
+            }
+            if line == "not-prop" || line.starts_with("not-prop ") || line.starts_with("not-prop:") {
+                let rest = line[8..].trim();
+                let rest = rest.strip_prefix(':').map(|s| s.trim()).unwrap_or(rest);
+                if rest.is_empty() {
+                    return Err(ParseError {
+                        line: i + 1,
+                        msg: "not-prop requires a key".into(),
+                    });
+                }
+                let (pk, pv) = parse_prop_optional_value(rest, i)?;
+                filters.push(Filter::NotProp(pk, pv));
+                continue;
+            }
+
             let (key, value) = split_kv(line, i)?;
             let key = key.trim();
             let value = value.trim();
@@ -294,6 +355,8 @@ pub(crate) mod dsl {
             match key {
                 "status" => filters.push(Filter::Status(parse_status(value, i)?)),
                 "tag" => filters.push(Filter::Tag(value.to_string())),
+                "not-tag" => filters.push(Filter::NotTag(value.to_string())),
+                "page" => filters.push(Filter::Page(value.to_string())),
                 "kind" => filters.push(Filter::Kind(parse_kind(value, i)?)),
                 "since" => filters.push(Filter::Since(parse_duration(value, i)?)),
                 "text" => filters.push(Filter::Text(value.to_string())),
@@ -395,6 +458,67 @@ pub(crate) mod dsl {
         })
     }
 
+    /// Parse `key: value` or `key value` from a prop directive value.
+    fn parse_prop(v: &str, line_idx: usize) -> Result<(String, String), ParseError> {
+        // Accept both `prop priority: high` and `prop priority high`
+        let (key, value) = if let Some((k, val)) = v.split_once(':') {
+            (k.trim(), val.trim())
+        } else if let Some((k, val)) = v.split_once(' ') {
+            (k.trim(), val.trim())
+        } else {
+            return Err(ParseError {
+                line: line_idx + 1,
+                msg: format!("prop requires 'key: value' or 'key value', got '{v}'"),
+            });
+        };
+        if key.is_empty() || value.is_empty() {
+            return Err(ParseError {
+                line: line_idx + 1,
+                msg: format!("prop requires non-empty key and value, got '{v}'"),
+            });
+        }
+        Ok((key.to_string(), value.to_string()))
+    }
+
+    /// Parse `key` or `key: value` from a not-prop directive value.
+    /// Value is optional — `not-prop: status` excludes any block with `status::`.
+    fn parse_prop_optional_value(
+        v: &str,
+        line_idx: usize,
+    ) -> Result<(String, Option<String>), ParseError> {
+        let trimmed = v.trim();
+        if trimmed.is_empty() {
+            return Err(ParseError {
+                line: line_idx + 1,
+                msg: "not-prop requires a key".into(),
+            });
+        }
+        if let Some((key, value)) = trimmed.split_once(':') {
+            let k = key.trim();
+            let val = value.trim();
+            if k.is_empty() {
+                return Err(ParseError {
+                    line: line_idx + 1,
+                    msg: format!("not-prop requires a key, got '{v}'"),
+                });
+            }
+            Ok((k.to_string(), if val.is_empty() { None } else { Some(val.to_string()) }))
+        } else if let Some((key, value)) = trimmed.split_once(' ') {
+            let k = key.trim();
+            let val = value.trim();
+            if k.is_empty() {
+                return Err(ParseError {
+                    line: line_idx + 1,
+                    msg: format!("not-prop requires a key, got '{v}'"),
+                });
+            }
+            Ok((k.to_string(), if val.is_empty() { None } else { Some(val.to_string()) }))
+        } else {
+            // Just a key, no value — exclude any block with that property
+            Ok((trimmed.to_string(), None))
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -434,6 +558,71 @@ pub(crate) mod dsl {
         #[test]
         fn rejects_unknown_key() {
             assert!(parse("bogus: value").is_err());
+        }
+
+        #[test]
+        fn parses_not_tag() {
+            let q = parse("not-tag: western").unwrap();
+            assert_eq!(q.filters.len(), 1);
+            assert!(matches!(&q.filters[0], Filter::NotTag(t) if t == "western"));
+        }
+
+        #[test]
+        fn parses_prop_with_colon() {
+            let q = parse("prop priority: high").unwrap();
+            assert_eq!(q.filters.len(), 1);
+            assert!(matches!(&q.filters[0], Filter::Prop(k, v) if k == "priority" && v == "high"));
+        }
+
+        #[test]
+        fn parses_prop_with_space() {
+            let q = parse("prop priority high").unwrap();
+            assert_eq!(q.filters.len(), 1);
+            assert!(matches!(&q.filters[0], Filter::Prop(k, v) if k == "priority" && v == "high"));
+        }
+
+        #[test]
+        fn parses_not_prop_key_only() {
+            let q = parse("not-prop: status").unwrap();
+            assert_eq!(q.filters.len(), 1);
+            assert!(matches!(&q.filters[0], Filter::NotProp(k, None) if k == "status"));
+        }
+
+        #[test]
+        fn parses_not_prop_key_and_value() {
+            let q = parse("not-prop: status: done").unwrap();
+            assert_eq!(q.filters.len(), 1);
+            assert!(matches!(&q.filters[0], Filter::NotProp(k, Some(v)) if k == "status" && v == "done"));
+        }
+
+        #[test]
+        fn parses_page_filter() {
+            let q = parse("page: inbox").unwrap();
+            assert_eq!(q.filters.len(), 1);
+            assert!(matches!(&q.filters[0], Filter::Page(s) if s == "inbox"));
+        }
+
+        #[test]
+        fn prop_requires_value() {
+            assert!(parse("prop priority").is_err());
+        }
+
+        #[test]
+        fn property_is_not_prop() {
+            // `property: foo` must not silently parse as `prop erty: foo`.
+            assert!(parse("property: foo").is_err());
+        }
+
+        #[test]
+        fn not_property_is_not_not_prop() {
+            // `not-property: foo` must not silently parse as `not-prop erty: foo`.
+            assert!(parse("not-property: foo").is_err());
+        }
+
+        #[test]
+        fn not_tag_combined_with_tag() {
+            let q = parse("tag: ops\nnot-tag: western").unwrap();
+            assert_eq!(q.filters.len(), 2);
         }
     }
 }
@@ -547,6 +736,34 @@ pub(crate) mod engine {
                 let needle = format!("#{}", tag.to_lowercase());
                 entry.text_fold.contains(&needle)
             }
+            Filter::NotTag(tag) => {
+                let needle = format!("#{}", tag.to_lowercase());
+                !entry.text_fold.contains(&needle)
+            }
+            Filter::Prop(key, value) => {
+                let key_fold = key.to_lowercase();
+                let value_fold = value.to_lowercase();
+                entry.properties.iter().any(|(k, v)| {
+                    k.to_lowercase() == key_fold
+                        && v.to_lowercase() == value_fold
+                })
+            }
+            Filter::NotProp(key, value) => {
+                let key_fold = key.to_lowercase();
+                if let Some(val) = value {
+                    let value_fold = val.to_lowercase();
+                    !entry.properties.iter().any(|(k, v)| {
+                        k.to_lowercase() == key_fold
+                            && v.to_lowercase() == value_fold
+                    })
+                } else {
+                    // No value specified — exclude any block with this key
+                    !entry.properties.iter().any(|(k, _)| {
+                        k.to_lowercase() == key_fold
+                    })
+                }
+            }
+            Filter::Page(slug) => entry.source_slug == *slug,
             Filter::Kind(kf) => match kf {
                 KindFilter::Journal => is_journal == Some(true),
                 KindFilter::Page => is_journal != Some(true),
@@ -712,6 +929,7 @@ pub(crate) mod engine {
                 source_block_path: vec![0],
                 text: text.into(),
                 text_fold: text.to_lowercase(),
+                properties: Vec::new(),
                 children: Vec::new(),
             };
             let (status, _) = split_todo(&entry.text);
@@ -727,6 +945,95 @@ pub(crate) mod engine {
                     "{filter:?} against a DOING block"
                 );
             }
+        }
+
+        fn make_entry(
+            text: &str,
+            slug: &str,
+            props: Vec<(&str, &str)>,
+        ) -> BlockEntry {
+            BlockEntry {
+                id: outl_core::NodeId::new(),
+                ref_handle: "blk-test".into(),
+                source_slug: slug.into(),
+                source_path: std::path::PathBuf::from(format!("pages/{slug}.md")),
+                source_block_path: vec![0],
+                text: text.into(),
+                text_fold: text.to_lowercase(),
+                properties: props
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+                children: Vec::new(),
+            }
+        }
+
+        #[test]
+        fn not_tag_excludes_matching_blocks() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let with_tag = make_entry("TODO thing #western", "notes", vec![]);
+            let without_tag = make_entry("TODO thing #eastern", "notes", vec![]);
+            let filter = Filter::NotTag("western".into());
+            assert!(!matches(&filter, &with_tag, None, None, &today));
+            assert!(matches(&filter, &without_tag, None, None, &today));
+        }
+
+        #[test]
+        fn prop_filter_matches_key_value() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let entry = make_entry("TODO thing", "notes", vec![("priority", "high")]);
+            let filter = Filter::Prop("priority".into(), "high".into());
+            assert!(matches(&filter, &entry, None, None, &today));
+            let wrong_val = Filter::Prop("priority".into(), "low".into());
+            assert!(!matches(&wrong_val, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn prop_filter_is_case_insensitive() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let entry = make_entry("TODO thing", "notes", vec![("Priority", "HIGH")]);
+            let filter = Filter::Prop("priority".into(), "high".into());
+            assert!(matches(&filter, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn not_prop_key_only_excludes_any_block_with_that_key() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let with_prop = make_entry("TODO thing", "notes", vec![("status", "done")]);
+            let without_prop = make_entry("TODO thing", "notes", vec![]);
+            let filter = Filter::NotProp("status".into(), None);
+            assert!(!matches(&filter, &with_prop, None, None, &today));
+            assert!(matches(&filter, &without_prop, None, None, &today));
+        }
+
+        #[test]
+        fn not_prop_with_value_excludes_only_that_pair() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let entry = make_entry("TODO thing", "notes", vec![("status", "done")]);
+            let filter = Filter::NotProp("status".into(), Some("done".into()));
+            assert!(!matches(&filter, &entry, None, None, &today));
+            let other_val = Filter::NotProp("status".into(), Some("todo".into()));
+            assert!(matches(&other_val, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn page_filter_matches_slug() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let entry = make_entry("TODO thing", "inbox", vec![]);
+            let filter = Filter::Page("inbox".into());
+            assert!(matches(&filter, &entry, None, None, &today));
+            let wrong = Filter::Page("archive".into());
+            assert!(!matches(&wrong, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn combined_tag_and_not_tag() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let entry = make_entry("TODO thing #ops #western", "notes", vec![]);
+            let tag_filter = Filter::Tag("ops".into());
+            let not_tag_filter = Filter::NotTag("western".into());
+            assert!(matches(&tag_filter, &entry, None, None, &today));
+            assert!(!matches(&not_tag_filter, &entry, None, None, &today));
         }
     }
 }

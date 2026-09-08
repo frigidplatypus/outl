@@ -177,6 +177,52 @@ fn js_value_to_query_params(
         params.tag = Some(v.to_std_string_escaped());
     }
     if let Some(v) = obj
+        .get(js_string!("notTag"), ctx)
+        .map_err(|e| e.to_string())?
+        .as_string()
+    {
+        params.not_tag = Some(v.to_std_string_escaped());
+    }
+    if let Some(v) = obj
+        .get(js_string!("page"), ctx)
+        .map_err(|e| e.to_string())?
+        .as_string()
+    {
+        params.page = Some(v.to_std_string_escaped());
+    }
+    // prop: [key, value] tuple
+    if let Ok(prop_val) = obj.get(js_string!("prop"), ctx) {
+        if let Some(prop_obj) = prop_val.as_object() {
+            let key = prop_obj
+                .get(js_string!("0"), ctx)
+                .ok()
+                .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()));
+            let value = prop_obj
+                .get(js_string!("1"), ctx)
+                .ok()
+                .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()));
+            if let (Some(k), Some(v)) = (key, value) {
+                params.prop = Some((k, v));
+            }
+        }
+    }
+    // notProp: [key] or [key, value] tuple
+    if let Ok(prop_val) = obj.get(js_string!("notProp"), ctx) {
+        if let Some(prop_obj) = prop_val.as_object() {
+            let key = prop_obj
+                .get(js_string!("0"), ctx)
+                .ok()
+                .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()));
+            let value = prop_obj
+                .get(js_string!("1"), ctx)
+                .ok()
+                .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()));
+            if let Some(k) = key {
+                params.not_prop = Some((k, value));
+            }
+        }
+    }
+    if let Some(v) = obj
         .get(js_string!("kind"), ctx)
         .map_err(|e| e.to_string())?
         .as_string()

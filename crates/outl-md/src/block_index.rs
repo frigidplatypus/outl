@@ -95,6 +95,9 @@ pub struct BlockEntry {
     /// [`BlockIndex::search_text`] doesn't reallocate per block on
     /// every autocomplete keystroke.
     pub text_fold: String,
+    /// Properties attached to this block (key-value pairs).
+    /// Powers `prop:` and `not-prop:` query filters.
+    pub properties: Vec<(String, String)>,
     /// Cloned subtree under this block — used by embed surfaces.
     pub children: Vec<OutlineNode>,
 }
@@ -386,6 +389,7 @@ impl BlockIndex {
                             source_block_path: path_stack.clone(),
                             text,
                             text_fold,
+                            properties: b.properties.clone(),
                             children: b.children.clone(),
                         },
                     );
@@ -501,6 +505,7 @@ impl BlockIndex {
                     source_block_path: path_stack.clone(),
                     text,
                     text_fold,
+                    properties: b.properties.clone(),
                     children: b.children.iter().map(IdentifiedNode::to_outline).collect(),
                 },
             );
