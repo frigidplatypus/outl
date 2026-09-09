@@ -204,6 +204,7 @@ impl From<Settings> for Config {
             // toggle (same restore-on-save pattern as `[calendar]`).
             display: DisplayCfg {
                 backlinks_order: parse_backlinks_order(&s.backlinks_order),
+                window_decorations: true,
             },
             // `[assets]` (upload size cap) is core-managed; the desktop
             // doesn't model it. `save` restores it from disk so a

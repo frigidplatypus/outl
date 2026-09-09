@@ -1260,3 +1260,24 @@ export function getTheme(name: string | null): Promise<Palette> {
 export function getThemeConfig(): Promise<ThemeConfig> {
   return invoke<ThemeConfig>("get_theme_config");
 }
+
+/**
+ * Read the current window-decorations preference from config.
+ *
+ * Returns `true` when native window decorations (title bar, borders)
+ * are shown, `false` when hidden. Useful on Wayland compositors like
+ * Niri where the compositor draws its own decorations.
+ */
+export function getWindowDecorations(): Promise<boolean> {
+  return invoke<boolean>("get_window_decorations");
+}
+
+/**
+ * Persist the window-decorations preference and return the new value.
+ *
+ * The desktop calls `set_decorations()` on the Tauri window after this
+ * returns; the value persists to `outl.toml` for the next launch.
+ */
+export function setWindowDecorations(enabled: boolean): Promise<boolean> {
+  return invoke<boolean>("set_window_decorations", { enabled });
+}

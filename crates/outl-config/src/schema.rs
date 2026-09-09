@@ -139,6 +139,17 @@ pub struct DisplayCfg {
     /// [`BacklinksOrder::Newest`] — the fix for issue #142, where long
     /// backlink lists buried the latest reference at the bottom.
     pub backlinks_order: BacklinksOrder,
+
+    /// Whether to show native window decorations (title bar, borders).
+    ///
+    /// Default `true`. Set to `false` on Wayland compositors like Niri
+    /// where the compositor draws its own decorations and the native
+    /// title bar is redundant. The desktop applies this on startup and
+    /// exposes a toggle in Settings → Display.
+    ///
+    /// Changing this at runtime calls `set_decorations()` on the window;
+    /// the new value persists to `outl.toml` for the next launch.
+    pub window_decorations: bool,
 }
 
 /// TUI-only preferences (the desktop ignores this section).

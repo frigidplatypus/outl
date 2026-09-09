@@ -56,22 +56,23 @@ use crate::commands::{
     attach_asset, clear_reminder_snooze, copy_block_markdown, copy_block_ref, copy_markdown,
     create_block, current_workspace, cut_block, date_title, delete_block, delete_page,
     deliver_due_reminders, edit_block, get_settings, get_theme, get_theme_config,
-    import_asset_file, indent_block, instantiate_template_at, known_property_keys,
-    list_action_support, list_all_pages, list_reminders, list_shortcut_bindings,
-    list_templates_cmd, list_themes, mark_block_done, move_block_after, move_block_down,
-    move_block_up, next_day, open_asset, open_journal_for, open_page_by_slug, open_ref,
-    open_today_journal, outdent_block, outl_emoji_search, outl_peer_list, outl_peer_pair_host,
-    outl_peer_pair_join, outl_peer_remove, outl_peer_status, outl_sync_now, page_backlinks,
-    page_timeline, paste_block_after, paste_markdown_at, paste_plain_at, plugin_config_set,
-    plugin_install_official, plugin_keybindings, plugin_list, plugin_registry_list, plugin_run,
-    plugin_secret_remove, plugin_secret_set, plugin_set_enabled, plugin_settings_describe,
-    plugin_sync_hooks, plugin_toolbar, plugin_transform, plugin_transformers, plugin_uninstall,
-    previous_day, read_asset_data_url, redo_page, reload_workspace, reminder_settings,
-    resolve_embeds, resolve_page_labels, resolve_ref, run_auto_run_blocks, run_code_block,
-    search_blocks, search_pages, search_persons, set_backlinks_order, set_block_collapsed,
-    set_block_property, set_block_remind, set_page_property, set_reminder_settings, set_workspace,
-    snooze_presets, snooze_reminder, split_block, today_slug_cmd, toggle_pin, toggle_quote,
-    toggle_todo, undo_page, update_settings, workspace_stats,
+    get_window_decorations, import_asset_file, indent_block, instantiate_template_at,
+    known_property_keys, list_action_support, list_all_pages, list_reminders,
+    list_shortcut_bindings, list_templates_cmd, list_themes, mark_block_done, move_block_after,
+    move_block_down, move_block_up, next_day, open_asset, open_journal_for, open_page_by_slug,
+    open_ref, open_today_journal, outdent_block, outl_emoji_search, outl_peer_list,
+    outl_peer_pair_host, outl_peer_pair_join, outl_peer_remove, outl_peer_status, outl_sync_now,
+    page_backlinks, page_timeline, paste_block_after, paste_markdown_at, paste_plain_at,
+    plugin_config_set, plugin_install_official, plugin_keybindings, plugin_list,
+    plugin_registry_list, plugin_run, plugin_secret_remove, plugin_secret_set,
+    plugin_set_enabled, plugin_settings_describe, plugin_sync_hooks, plugin_toolbar,
+    plugin_transform, plugin_transformers, plugin_uninstall, previous_day, read_asset_data_url,
+    redo_page, reload_workspace, reminder_settings, resolve_embeds, resolve_page_labels,
+    resolve_ref, run_auto_run_blocks, run_code_block, search_blocks, search_pages,
+    search_persons, set_backlinks_order, set_block_collapsed, set_block_property,
+    set_block_remind, set_page_property, set_reminder_settings, set_window_decorations,
+    set_workspace, snooze_presets, snooze_reminder, split_block, today_slug_cmd, toggle_pin,
+    toggle_quote, toggle_todo, undo_page, update_settings, workspace_stats,
 };
 use crate::plugin_service::spawn_plugin_service;
 use crate::state::AppState;
@@ -331,6 +332,18 @@ pub fn run() {
                 }
             }
 
+            // Apply window decorations preference from config.
+            // The desktop reads `[display] window_decorations` and calls
+            // `set_decorations()` on the main window. Default is `true`
+            // (show decorations); set to `false` on Wayland compositors
+            // like Niri where the compositor draws its own decorations.
+            if let Some(win) = app.get_webview_window("main") {
+                let decorations = outl_config::load().display.window_decorations;
+                if let Err(e) = win.set_decorations(decorations) {
+                    tracing::warn!("failed to set window decorations: {e}");
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -346,6 +359,8 @@ pub fn run() {
             list_themes,
             get_theme,
             get_theme_config,
+            get_window_decorations,
+            set_window_decorations,
             // Shortcuts
             list_shortcut_bindings,
             list_action_support,

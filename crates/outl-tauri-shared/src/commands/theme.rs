@@ -48,6 +48,31 @@ pub fn get_theme_config() -> ThemeConfigDto {
     theme_config_dto(&outl_config::load())
 }
 
+/// Persist the window-decorations preference (`[display] window_decorations`).
+///
+/// A pure display preference — lives in `config.toml`, never the op
+/// log, does not converge between devices. Returns the new value so
+/// the caller can apply it to the window without re-reading config.
+///
+/// The desktop calls `set_decorations()` on the Tauri window after
+/// this returns; the value persists for the next launch.
+pub fn set_window_decorations(enabled: bool) -> bool {
+    let mut cfg = outl_config::load();
+    cfg.display.window_decorations = enabled;
+    // Best-effort save: a write failure here is non-fatal (the in-memory
+    // value is still correct for this session), but we log it so the
+    // user knows the preference won't survive a restart.
+    if let Err(e) = outl_config::save(&cfg) {
+        eprintln!("[outl] failed to save window_decorations: {e}");
+    }
+    enabled
+}
+
+/// Read the current window-decorations preference from config.
+pub fn get_window_decorations() -> bool {
+    outl_config::load().display.window_decorations
+}
+
 /// The pure mapping `Config -> ThemeConfigDto`, split out from
 /// [`get_theme_config`] so tests can drive it with a constructed
 /// `Config` instead of whatever `config.toml` happens to be on the

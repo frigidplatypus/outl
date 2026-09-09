@@ -1,6 +1,10 @@
 import { For, Show, createMemo, createResource, createSignal, onMount } from "solid-js";
 
-import { listThemes } from "@outl/shared/api/commands";
+import {
+  getWindowDecorations,
+  listThemes,
+  setWindowDecorations,
+} from "@outl/shared/api/commands";
 import { installTheme, pickSide, type ThemeConfig, type ThemeMode } from "@outl/shared/theme";
 
 import { getSettings, updateSettings, type Settings } from "../lib/api";
@@ -19,6 +23,7 @@ import { SyncPanel } from "./SyncPanel";
 export function SettingsModal() {
   const [draft, setDraft] = createSignal<Settings | null>(null);
   const [busy, setBusy] = createSignal(false);
+  const [windowDecorations, setWindowDecorationsState] = createSignal(true);
   let activeTheme: ThemeConfig | null = null;
   const [themes] = createResource(async () => {
     try {
@@ -66,6 +71,8 @@ export function SettingsModal() {
       const s = await getSettings();
       activeTheme = themeConfig(s);
       setDraft(s);
+      const decorations = await getWindowDecorations();
+      setWindowDecorationsState(decorations);
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
       close();
@@ -299,6 +306,39 @@ export function SettingsModal() {
                   iroh syncs device-to-device over QUIC; file relies on a synced
                   folder. Takes effect after the app restarts.
                 </div>
+              </label>
+
+              <label class="flex items-center justify-between gap-4">
+                <div>
+                  <div class="text-sm font-medium">Window decorations</div>
+                  <div class="text-xs opacity-60">
+                    Show the native title bar and window borders. Turn off on
+                    Wayland compositors (Niri, Sway) where the compositor draws
+                    its own decorations.
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={windowDecorations()}
+                  onChange={async (e) => {
+                    const enabled = e.currentTarget.checked;
+                    setWindowDecorationsState(enabled);
+                    try {
+                      await setWindowDecorations(enabled);
+                      // Apply to the current window immediately
+                      const { getCurrentWindow } = await import(
+                        "@tauri-apps/api/window"
+                      );
+                      await getCurrentWindow().setDecorations(enabled);
+                    } catch (e) {
+                      setAppState(
+                        "lastError",
+                        e instanceof Error ? e.message : String(e),
+                      );
+                    }
+                  }}
+                  class="h-4 w-4"
+                />
               </label>
 
               <SyncPanel />
