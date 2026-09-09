@@ -276,6 +276,7 @@ pub fn by_name(name: &str) -> Option<Theme> {
         "monokai" => Some(monokai()),
         "gruvbox" | "gruvbox-dark" => Some(gruvbox()),
         "outl-light" => Some(outl_light()),
+        "gruvbox" | "gruvbox-dark" => Some(gruvbox()),
         _ => None,
     }
 }

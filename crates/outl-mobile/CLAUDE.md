@@ -19,6 +19,7 @@ outl-mobile (this crate)
    │   ├── iroh_sync.rs            (wire_iroh_transport — boot the P2P transport, register the bg-sync handle)
    │   ├── bg_sync.rs              (one forced-sync core + per-platform exports: iOS C ABI, Android JNI)
    │   ├── android_jni.rs          (Android-only: primes rustls-platform-verifier + ndk_context before iroh's first QUIC connect)
+   │   ├── ios_bonjour.rs          (iOS-only: LAN peer discovery bridge to OutlBonjour.swift, over the outl_sync_iroh::lan seam)
    │   ├── plugin_service.rs       (PluginService + dedicated plugin thread — Boa Context is !Send, so it can't live in AppState)
    │   └── commands/               (Tauri command surface — split mirrors outl-desktop)
    │       ├── mod.rs
@@ -32,6 +33,7 @@ outl-mobile (this crate)
    │       └── theme.rs (list_themes / get_theme)
    ├── gen/apple/.../main.mm       (NSMetadataQuery + NSFileCoordinator iCloud watcher)
    ├── gen/apple/.../OutlBackgroundRefresh.swift  (BGTaskScheduler windows + the beginBackgroundTask flush)
+   ├── gen/apple/.../OutlBonjour.swift            (NetService advertise + NetServiceBrowser resolve, the iOS mDNS path)
    ├── gen/android/.../MainActivity.kt            (NativeSetup.install + OutlBackgroundSync.install, before Tauri boots)
    ├── gen/android/.../NativeSync.kt              (external fun bindings for the bg_sync JNI symbols)
    ├── gen/android/.../OutlBackgroundSync.kt      (ProcessLifecycleOwner observer + the two WorkManager schedules)
@@ -46,8 +48,26 @@ The wrapper files therefore read identically to desktop's.
 A command both clients need gets its body in `outl-tauri-shared` and a wrapper + `invoke_handler!` entry in **both** clients — never in just one.
 
 The op log backend is the shared `outl_core::storage::JsonlStorage`;
-there is no `icloud_storage.rs` because the only iCloud-specific work is resolving the ubiquity container path (via `icloud_path.rs`) and forcing peer-file materialisation before reads (via `OutlOpsWatcher.swift`).
+there is no `icloud_storage.rs`, and no iCloud-specific Rust at all: the ubiquity-container resolution that used to live in `icloud_path.rs` was removed along with the file (see "Change detection: the iroh signal" below).
 The storage trait stays generic; the transport gets handled outside it.
+
+## `Journal.tsx` and what has been split out of it
+
+`Journal.tsx` is the mobile app's one large component and the single biggest file in the repo.
+It reached 3,212 lines because the frontend sat outside `file-size-guard.sh`, which only read `.rs` until 2026-09 — so nothing ever warned.
+
+Two pieces are now siblings, and new code of either shape belongs there rather than back in the parent:
+
+- **`JournalHeader.tsx`** — `JournalHeader`, `PageHeader`, `ChevronLeft`, `ChevronRight`.
+  Pure render: props in, markup out, no state and no commands.
+- **`Journal.context-actions.ts`** — `buildContextActions` plus its only helper `locateSiblings`.
+  A pure function from (block id, page view, handlers) to the typed row list `<BlockContextMenu>` renders.
+  It has no Solid import at all, which is why it is `.ts` and not `.tsx`.
+  `Journal.buildContextActions.test.ts` drives it directly.
+
+What is left is still ~2,800 lines, almost all of it one `Journal()` function.
+That is real debt, not a finished job: the remaining split is a state/effects question (edit lifecycle, selection, sync signals, keyboard accessory), not a "move these functions" question, and it wants its own plan.
+`.github/file-size-baseline.txt` holds the current number, and the CI ratchet means it can go down but not up.
 
 ## Storage is a chosen folder, not forced iCloud (Fase 2)
 
@@ -62,7 +82,7 @@ Boot resolution (`workspace_open::resolve_storage_root`):
 2. Else the app-local default `<app-data-dir>/outl/` — synced by iroh, no iCloud.
 
 The old behaviour (force `<ubiquity-container>/Documents/`, fall back to local only if iCloud was unavailable) is gone.
-iCloud is reachable on demand via `workspace_open::icloud_workspace_root()` (used by `workspace_picker::pick_in_icloud`).
+iCloud is reachable only as a path the user picks through the OS file picker — there is no `icloud_workspace_root()` / `pick_in_icloud` in the Rust path any more, and nothing in this crate resolves a ubiquity container.
 
 **Folder selection.**
 `workspace_picker.rs` owns the choice.
@@ -72,7 +92,7 @@ iCloud is reachable on demand via `workspace_open::icloud_workspace_root()` (use
   Frontend wrapper: `setWorkspace(path) → Promise<void>` in `src/lib/api.ts`.
   No caller wires it yet — the arbitrary-folder native picker (`UIDocumentPickerViewController` + security-scoped bookmark) is deferred, so the local default is the only root a fresh install opens.
 
-> **Registration note:** both commands are registered in `lib.rs`'s `invoke_handler!` list (`workspace_picker::set_workspace`, `workspace_picker::pick_in_icloud`).
+> **Registration note:** `workspace_picker::set_workspace` is registered in `lib.rs`'s `invoke_handler!` list. There is no `pick_in_icloud` any more (see the iCloud note above).
 
 ## First-run onboarding
 
@@ -109,6 +129,15 @@ There is no filesystem watcher in the Rust path.
 The iOS-native `OutlOpsWatcher.swift` (`NSMetadataQuery` + `NSFileCoordinator`), the iCloud container entitlements, and the `Info.plist`/`pbxproj` references are still present from before the Rust teardown.
 Because the chosen folder is now always local, the watcher's `NSMetadataQueryUbiquitousDocumentsScope` query matches nothing and stays **dormant** — it does nothing and breaks nothing.
 Removing it (watcher → no-op, strip the entitlements + plist keys) is a follow-up that touches code-signing, so it must be validated with a device build, not done blind.
+
+## LAN peer discovery (mDNS)
+
+Both mobile platforms enter through `outl-sync-iroh`'s `bind::attach_mdns`, but *how* discovery happens diverges below it, and neither platform's answer is plain Rust:
+
+- **Android works**, and needed `CHANGE_WIFI_MULTICAST_STATE` plus a held `WifiManager.MulticastLock` (`gen/android/…/OutlMulticast.kt`, taken across `onResume` / `onPause`). Without the lock the Wi-Fi driver discards multicast answers below the socket API, so discovery finds nobody with **no error anywhere** — see [`docs/android-platform.md` → mDNS peer discovery](../../docs/android-platform.md#mdns-peer-discovery-the-permission-is-not-the-whole-story).
+- **iOS works too, but not through that crate.** A socket-level multicast join needs `com.apple.developer.networking.multicast`, which Apple grants by request and commonly declines. So iOS does not join one: `ios_bonjour.rs` + `gen/apple/.../OutlBonjour.swift` ask the system's `mDNSResponder` to advertise and browse via `NetService` / `NetServiceBrowser`, which Apple's Local Network Privacy FAQ exempts as long as the service type is fixed and declared — ours is, in `NSBonjourServices`. **Never add the multicast entitlement**: it is not needed, and a provisioning profile that lacks it fails code signing and breaks the TestFlight pipeline.
+  The seam is `outl_sync_iroh::lan` (plain Rust — that crate is `#![forbid(unsafe_code)]`, so the FFI lives here beside `bg_sync.rs`). `SERVICE_TYPE` / `RELAY_TXT_KEY` are the entire agreement with the other clients; drift breaks discovery with **no error on either side**, so they are pinned by `the_lan_wire_constants_match_the_platform_bridge`.
+  A user who declines the local-network prompt is indistinguishable from an empty LAN — iOS reports nothing to a denied app. See [`docs/sync.md`](../../docs/sync.md#what-each-platform-needs-before-mdns-actually-works).
 
 ## Background sync (iOS + Android)
 
@@ -465,7 +494,7 @@ Skip either and you race the iCloud download daemon.
 
 ## Bundle / signing
 
-Bundle id + iCloud container are **global** in the Apple Developer ecosystem, so changing either means updating six files in lockstep.
+Bundle id + iCloud container are **global** in the Apple Developer ecosystem, so changing either means updating five files in lockstep.
 Identifiers, team, entitlements and that checklist: [`docs/ios-platform.md`](../../docs/ios-platform.md#bundle--signing).
 
 ## Running
