@@ -321,12 +321,10 @@ describe("BlockRow commit — the ghost-block policy (#213)", () => {
 
 describe("BlockRow header rendering", () => {
   function bulletButton(host: HTMLElement): HTMLButtonElement {
-    // The fold chevron is the *first* `button.outl-row-chrome`; the
-    // bullet renders after it in row DOM order and is the only other
-    // `outl-row-chrome` button (grep the component), so pick the last.
-    const buttons =
-      host.querySelectorAll<HTMLButtonElement>("button.outl-row-chrome");
-    const b = buttons[buttons.length - 1];
+    // Header bullets carry `.outl-header-glyph` (grep the component) —
+    // the fold chevron is the row's `.outl-row-chrome` button and the
+    // plain bullet lost that class when it stopped hiding at rest.
+    const b = host.querySelector<HTMLButtonElement>("button.outl-header-glyph");
     if (!b) throw new Error("bullet button did not render");
     return b;
   }

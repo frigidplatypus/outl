@@ -191,9 +191,7 @@ fn parse_prop_filters(
     Ok(out)
 }
 
-fn parse_not_prop_filters(
-    not_props: &[String],
-) -> Result<Vec<(String, Option<String>)>, ApiError> {
+fn parse_not_prop_filters(not_props: &[String]) -> Result<Vec<(String, Option<String>)>, ApiError> {
     let mut out: Vec<(String, Option<String>)> = Vec::new();
     for raw in not_props {
         if let Some((k, v)) = raw.split_once('=') {

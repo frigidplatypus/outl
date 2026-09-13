@@ -157,6 +157,7 @@ fn todo_state_matches_its_union() {
             let node = outl_actions::OutlineNode {
                 id: "01JQ0000000000000000000001".into(),
                 text: "x".into(),
+                header_level: None,
                 todo: Some(*state),
                 collapsed: false,
                 properties: Vec::new(),

@@ -33,6 +33,7 @@ pub fn outline_node() -> OutlineNode {
     OutlineNode {
         id: "01JQ0000000000000000000001".into(),
         text: "restarted the ingest worker".into(),
+        header_level: None,
         todo: Some(TodoState::Todo),
         collapsed: true,
         properties: vec![("owner".into(), "avelino".into())],

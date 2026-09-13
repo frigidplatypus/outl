@@ -334,7 +334,8 @@ pub(crate) mod dsl {
                 filters.push(Filter::Prop(pk, pv));
                 continue;
             }
-            if line == "not-prop" || line.starts_with("not-prop ") || line.starts_with("not-prop:") {
+            if line == "not-prop" || line.starts_with("not-prop ") || line.starts_with("not-prop:")
+            {
                 let rest = line[8..].trim();
                 let rest = rest.strip_prefix(':').map(|s| s.trim()).unwrap_or(rest);
                 if rest.is_empty() {
@@ -502,7 +503,14 @@ pub(crate) mod dsl {
                     msg: format!("not-prop requires a key, got '{v}'"),
                 });
             }
-            Ok((k.to_string(), if val.is_empty() { None } else { Some(val.to_string()) }))
+            Ok((
+                k.to_string(),
+                if val.is_empty() {
+                    None
+                } else {
+                    Some(val.to_string())
+                },
+            ))
         } else if let Some((key, value)) = trimmed.split_once(' ') {
             let k = key.trim();
             let val = value.trim();
@@ -512,7 +520,14 @@ pub(crate) mod dsl {
                     msg: format!("not-prop requires a key, got '{v}'"),
                 });
             }
-            Ok((k.to_string(), if val.is_empty() { None } else { Some(val.to_string()) }))
+            Ok((
+                k.to_string(),
+                if val.is_empty() {
+                    None
+                } else {
+                    Some(val.to_string())
+                },
+            ))
         } else {
             // Just a key, no value — exclude any block with that property
             Ok((trimmed.to_string(), None))
@@ -592,7 +607,9 @@ pub(crate) mod dsl {
         fn parses_not_prop_key_and_value() {
             let q = parse("not-prop: status: done").unwrap();
             assert_eq!(q.filters.len(), 1);
-            assert!(matches!(&q.filters[0], Filter::NotProp(k, Some(v)) if k == "status" && v == "done"));
+            assert!(
+                matches!(&q.filters[0], Filter::NotProp(k, Some(v)) if k == "status" && v == "done")
+            );
         }
 
         #[test]
@@ -743,24 +760,24 @@ pub(crate) mod engine {
             Filter::Prop(key, value) => {
                 let key_fold = key.to_lowercase();
                 let value_fold = value.to_lowercase();
-                entry.properties.iter().any(|(k, v)| {
-                    k.to_lowercase() == key_fold
-                        && v.to_lowercase() == value_fold
-                })
+                entry
+                    .properties
+                    .iter()
+                    .any(|(k, v)| k.to_lowercase() == key_fold && v.to_lowercase() == value_fold)
             }
             Filter::NotProp(key, value) => {
                 let key_fold = key.to_lowercase();
                 if let Some(val) = value {
                     let value_fold = val.to_lowercase();
                     !entry.properties.iter().any(|(k, v)| {
-                        k.to_lowercase() == key_fold
-                            && v.to_lowercase() == value_fold
+                        k.to_lowercase() == key_fold && v.to_lowercase() == value_fold
                     })
                 } else {
                     // No value specified — exclude any block with this key
-                    !entry.properties.iter().any(|(k, _)| {
-                        k.to_lowercase() == key_fold
-                    })
+                    !entry
+                        .properties
+                        .iter()
+                        .any(|(k, _)| k.to_lowercase() == key_fold)
                 }
             }
             Filter::Page(slug) => entry.source_slug == *slug,
@@ -947,11 +964,7 @@ pub(crate) mod engine {
             }
         }
 
-        fn make_entry(
-            text: &str,
-            slug: &str,
-            props: Vec<(&str, &str)>,
-        ) -> BlockEntry {
+        fn make_entry(text: &str, slug: &str, props: Vec<(&str, &str)>) -> BlockEntry {
             BlockEntry {
                 id: outl_core::NodeId::new(),
                 ref_handle: "blk-test".into(),

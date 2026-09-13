@@ -30,6 +30,7 @@ function block(overrides: Partial<BlockNode> = {}): BlockNode {
     id: BLOCK_ID,
     text: "a block",
     todo: null,
+    header_level: null,
     tokens: [],
     collapsed: false,
     properties: [],
