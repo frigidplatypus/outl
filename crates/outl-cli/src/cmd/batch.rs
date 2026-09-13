@@ -281,10 +281,16 @@ fn apply_op(ctx: &mut WsCtx, op: &str, args: &Value) -> Result<Value, ApiError> 
             let page = require_str(args, "page")?;
             let key = require_str(args, "key")?;
             // Omitted or null `value` clears the property; a present
-            // string (including "") sets it.
-            match opt_str(args, "value") {
-                Some(value) => prop_cmd::set_kv(ctx, page, key, value),
-                None => prop_cmd::clear_kv(ctx, page, key),
+            // string (including "") sets it. Any other type is an error:
+            // a mistyped value must not silently delete the property.
+            match args.get("value") {
+                None | Some(Value::Null) => prop_cmd::clear_kv(ctx, page, key),
+                Some(v) => {
+                    let value = v.as_str().ok_or_else(|| {
+                        ApiError::new(codes::INVALID_ARG, "`value` must be a string")
+                    })?;
+                    prop_cmd::set_kv(ctx, page, key, value)
+                }
             }
         }
         other => Err(ApiError::new(

@@ -251,6 +251,114 @@ fn page_create_then_get_via_mcp() {
     assert_eq!(data["meta"]["title"], "Ideas");
 }
 
+/// `outl_page_prop_set` doubles as the clear path: an omitted or null
+/// `value` removes the property, and a present non-string must be
+/// rejected rather than silently clearing it. This drives the real
+/// server so the dispatch branch — not just the shared handler that
+/// `tests/prop_clear.rs` pins through the CLI and batch — is covered.
+#[test]
+fn page_prop_set_over_mcp_clears_and_rejects_non_string() {
+    let ws = init_workspace();
+    let mut client = McpClient::spawn(ws.path());
+
+    let _ = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": { "protocolVersion": "2024-11-05", "capabilities": {} }
+    }));
+
+    let create = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_page_create",
+            "arguments": { "slug": "notes" }
+        }
+    }));
+    assert_eq!(create["result"]["isError"], false);
+
+    // Set a property.
+    let set = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_page_prop_set",
+            "arguments": { "page": "notes", "key": "status", "value": "active" }
+        }
+    }));
+    assert_eq!(success_data(&set["result"])["value"], "active");
+
+    // A null value clears it.
+    let clear_null = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_page_prop_set",
+            "arguments": { "page": "notes", "key": "status", "value": null }
+        }
+    }));
+    assert_eq!(success_data(&clear_null["result"])["value"], Value::Null);
+
+    // Re-set, then clear by omitting the value entirely.
+    let reset = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_page_prop_set",
+            "arguments": { "page": "notes", "key": "status", "value": "active" }
+        }
+    }));
+    assert_eq!(success_data(&reset["result"])["value"], "active");
+
+    let clear_omit = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_page_prop_set",
+            "arguments": { "page": "notes", "key": "status" }
+        }
+    }));
+    assert_eq!(success_data(&clear_omit["result"])["value"], Value::Null);
+
+    // The property is gone.
+    let get = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_page_prop_get",
+            "arguments": { "page": "notes", "key": "status" }
+        }
+    }));
+    assert_eq!(get["result"]["isError"], true);
+    assert_eq!(
+        get["result"]["structuredContent"]["error"]["code"],
+        "PROP_NOT_FOUND"
+    );
+
+    // A non-string value is rejected, not silently cleared.
+    let bad = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_page_prop_set",
+            "arguments": { "page": "notes", "key": "status", "value": 42 }
+        }
+    }));
+    assert_eq!(bad["result"]["isError"], true);
+    assert_eq!(
+        bad["result"]["structuredContent"]["error"]["code"],
+        "INVALID_ARG"
+    );
+}
+
 /// The whole point of reading a journal over MCP is being able to act on
 /// what you read. That needs a block id, and a rendered `.md` has none —
 /// ids live in the sidecar, never in the markdown.

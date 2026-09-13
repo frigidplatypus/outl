@@ -356,13 +356,22 @@ fn run_tool(name: &str, args: &Value, ctx: &Arc<ServerCtx>) -> Result<Value, Api
             let page = require_str(args, "page")?.to_string();
             let key = require_str(args, "key")?.to_string();
             // Omitted or null `value` clears the property; a present
-            // string (including "") sets it.
-            match opt_str(args, "value") {
-                Some(value) => {
+            // string (including "") sets it. Any other type is an error:
+            // a mistyped value must not silently delete the property.
+            match args.get("value") {
+                None | Some(Value::Null) => {
+                    ctx.with_workspace(|wc| prop_cmd::clear_kv(wc, &page, &key))
+                }
+                Some(v) => {
+                    let value = v.as_str().ok_or_else(|| {
+                        ApiError::new(
+                            crate::output::codes::INVALID_ARG,
+                            "`value` must be a string",
+                        )
+                    })?;
                     let value = value.to_string();
                     ctx.with_workspace(|wc| prop_cmd::set_kv(wc, &page, &key, &value))
                 }
-                None => ctx.with_workspace(|wc| prop_cmd::clear_kv(wc, &page, &key)),
             }
         }
         "outl_page_prop_get" => {

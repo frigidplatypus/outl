@@ -1,6 +1,8 @@
-//! End-to-end coverage for clearing a page property (`outl page prop
-//! clear`, the optional `value` on the `page_prop_set` batch op, and the
-//! matching MCP dispatch branch).
+//! End-to-end coverage for clearing a page property — the CLI
+//! (`outl page prop clear`) and the optional `value` on the
+//! `page_prop_set` batch op. The MCP dispatch branch for the same clear
+//! (plus the non-string rejection) is pinned in `tests/mcp_smoke.rs`
+//! (`page_prop_set_over_mcp_clears_and_rejects_non_string`).
 //!
 //! The core primitive is `outl_actions::set_property(…, None)` →
 //! `Op::SetProp { value: None }`; these tests pin the *surfaces* around
@@ -156,13 +158,26 @@ impl Ws {
     }
 
     /// Run a `page_prop_set` batch op with a given `value` JSON fragment
-    /// (already-serialized, e.g. `"x"`, `null`, or omitted).
+    /// (already-serialized, e.g. `"x"`, `null`, or omitted). Returns the
+    /// `data` payload; asserts the run succeeded.
     fn batch_prop_set(&self, slug: &str, key: &str, value_json: Option<&str>) -> Value {
         let args_obj = match value_json {
             Some(v) => format!("{{\"page\":\"{slug}\",\"key\":\"{key}\",\"value\":{v}}}"),
             None => format!("{{\"page\":\"{slug}\",\"key\":\"{key}\"}}"),
         };
         let payload = format!("{{\"ops\":[{{\"op\":\"page_prop_set\",\"args\":{args_obj}}}]}}");
+        let envelope = self.run_batch(&payload);
+        assert_eq!(
+            envelope["ok"], true,
+            "batch envelope must be ok: {envelope}"
+        );
+        envelope["data"].clone()
+    }
+
+    /// Spawn `outl batch --ops <payload>` and return the full JSON
+    /// envelope without asserting on the outcome (a stop-on-first-error
+    /// run is still `ok: true` with a `failed_at`).
+    fn run_batch(&self, payload: &str) -> Value {
         let root = self.root_str();
         // Pass the payload as the `--ops` value directly (the reader
         // accepts a literal JSON string, not just `-` / stdin).
@@ -170,7 +185,7 @@ impl Ws {
             .args([
                 "batch",
                 "--ops",
-                payload.as_str(),
+                payload,
                 "--json",
                 "--workspace",
                 root.as_str(),
@@ -178,19 +193,13 @@ impl Ws {
             .env("OUTL_DEVICE_DIR", self.dir.path().join("device"))
             .output()
             .expect("failed to spawn the outl binary");
-        assert!(
-            out.status.success(),
-            "`outl batch` must succeed:\nstdout: {}\nstderr: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr),
-        );
         let stdout = String::from_utf8_lossy(&out.stdout);
-        let envelope: Value = serde_json::from_str(&stdout).unwrap();
-        assert_eq!(
-            envelope["ok"], true,
-            "batch envelope must be ok: {envelope}"
-        );
-        envelope["data"].clone()
+        serde_json::from_str(&stdout).unwrap_or_else(|e| {
+            panic!(
+                "non-JSON stdout for `outl batch`: {e}\n{stdout}\nstderr: {}",
+                String::from_utf8_lossy(&out.stderr)
+            )
+        })
     }
 }
 
@@ -323,4 +332,34 @@ fn projection_drops_only_the_cleared_line() {
         .filter(|l| l.trim_start().starts_with("status::"))
         .count();
     assert_eq!(status_lines, 0, "no `status::` line may survive the clear");
+}
+
+#[test]
+fn batch_non_string_value_is_rejected_not_cleared() {
+    let ws = Ws::new();
+    ws.create_page("notes");
+    ws.set_prop("notes", "status=active");
+
+    // A non-string value is a caller error, not a clear: the op must fail
+    // loudly and leave the property intact (a mistyped value must never
+    // silently delete it).
+    let payload =
+        r#"{"ops":[{"op":"page_prop_set","args":{"page":"notes","key":"status","value":42}}]}"#;
+    let envelope = ws.run_batch(payload);
+
+    // Stop-on-first-error reports the failure in-band.
+    assert_eq!(
+        envelope["ok"], true,
+        "partial batch is a report, not a hard error: {envelope}"
+    );
+    assert_eq!(envelope["data"]["failed_at"], 0);
+    assert_eq!(envelope["data"]["error"]["code"], "INVALID_ARG");
+
+    // The property survived the rejected op.
+    let env = ws.get_prop_envelope("notes", "status");
+    assert_eq!(
+        env["ok"], true,
+        "a rejected clear must not delete the property: {env}"
+    );
+    assert_eq!(env["data"]["value"], "active");
 }

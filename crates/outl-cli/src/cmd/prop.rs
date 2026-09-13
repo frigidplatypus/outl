@@ -137,9 +137,16 @@ pub fn set_kv(ctx: &mut WsCtx, page: &str, key: &str, value: &str) -> Result<Val
 
 /// Typed entry point — remove `key` from `page` and reproject.
 ///
-/// Clearing a key that is not set is a no-op (idempotent), so bulk
-/// migrations can clear a key without first checking for it. An empty
-/// string is *not* a clear: `set_kv` with `""` stores `Text("")`.
+/// Clearing a key that is not set is a no-op on the materialized tree,
+/// but the `SetProp { value: None }` op is still written — exactly like
+/// a cycle-creating move (root `CLAUDE.md` invariant 4). Do not
+/// short-circuit on "the key looks unset locally": if two devices race
+/// a set against this clear, the log must carry the clear so HLC
+/// ordering can settle it; dropping it would strand the peer's set.
+/// That is also what makes the result idempotent, so bulk migrations
+/// can clear a key without first checking for it.
+///
+/// An empty string is *not* a clear: `set_kv` with `""` stores `Text("")`.
 pub fn clear_kv(ctx: &mut WsCtx, page: &str, key: &str) -> Result<Value, ApiError> {
     let id = resolve_page(ctx, page)?;
     let hlc = ctx.hlc.clone();
