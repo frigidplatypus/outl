@@ -49,6 +49,7 @@
                 name = pkgs.lib.baseNameOf path;
               in
               !builtins.elem name [
+                ".git"
                 ".github"
                 "devenv.lock"
                 "devenv.nix"
@@ -56,6 +57,7 @@
                 "flake.lock"
                 "flake.nix"
                 "hm-module.nix"
+                "target"
               ];
           };
 
