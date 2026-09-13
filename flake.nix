@@ -116,7 +116,7 @@
             # Run build to get the correct hash from the error message
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
-            outputHash = "sha256-uUJLgHpQSonhAZGBGhGt9jMz5PBBAV/bngayMXJ7K+A=";
+            outputHash = "sha256-omoPnNTZnfCP0Ed+xHjubjDdTPelt0ppZFs8XCWFq+E=";
 
             buildPhase = ''
               export HOME=$TMPDIR
