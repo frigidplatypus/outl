@@ -355,8 +355,15 @@ fn run_tool(name: &str, args: &Value, ctx: &Arc<ServerCtx>) -> Result<Value, Api
         "outl_page_prop_set" => {
             let page = require_str(args, "page")?.to_string();
             let key = require_str(args, "key")?.to_string();
-            let value = require_str(args, "value")?.to_string();
-            ctx.with_workspace(|wc| prop_cmd::set_kv(wc, &page, &key, &value))
+            // Omitted or null `value` clears the property; a present
+            // string (including "") sets it.
+            match opt_str(args, "value") {
+                Some(value) => {
+                    let value = value.to_string();
+                    ctx.with_workspace(|wc| prop_cmd::set_kv(wc, &page, &key, &value))
+                }
+                None => ctx.with_workspace(|wc| prop_cmd::clear_kv(wc, &page, &key)),
+            }
         }
         "outl_page_prop_get" => {
             let page = require_str(args, "page")?.to_string();

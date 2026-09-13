@@ -30,6 +30,16 @@ pub enum PropCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Remove a page property: `outl page prop clear <page> <key>`.
+    Clear {
+        /// Page slug.
+        page: String,
+        /// Property key to remove.
+        key: String,
+        /// Force JSON output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Get a page property by key.
     Get {
         /// Page slug.
@@ -63,6 +73,13 @@ pub fn run(cmd: &PropCommand, path: &Path) -> i32 {
                 let key = v.get("key").and_then(Value::as_str).unwrap_or("?");
                 let val = v.get("value").and_then(Value::as_str).unwrap_or("?");
                 println!("set: {key} = {val}");
+            })
+        }
+        PropCommand::Clear { page, key, json } => {
+            let result = ws::open(path).and_then(|mut ctx| clear_kv(&mut ctx, page, key));
+            emit(*json, result, |v| {
+                let key = v.get("key").and_then(Value::as_str).unwrap_or("?");
+                println!("cleared: {key}");
             })
         }
         PropCommand::Get { page, key, json } => {
@@ -116,6 +133,18 @@ pub fn set_kv(ctx: &mut WsCtx, page: &str, key: &str, value: &str) -> Result<Val
         set_property(ws, &hlc, id, key, Some(PropValue::Text(owned)))
     })?;
     Ok(json!({ "page": page, "key": key, "value": value }))
+}
+
+/// Typed entry point — remove `key` from `page` and reproject.
+///
+/// Clearing a key that is not set is a no-op (idempotent), so bulk
+/// migrations can clear a key without first checking for it. An empty
+/// string is *not* a clear: `set_kv` with `""` stores `Text("")`.
+pub fn clear_kv(ctx: &mut WsCtx, page: &str, key: &str) -> Result<Value, ApiError> {
+    let id = resolve_page(ctx, page)?;
+    let hlc = ctx.hlc.clone();
+    ctx.commit_with(id, |ws| set_property(ws, &hlc, id, key, None))?;
+    Ok(json!({ "page": page, "key": key, "value": Value::Null }))
 }
 
 /// Get a property by key. Returns `null` value when unset.

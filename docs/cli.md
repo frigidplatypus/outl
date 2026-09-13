@@ -215,6 +215,7 @@ The `--raw='…'` flag is reserved for the not-yet-implemented query DSL and cur
 | `outl tag list [--json]`                         | `outl_tag_list`      |
 | `outl tag pages <tag> [--json]`                  | `outl_tag_pages`     |
 | `outl page prop set <page> <key>=<value>`        | `outl_page_prop_set` |
+| `outl page prop clear <page> <key>`              | `outl_page_prop_set` (no `value`) |
 | `outl page prop get <page> <key>`                | `outl_page_prop_get` |
 | `outl page prop list <page> [--json]`            | `outl_page_prop_list`|
 
@@ -272,6 +273,7 @@ Input shape:
 
 Supported `op` names: `page_create`, `page_update`, `page_delete`, `page_rename`, `block_append`, `block_append_tree`, `block_insert`, `block_update`, `block_move`, `block_delete`, `block_toggle_todo`, `daily_append`, `page_prop_set`.
 Each op's `args` mirror the matching standalone tool.
+For `page_prop_set`, `value` is optional: omit it or pass `null` to clear/remove the property. An empty string (`""`) sets an empty value rather than clearing, and clearing a key that is not set is a no-op.
 
 **Semantics: stop-on-first-error.** When an op fails, earlier ops stay in the op log (they're already CRDT ops; we don't roll them back) and the response carries `failed_at`, `failed_op`, and `error` so the caller can decide what to do with the suffix that never ran.
 CLI exit code is `1` in that case; MCP returns the payload via the normal envelope.

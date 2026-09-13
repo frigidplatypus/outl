@@ -280,8 +280,12 @@ fn apply_op(ctx: &mut WsCtx, op: &str, args: &Value) -> Result<Value, ApiError> 
         "page_prop_set" => {
             let page = require_str(args, "page")?;
             let key = require_str(args, "key")?;
-            let value = require_str(args, "value")?;
-            prop_cmd::set_kv(ctx, page, key, value)
+            // Omitted or null `value` clears the property; a present
+            // string (including "") sets it.
+            match opt_str(args, "value") {
+                Some(value) => prop_cmd::set_kv(ctx, page, key, value),
+                None => prop_cmd::clear_kv(ctx, page, key),
+            }
         }
         other => Err(ApiError::new(
             codes::INVALID_ARG,

@@ -344,15 +344,18 @@ pub fn list() -> Vec<Value> {
         // Page properties
         tool_def(
             "outl_page_prop_set",
-            "Set a page-level `key:: value` property.",
+            "Set a page-level `key:: value` property. Omit `value` or pass `null` to clear/remove the property.",
             json!({
                 "type": "object",
                 "properties": {
                     "page": { "type": "string" },
                     "key": { "type": "string" },
-                    "value": { "type": "string" }
+                    "value": {
+                        "type": ["string", "null"],
+                        "description": "Property value. Omit or pass null to clear/remove the property."
+                    }
                 },
-                "required": ["page", "key", "value"]
+                "required": ["page", "key"]
             }),
         ),
         tool_def(
@@ -410,7 +413,7 @@ pub fn list() -> Vec<Value> {
         // Batch
         tool_def(
             "outl_batch",
-            "Apply write ops in one session (stops on first error, reports `failed_at` + `applied`). Use for multi-step authoring so each op skips a round-trip. `op` is one of: page_create, page_update, page_delete, page_rename, block_append, block_append_tree, block_insert, block_update, block_move, block_delete, block_toggle_todo, daily_append, page_prop_set; each op's `args` mirror the matching `outl_<op>` tool.",
+            "Apply write ops in one session (stops on first error, reports `failed_at` + `applied`). Use for multi-step authoring so each op skips a round-trip. `op` is one of: page_create, page_update, page_delete, page_rename, block_append, block_append_tree, block_insert, block_update, block_move, block_delete, block_toggle_todo, daily_append, page_prop_set (its `value` is optional; omit or pass null to clear); each op's `args` mirror the matching `outl_<op>` tool.",
             json!({
                 "type": "object",
                 "properties": {
