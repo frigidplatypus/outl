@@ -19,6 +19,7 @@
 
 * [TUI manual](tui.md)
 * [Paste](paste.md)
+* [Design specification](../DESIGN.md)
 * [Theming](theming.md)
 * [Configuration](config.md)
 * [Shortcuts](shortcuts.md)
@@ -29,6 +30,7 @@
 ## Integrations
 
 * [CLI](cli.md)
+* [Importing a graph](import.md)
 * [outl doctor](doctor.md)
 * [Embedding outl as a Rust library](embedding.md)
 * [MCP](mcp.md)
@@ -50,14 +52,17 @@
 
 * [Architecture](architecture.md)
 * [Storage trait](storage.md)
+* [The device store](device-store.md)
 * [Shared primitives catalog](shared-primitives.md)
   * [Core state, sync, and durability](primitives-core.md)
   * [Markdown pipeline](primitives-markdown.md)
   * [Editing actions and client features](primitives-actions.md)
+  * [The `outl-actions` public surface](outl-actions-surface.md)
 
 ## Project
 
 * [Development guide](development.md)
+* [Mobile UX behaviour](mobile-ux.md)
 * [iOS platform integration](ios-platform.md)
 * [Android platform integration](android-platform.md)
 * [Contributing & code review](contributing.md)
@@ -87,3 +92,10 @@
   * [0253 — Chord parity is a compile error; feature parity is a rumour](rfcs/0253-client-capability-catalog.md)
   * [0254 — Most of mobile's missing features are not missing features](rfcs/0254-mobile-capability-gaps.md)
   * [0255 — Three surfaces, three names, and one refusal that reaches two of them](rfcs/0255-operation-vocabulary.md)
+  * [0256 — Drop the `Move` ops that restate their own `Create`](rfcs/0256-op-log-compaction.md)
+  * [0258 — Snapshots are a cache with no eviction, and the rule is not "the actor is gone"](rfcs/0258-snapshot-cache-lifecycle.md)
+  * [0260 — An executor for the `tree → .md` direction](rfcs/0260-tree-to-md-executor.md)
+  * [0263 — `Op::Create` records whether it created anything](rfcs/0263-create-is-invertible.md)
+  * [0265 — Index sidecar lifecycle: one owner, and a GC](rfcs/0265-index-sidecar-lifecycle.md)
+  * [0266 — The most dangerous stale fact is one that was true](rfcs/0266-measure-before-you-believe.md)
+  * [0276 — An MCP reply carries its payload once, and an error is the exception](rfcs/0276-mcp-content-only-replies.md)

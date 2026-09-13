@@ -124,7 +124,7 @@ pub fn list() -> Vec<Value> {
         ),
         tool_def(
             "outl_block_append_tree",
-            "Append a whole subtree (root + recursive children) as the last child of a page or block in a single call. `tree` is `{text, children?: [tree, ...]}`. Prefer this over chained `outl_block_append` calls when writing structured content.",
+            "Append a subtree as the last child of a page or block in one call. `tree` is `{text, children?: [tree, …]}` — `children` is an array of recursive tree objects, not strings. Prefer over chained `outl_block_append` for structured content.",
             json!({
                 "type": "object",
                 "properties": {
@@ -251,7 +251,7 @@ pub fn list() -> Vec<Value> {
         // Asset
         tool_def(
             "outl_asset_add",
-            "Import a file (PDF, image, …) into the workspace's `assets/` dir and append its markdown link as a new block. `path` is a filesystem path to the file on this machine (MCP is stdio — pass a path, not bytes). The link is appended to today's journal by default; pass `page` (a slug) to append it to that page instead. `daily` and `page` are mutually exclusive — you never need to set `daily` explicitly, it is just the default when `page` is omitted.",
+            "Import a file into `assets/` and append its markdown link as a new block. `path` is a filesystem path on this machine (stdio — pass a path, not bytes). Appends to today's journal by default; pass `page` (a slug) to target a page instead. `daily` is just that default and never needs setting — sending it together with `page` is rejected as `INVALID_ARG`.",
             json!({
                 "type": "object",
                 "properties": {
@@ -410,7 +410,7 @@ pub fn list() -> Vec<Value> {
         // Batch
         tool_def(
             "outl_batch",
-            "Apply a sequence of write ops in one workspace session. Stops on first error and reports `failed_at` + `applied`. Use this for multi-step authoring (page + outline + props) so each op doesn't cost a round-trip. Supported `op` names: page_create, page_update, page_delete, page_rename, block_append, block_append_tree, block_insert, block_update, block_move, block_delete, block_toggle_todo, daily_append, page_prop_set. Each op's `args` mirror the matching `outl_<op>` tool.",
+            "Apply write ops in one session (stops on first error, reports `failed_at` + `applied`). Use for multi-step authoring so each op skips a round-trip. `op` is one of: page_create, page_update, page_delete, page_rename, block_append, block_append_tree, block_insert, block_update, block_move, block_delete, block_toggle_todo, daily_append, page_prop_set; each op's `args` mirror the matching `outl_<op>` tool.",
             json!({
                 "type": "object",
                 "properties": {
@@ -486,4 +486,25 @@ pub fn list() -> Vec<Value> {
             }),
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::list;
+
+    /// No tool declares an `outputSchema`. Under the MCP spec a tool
+    /// with one must return a conforming `structuredContent` on every
+    /// success, which is exactly the duplicate RFC 0276 removed from
+    /// the success path. Adding a schema here means superseding that
+    /// RFC, not deleting this assertion.
+    #[test]
+    fn no_tool_declares_an_output_schema() {
+        for tool in list() {
+            assert!(
+                tool.get("outputSchema").is_none(),
+                "{} declares an outputSchema; see docs/rfcs/0276-mcp-content-only-replies.md",
+                tool["name"]
+            );
+        }
+    }
 }

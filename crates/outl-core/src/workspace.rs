@@ -21,17 +21,20 @@ use crate::op::{op_node, LogOp, Op};
 use crate::snapshot::{self, SnapshotBody};
 use crate::storage::{Storage, StorageError};
 use crate::tree::Tree;
+use router::{Route, StorageRouter};
+use snapshot_policy::SnapshotPolicy;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::thread::JoinHandle;
 use tracing::{debug, warn};
 
 mod batch;
+mod clock;
+mod router;
+mod snapshot_policy;
 mod text_history;
 
 pub use text_history::TextRevision;
 
-use batch::BatchRoute;
 pub use batch::WorkspaceBatch;
 
 /// Errors a workspace may surface to its caller.
@@ -62,39 +65,12 @@ pub struct Workspace {
     log: OpLog,
     /// Block text content (Yrs docs).
     content: ContentStore,
-    /// Pluggable storage backend (Global scope — the legacy
-    /// single-file-per-actor layout). Per-page shards live in
-    /// `page_storages`.
-    storage: Box<dyn Storage>,
-    /// Per-page storage backends (Phase B of RFC #137). Keyed by page
-    /// slug. Empty for workspaces that haven't migrated to per-page
-    /// shards. When non-empty, `apply` routes each op to the storage
-    /// that owns the op's node.
-    page_storages: HashMap<String, Box<dyn Storage>>,
-    /// `NodeId → slug` map for page roots. Populated by the client
-    /// (which reads sidecars via `outl-md`) via
-    /// [`Self::register_page_root`]. `apply` walks the parent chain
-    /// from an op's node up to a page root, then uses this map to
-    /// find the slug and route to the right `page_storages` entry.
-    page_root_to_slug: HashMap<NodeId, String>,
-    /// `<root>/.outl/snapshots` when `root` is set, `None` for
-    /// in-memory workspaces. Background snapshot writes go straight
-    /// here — they don't go through `storage` (the snapshot is a local
-    /// cache, not part of the source-of-truth op log).
-    snapshots_dir: Option<PathBuf>,
-    /// Background snapshot writers still in flight. `apply` drains
-    /// finished handles on every trigger (cheap, non-blocking) so the
-    /// list stays bounded; `wait_for_snapshots` joins the rest.
-    snapshot_workers: Vec<JoinHandle<()>>,
-    /// Number of ops applied since the last successful snapshot write.
-    /// `apply` increments this and spawns a snapshot worker once it
-    /// crosses `snapshot_threshold`. Reset to `0` on every spawn and
-    /// on policy change.
-    ops_since_snapshot: u32,
-    /// Trigger threshold for background snapshot writes inside `apply`.
-    /// `0` disables the in-band trigger (the CLI sets this — it's
-    /// ephemeral and shouldn't churn the snapshots dir).
-    snapshot_threshold: u32,
+    /// Which storage owns an op, and how the shards read back as one
+    /// log. Holds the global backend plus any per-page shards.
+    router: StorageRouter,
+    /// When to write the local boot cache, and the workers doing it.
+    /// Policy, not document state — see [`SnapshotPolicy`].
+    snapshots: SnapshotPolicy,
     /// Whether `self.log` carries every op ever persisted (`true` after
     /// full replay) or only the delta posted after a snapshot cutoff
     /// (`false` after snapshot boot). When `false`, `Doc` rebuilds that
@@ -114,7 +90,7 @@ pub struct Workspace {
     /// (page routing walks the tree the op may itself have mutated). The
     /// ops already live in the CRDT + in-memory log; this buffer is only
     /// the not-yet-durable persistence queue.
-    pending: Vec<(BatchRoute, LogOp)>,
+    pending: Vec<(Route, LogOp)>,
 }
 
 impl Workspace {
@@ -147,13 +123,8 @@ impl Workspace {
             tree: Tree::new(),
             log: OpLog::new(),
             content: ContentStore::default(),
-            storage,
-            page_storages: HashMap::new(),
-            page_root_to_slug: HashMap::new(),
-            snapshots_dir,
-            snapshot_workers: Vec::new(),
-            ops_since_snapshot: 0,
-            snapshot_threshold: Workspace::DEFAULT_SNAPSHOT_THRESHOLD,
+            router: StorageRouter::new(storage),
+            snapshots: SnapshotPolicy::new(snapshots_dir),
             log_complete: true,
             batch_depth: 0,
             pending: Vec::new(),
@@ -193,11 +164,6 @@ impl Workspace {
         !self.log_complete
     }
 
-    /// Default `apply`-count between in-band snapshot writes. Clients
-    /// override with [`Self::set_snapshot_policy`] from `[snapshot]`
-    /// in `outl.toml`. The CLI forces `0` to opt out.
-    const DEFAULT_SNAPSHOT_THRESHOLD: u32 = 10_000;
-
     /// Try to hydrate the workspace from a snapshot + the ops posted
     /// since its cutoff. Returns `Ok(false)` when there's nothing to
     /// load (so the caller falls through to [`Self::boot_from_full_replay`]).
@@ -207,8 +173,8 @@ impl Workspace {
         // storage backend (the op log). An in-memory workspace
         // (`root = None`) has nowhere to read from, so it never boots
         // from snapshot.
-        let snapshots_dir = match &self.snapshots_dir {
-            Some(d) => d.clone(),
+        let snapshots_dir = match self.snapshots.dir() {
+            Some(d) => d.to_path_buf(),
             None => return Ok(false),
         };
         // Prefer this device's own snapshot; when it has none yet (a fresh
@@ -258,10 +224,35 @@ impl Workspace {
         // snapshot that excludes all our local ops. Bail to a full replay:
         // correct over fast. (No-silent-loss #5 holds regardless — the op is
         // always in the log; this only decides the materialization order.)
-        if let Some(max_body_hlc) = body.cutoff.values().max().copied() {
-            if delta.iter().any(|op| op.ts <= max_body_hlc) {
-                return Ok(false);
-            }
+        //
+        // Also load-bearing for `Tree::created_by`: it is what guarantees
+        // the resident log holds no op that could undo past the snapshot
+        // body, which is why `from_parts` may leave `created_by` empty.
+        // RFC 0263. So this guard now has two independent reasons, and
+        // relaxing it for the first would silently re-arm the second —
+        // a duplicate `Create` that `undo_op` removes unconditionally,
+        // the exact defect RFC 0263 fixed.
+        //
+        // An ABSENT or EMPTY `cutoff` is not "nothing to compare against" —
+        // it is a body we CANNOT check, and an uncheckable body is exactly
+        // what this guard exists to refuse. `build_snapshot_body` returns
+        // `None` rather than an empty cutoff, so no honest producer makes
+        // one: the only way to hold it is a forged or corrupt peer snapshot.
+        // And it is worse than merely "unchecked" — every actor absent from
+        // the cutoff reads as "seen none of your ops", so
+        // `ops_since_per_actor` yields the WHOLE local log, replayed on top
+        // of an attacker-chosen tree. That is the maximal version of the
+        // divergence above, plus a duplicate `Create` for every node the
+        // forged body seeds. `if let Some(..)` read that as permission.
+        //
+        // `let .. else`, not a second `if`, so the guard cannot be re-nested
+        // into an `if let` by a later edit — that nesting *was* the bug.
+        let Some(max_body_hlc) = body.cutoff.values().max().copied() else {
+            warn!("snapshot carries no per-actor cutoff; falling back to full replay");
+            return Ok(false);
+        };
+        if delta.iter().any(|op| op.ts <= max_body_hlc) {
+            return Ok(false);
         }
 
         // Safe to adopt: hydrate the materialized tree + block text from the
@@ -364,7 +355,7 @@ impl Workspace {
         // without a snapshot on disk doesn't have to wait a full
         // `threshold` worth of new ops before producing one. If the log
         // already crosses the threshold, the next `apply` snapshots.
-        self.ops_since_snapshot = (self.log.len() as u32).min(self.snapshot_threshold);
+        self.snapshots.seed_from_log_len(self.log.len());
 
         Ok(())
     }
@@ -529,17 +520,8 @@ impl Workspace {
         // Route to the right storage. If the op's node belongs to a
         // registered page, write to that page's shard; otherwise write
         // to the global storage (legacy behaviour).
-        let slug = op_node(&op.op).and_then(|node| self.slug_for_node(node));
-        match slug {
-            Some(ref slug) if self.page_storages.contains_key(slug) => {
-                if let Some(s) = self.page_storages.get_mut(slug) {
-                    s.append_op(&op)?;
-                }
-            }
-            _ => {
-                self.storage.append_op(&op)?;
-            }
-        }
+        let route = self.router.route(&self.tree, op_node(&op.op));
+        self.router.append_op(&route, &op)?;
 
         // Background snapshot trigger. `snapshot_threshold = 0` is the
         // opt-out (CLI). When the threshold is crossed we build the
@@ -635,10 +617,6 @@ impl Workspace {
     /// Non-blocking: the encode + fsync + rename happen off the calling
     /// thread. If the body can't be built (e.g. empty log) we no-op.
     fn spawn_background_snapshot(&mut self) {
-        let snapshots_dir = match &self.snapshots_dir {
-            Some(p) => p.clone(),
-            None => return,
-        };
         let body = match self.build_snapshot_body() {
             Ok(Some(b)) => b,
             Ok(None) => return,
@@ -648,15 +626,7 @@ impl Workspace {
             }
         };
 
-        let handle = std::thread::Builder::new()
-            .name(format!("outl-snapshot-{}", self.actor))
-            .spawn(move || {
-                if let Err(e) = snapshot::write_to_disk(&snapshots_dir, &body) {
-                    warn!("background snapshot write failed (non-fatal): {e}");
-                }
-            })
-            .expect("spawn snapshot worker");
-        self.snapshot_workers.push(handle);
+        self.snapshots.spawn_write(self.actor, body);
     }
 
     /// Block until every background snapshot worker finishes.
@@ -666,12 +636,7 @@ impl Workspace {
     /// process exit and could leave a stale `.tmp` behind). Errors
     /// inside the workers are already logged; this just joins.
     pub fn wait_for_snapshots(&mut self) {
-        let workers = std::mem::take(&mut self.snapshot_workers);
-        for h in workers {
-            if let Err(e) = h.join() {
-                warn!("snapshot worker panicked: {e:?}");
-            }
-        }
+        self.snapshots.wait();
     }
 
     /// Configure when the workspace writes snapshots to disk during
@@ -688,8 +653,7 @@ impl Workspace {
     /// ws.set_snapshot_policy(cfg.snapshot.enabled, cfg.snapshot.op_threshold);
     /// ```
     pub fn set_snapshot_policy(&mut self, enabled: bool, threshold: u32) {
-        self.snapshot_threshold = if enabled { threshold.max(1) } else { 0 };
-        self.ops_since_snapshot = 0;
+        self.snapshots.set_policy(enabled, threshold);
     }
 
     /// Persist a snapshot of the materialized state under the current
@@ -709,8 +673,8 @@ impl Workspace {
     /// workspace has no root (`open_in_memory`), which has nowhere to
     /// write.
     pub fn save_snapshot(&mut self) -> Result<(), WorkspaceError> {
-        let snapshots_dir = match &self.snapshots_dir {
-            Some(d) => d.clone(),
+        let snapshots_dir = match self.snapshots.dir() {
+            Some(d) => d.to_path_buf(),
             None => return Ok(()),
         };
         let body = match self.build_snapshot_body()? {
@@ -828,7 +792,7 @@ impl Workspace {
 
     /// Whether any per-page storage shards have been registered.
     pub fn has_page_storages(&self) -> bool {
-        !self.page_storages.is_empty()
+        self.router.has_pages()
     }
 
     /// Register a per-page storage backend. The client (CLI / TUI /
@@ -837,7 +801,7 @@ impl Workspace {
     /// Ops whose node belongs to `slug` will be routed to this storage
     /// instead of the global one.
     pub fn register_page_storage(&mut self, slug: &str, storage: Box<dyn Storage>) {
-        self.page_storages.insert(slug.to_string(), storage);
+        self.router.register_page(slug, storage);
     }
 
     /// Register a page root → slug mapping. The client calls this for
@@ -845,7 +809,7 @@ impl Workspace {
     /// `outl-md`). `apply` uses this to resolve which page an op
     /// belongs to by walking the parent chain up to a page root.
     pub fn register_page_root(&mut self, root_id: NodeId, slug: &str) {
-        self.page_root_to_slug.insert(root_id, slug.to_string());
+        self.router.register_root(root_id, slug);
     }
 
     /// Walk `tree.parent(node)` up until we hit a registered page root.
@@ -858,26 +822,14 @@ impl Workspace {
     /// (`register_page_root`) — an unregistered or not-yet-materialized node
     /// returns `None`, so callers treat it as best-effort.
     pub fn slug_for_node(&self, node: NodeId) -> Option<String> {
-        let mut current = node;
-        loop {
-            if let Some(slug) = self.page_root_to_slug.get(&current) {
-                return Some(slug.clone());
-            }
-            current = self.tree.parent(current)?;
-        }
+        self.router.slug_for_node(&self.tree, node)
     }
 
     /// Merge ops from the global storage and every registered
     /// per-page storage, sorted by HLC. Used by boot and read-side
     /// accessors (`all_ops`, `ops_since`, `ops_for_node`, etc.).
     fn all_ops_combined(&self) -> Result<Vec<LogOp>, StorageError> {
-        let mut all = self.storage.all_ops()?;
-        for s in self.page_storages.values() {
-            all.extend(s.all_ops()?);
-        }
-        all.sort_by_key(|op| op.ts);
-        all.dedup_by_key(|op| op.ts);
-        Ok(all)
+        self.router.all_ops()
     }
 
     /// Merge the per-actor delta (see [`Storage::ops_since_per_actor`])
@@ -887,24 +839,12 @@ impl Workspace {
         &self,
         cutoff: &std::collections::BTreeMap<ActorId, crate::hlc::Hlc>,
     ) -> Result<Vec<LogOp>, StorageError> {
-        let mut all = self.storage.ops_since_per_actor(cutoff)?;
-        for s in self.page_storages.values() {
-            all.extend(s.ops_since_per_actor(cutoff)?);
-        }
-        all.sort_by_key(|op| op.ts);
-        all.dedup_by_key(|op| op.ts);
-        Ok(all)
+        self.router.ops_since_per_actor(cutoff)
     }
 
     /// Merge ops for `node` from every storage.
     fn ops_for_node_combined(&self, node: NodeId) -> Result<Vec<LogOp>, StorageError> {
-        let mut all = self.storage.ops_for_node(node)?;
-        for s in self.page_storages.values() {
-            all.extend(s.ops_for_node(node)?);
-        }
-        all.sort_by_key(|op| op.ts);
-        all.dedup_by_key(|op| op.ts);
-        Ok(all)
+        self.router.ops_for_node(node)
     }
 
     /// Merge `last_ts_per_actor` from every storage — the per-actor
@@ -912,19 +852,7 @@ impl Workspace {
     fn last_ts_per_actor_combined(
         &self,
     ) -> Result<HashMap<ActorId, crate::hlc::Hlc>, StorageError> {
-        let mut map = self.storage.last_ts_per_actor()?;
-        for s in self.page_storages.values() {
-            for (actor, ts) in s.last_ts_per_actor()? {
-                map.entry(actor)
-                    .and_modify(|existing| {
-                        if ts > *existing {
-                            *existing = ts;
-                        }
-                    })
-                    .or_insert(ts);
-            }
-        }
-        Ok(map)
+        self.router.last_ts_per_actor()
     }
 
     /// Apply the LRU cap configured by the client, after boot has
@@ -941,478 +869,9 @@ impl Workspace {
     /// default). Idempotent and safe to call at any point in the
     /// lifecycle (clients may resize on config change).
     pub fn apply_lru_cap(&mut self, cap: usize) {
-        self.storage.resize_cache(cap);
-        for s in self.page_storages.values_mut() {
-            s.resize_cache(cap);
-        }
+        self.router.resize_cache(cap);
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::content::DOC_CACHE_CAP;
-    use crate::fractional::Fractional;
-    use crate::hlc::HlcGenerator;
-    use crate::op::Op;
-    use yrs::{Doc, Text, Transact};
-
-    fn make_op(g: &HlcGenerator, op: Op) -> LogOp {
-        let ts = g.next();
-        LogOp {
-            ts,
-            actor: ts.actor,
-            op,
-        }
-    }
-
-    /// The ghost-block policy, core half (issue #213 item 1, RFC 0129).
-    ///
-    /// **Never write an op for something the user did not do.** The
-    /// `.md` reconcile diff re-emits `Create` + `Move` + a `SetProp`
-    /// per property for every block on every commit; each is
-    /// idempotent on the tree and each still costs an fsynced append.
-    /// A one-block edit on an 11-block page logged 23 ops before this
-    /// filter existed — the slow commit, and an op log that grew by
-    /// the whole page per keystroke.
-    ///
-    /// The filter had no direct test: it was only exercised through
-    /// `outl-md`'s reconcile, where a regression shows up as "commits
-    /// got slower", which nobody notices in CI.
-    #[test]
-    fn a_redundant_op_is_recognised_as_a_noop() {
-        let actor = ActorId::new();
-        let g = HlcGenerator::new(actor);
-        let tmp = tempfile::TempDir::new().unwrap();
-        let storage =
-            Box::new(crate::storage::JsonlStorage::open(tmp.path().to_path_buf(), actor).unwrap());
-        let mut ws = Workspace::open_with_storage(actor, storage, None).unwrap();
-
-        let node = NodeId::new();
-        let pos = Fractional::between(None, None);
-        let create = Op::Create {
-            node,
-            parent: NodeId::root(),
-            position: pos.clone(),
-        };
-
-        assert!(
-            !ws.op_is_noop(&create),
-            "a Create for a node that does not exist yet is real work",
-        );
-        ws.apply(make_op(&g, create.clone())).unwrap();
-        assert!(
-            ws.op_is_noop(&create),
-            "re-emitting the same Create must be recognised as a no-op —              this is the filter that keeps a reconcile from logging the              whole page on every keystroke",
-        );
-
-        // A property, then the same property again.
-        let set = Op::SetProp {
-            node,
-            key: "remind".into(),
-            value: Some(crate::property::PropValue::Text("9am".into())),
-            old_value: None,
-        };
-        assert!(!ws.op_is_noop(&set), "setting a new property is real work");
-        ws.apply(make_op(&g, set.clone())).unwrap();
-        assert!(
-            ws.op_is_noop(&set),
-            "re-setting a property to the value it already has is a no-op",
-        );
-
-        // Changing the value is NOT a no-op — guards the guard, since a
-        // filter that swallows everything would pass every assertion above.
-        let changed = Op::SetProp {
-            node,
-            key: "remind".into(),
-            value: Some(crate::property::PropValue::Text("10am".into())),
-            old_value: None,
-        };
-        assert!(
-            !ws.op_is_noop(&changed),
-            "a property whose value differs must still be logged",
-        );
-    }
-
-    /// The dangerous direction: over-filtering silently loses user work.
-    ///
-    /// A `Move` to a *different* parent is never a no-op, including one
-    /// that would form a cycle — invariant 4 says the cycle-forming move
-    /// is a no-op **on the materialized tree** and still goes into the
-    /// log, because removing it breaks the correctness of future
-    /// reordering. If `op_is_noop` ever started answering "true" for
-    /// those, the filter would drop them before they were ever written.
-    #[test]
-    fn a_move_that_changes_the_tree_is_never_filtered_out() {
-        let actor = ActorId::new();
-        let g = HlcGenerator::new(actor);
-        let tmp = tempfile::TempDir::new().unwrap();
-        let storage =
-            Box::new(crate::storage::JsonlStorage::open(tmp.path().to_path_buf(), actor).unwrap());
-        let mut ws = Workspace::open_with_storage(actor, storage, None).unwrap();
-
-        let parent = NodeId::new();
-        let child = NodeId::new();
-        let pos = Fractional::between(None, None);
-        for node in [parent, child] {
-            ws.apply(make_op(
-                &g,
-                Op::Create {
-                    node,
-                    parent: NodeId::root(),
-                    position: pos.clone(),
-                },
-            ))
-            .unwrap();
-        }
-
-        // child -> parent: a real move.
-        let nest = Op::Move {
-            node: child,
-            new_parent: parent,
-            position: pos.clone(),
-            old_parent: NodeId::root(),
-            old_position: pos.clone(),
-        };
-        assert!(!ws.op_is_noop(&nest), "a move to a new parent is real work");
-        ws.apply(make_op(&g, nest.clone())).unwrap();
-        assert!(ws.op_is_noop(&nest), "re-emitting the same move is a no-op");
-
-        // parent -> child would form a cycle. It must NOT be filtered:
-        // invariant 4 requires it in the log even though the tree
-        // refuses it.
-        let cycle = Op::Move {
-            node: parent,
-            new_parent: child,
-            position: pos.clone(),
-            old_parent: NodeId::root(),
-            old_position: pos.clone(),
-        };
-        assert!(
-            !ws.op_is_noop(&cycle),
-            "a cycle-forming move must still be logged (invariant 4) —              filtering it out breaks the correctness of future reordering",
-        );
-    }
-
-    /// `Op::Edit` is never filtered here, and the reason is worth pinning:
-    /// a Yrs delta for unchanged text is *already empty*, so the emptiness
-    /// check belongs upstream where the delta is built. If someone adds an
-    /// `Edit` arm to `op_is_noop` that inspects the bytes, they are
-    /// duplicating a decision that already has an owner.
-    #[test]
-    fn edit_is_left_to_the_yrs_delta_to_decide() {
-        let actor = ActorId::new();
-        let tmp = tempfile::TempDir::new().unwrap();
-        let storage =
-            Box::new(crate::storage::JsonlStorage::open(tmp.path().to_path_buf(), actor).unwrap());
-        let ws = Workspace::open_with_storage(actor, storage, None).unwrap();
-
-        assert!(
-            !ws.op_is_noop(&Op::Edit {
-                node: NodeId::new(),
-                text_op: Vec::new(),
-            }),
-            "Edit must not be filtered by op_is_noop",
-        );
-    }
-
-    #[test]
-    fn open_apply_reload_preserves_state() {
-        let actor = ActorId::new();
-        let g = HlcGenerator::new(actor);
-
-        // Use a shared directory: open, write, close, reopen.
-        let tmp = tempfile::TempDir::new().unwrap();
-        let dir = tmp.path().to_path_buf();
-
-        let storage1 = Box::new(crate::storage::JsonlStorage::open(dir.clone(), actor).unwrap());
-        let mut ws = Workspace::open_with_storage(actor, storage1, None).unwrap();
-        let n = NodeId::new();
-        ws.apply(make_op(
-            &g,
-            Op::Create {
-                node: n,
-                parent: NodeId::root(),
-                position: Fractional::first(),
-            },
-        ))
-        .unwrap();
-        drop(ws);
-
-        let storage2 = Box::new(crate::storage::JsonlStorage::open(dir, actor).unwrap());
-        let ws2 = Workspace::open_with_storage(actor, storage2, None).unwrap();
-        assert_eq!(ws2.tree().node_count(), 1);
-        assert_eq!(ws2.tree().parent(n), Some(NodeId::root()));
-        assert_eq!(ws2.log().len(), 1);
-    }
-
-    #[test]
-    fn edit_dispatches_to_content_store() {
-        let actor = ActorId::new();
-        let g = HlcGenerator::new(actor);
-        let mut ws = Workspace::open_in_memory(actor).unwrap();
-        let n = NodeId::new();
-        ws.apply(make_op(
-            &g,
-            Op::Create {
-                node: n,
-                parent: NodeId::root(),
-                position: Fractional::first(),
-            },
-        ))
-        .unwrap();
-
-        // Build a Yrs update locally.
-        let doc = Doc::new();
-        let text = doc.get_or_insert_text("content");
-        let mut txn = doc.transact_mut();
-        text.push(&mut txn, "hello outl");
-        let update_bytes = txn.encode_update_v1();
-        drop(txn);
-
-        ws.apply(make_op(
-            &g,
-            Op::Edit {
-                node: n,
-                text_op: update_bytes,
-            },
-        ))
-        .unwrap();
-
-        assert_eq!(ws.block_text(n).as_deref(), Some("hello outl"));
-    }
-
-    /// Edit one block, then create + edit a fresh one. Reopening rebuilds
-    /// the text of both from the log even though neither Doc was kept
-    /// resident across the close.
-    #[test]
-    fn reopen_rebuilds_text_without_resident_docs() {
-        let actor = ActorId::new();
-        let g = HlcGenerator::new(actor);
-        let tmp = tempfile::TempDir::new().unwrap();
-        let dir = tmp.path().to_path_buf();
-
-        let storage = Box::new(crate::storage::JsonlStorage::open(dir.clone(), actor).unwrap());
-        let mut ws = Workspace::open_with_storage(actor, storage, None).unwrap();
-
-        let mut ids = Vec::new();
-        for i in 0..5 {
-            let n = NodeId::new();
-            ids.push(n);
-            ws.apply(make_op(
-                &g,
-                Op::Create {
-                    node: n,
-                    parent: NodeId::root(),
-                    position: Fractional::first(),
-                },
-            ))
-            .unwrap();
-            let update = ws.build_text_replace_update(n, &format!("block {i}"));
-            ws.apply(make_op(
-                &g,
-                Op::Edit {
-                    node: n,
-                    text_op: update,
-                },
-            ))
-            .unwrap();
-        }
-        drop(ws);
-
-        let storage = Box::new(crate::storage::JsonlStorage::open(dir, actor).unwrap());
-        let ws2 = Workspace::open_with_storage(actor, storage, None).unwrap();
-        for (i, n) in ids.iter().enumerate() {
-            assert_eq!(
-                ws2.block_text(*n).as_deref(),
-                Some(format!("block {i}").as_str())
-            );
-        }
-        // Pass 2 materializes strings and drops every Doc, so nothing is
-        // resident right after open — the whole point of issue #108.
-        assert_eq!(ws2.live_doc_count(), 0);
-    }
-
-    /// Full-replay boot must NOT materialize block text up front (#179):
-    /// no string is resident until the first `block_text` read, which then
-    /// rebuilds that one block lazily and correctly — byte-identical to
-    /// what the old eager pass produced.
-    #[test]
-    fn full_replay_boot_defers_block_text_materialization() {
-        let actor = ActorId::new();
-        let g = HlcGenerator::new(actor);
-        let tmp = tempfile::TempDir::new().unwrap();
-        let dir = tmp.path().to_path_buf();
-
-        let storage = Box::new(crate::storage::JsonlStorage::open(dir.clone(), actor).unwrap());
-        let mut ws = Workspace::open_with_storage(actor, storage, None).unwrap();
-
-        // Many edited blocks, plus one create-only block (no text).
-        let mut edited = Vec::new();
-        for i in 0..64 {
-            let n = NodeId::new();
-            edited.push((n, format!("block {i} ☃")));
-            ws.apply(make_op(
-                &g,
-                Op::Create {
-                    node: n,
-                    parent: NodeId::root(),
-                    position: Fractional::first(),
-                },
-            ))
-            .unwrap();
-            let update = ws.build_text_replace_update(n, &format!("block {i} ☃"));
-            ws.apply(make_op(
-                &g,
-                Op::Edit {
-                    node: n,
-                    text_op: update,
-                },
-            ))
-            .unwrap();
-        }
-        let bare = NodeId::new();
-        ws.apply(make_op(
-            &g,
-            Op::Create {
-                node: bare,
-                parent: NodeId::root(),
-                position: Fractional::first(),
-            },
-        ))
-        .unwrap();
-        drop(ws);
-
-        // Reopen: no snapshot (root = None) → full replay, which now
-        // defers text.
-        let storage = Box::new(crate::storage::JsonlStorage::open(dir, actor).unwrap());
-        let ws2 = Workspace::open_with_storage(actor, storage, None).unwrap();
-
-        // Tree structure is fully materialized; block text is not.
-        assert_eq!(ws2.tree().node_count(), 65);
-        assert_eq!(
-            ws2.resident_text_count(),
-            0,
-            "boot must not eagerly materialize any block text"
-        );
-        assert_eq!(ws2.live_doc_count(), 0);
-
-        // Reading a block never touched since boot rebuilds its text
-        // lazily and correctly.
-        let (first, first_text) = &edited[0];
-        assert_eq!(ws2.block_text(*first).as_deref(), Some(first_text.as_str()));
-        assert_eq!(
-            ws2.resident_text_count(),
-            1,
-            "only the read block should now be resident"
-        );
-
-        // Every other block reads back byte-identical on demand; a
-        // create-only block has no text (not a phantom empty string).
-        for (n, want) in &edited {
-            assert_eq!(ws2.block_text(*n).as_deref(), Some(want.as_str()));
-        }
-        assert_eq!(ws2.block_text(bare), None);
-        // Lazy reads only ever populate the string cache, never the Doc LRU.
-        assert_eq!(ws2.live_doc_count(), 0);
-    }
-
-    /// The live-Doc cache never grows past its cap, no matter how many
-    /// distinct blocks get edited in a session.
-    #[test]
-    fn doc_cache_is_bounded() {
-        let actor = ActorId::new();
-        let g = HlcGenerator::new(actor);
-        let mut ws = Workspace::open_in_memory(actor).unwrap();
-
-        let over = DOC_CACHE_CAP + 50;
-        for i in 0..over {
-            let n = NodeId::new();
-            ws.apply(make_op(
-                &g,
-                Op::Create {
-                    node: n,
-                    parent: NodeId::root(),
-                    position: Fractional::first(),
-                },
-            ))
-            .unwrap();
-            let update = ws.build_text_replace_update(n, &format!("b{i}"));
-            ws.apply(make_op(
-                &g,
-                Op::Edit {
-                    node: n,
-                    text_op: update,
-                },
-            ))
-            .unwrap();
-            assert!(ws.live_doc_count() <= DOC_CACHE_CAP);
-        }
-        assert_eq!(ws.live_doc_count(), DOC_CACHE_CAP);
-    }
-
-    /// A block evicted from the cache is rebuilt from the log on the next
-    /// edit, preserving its text instead of losing history.
-    #[test]
-    fn evicted_block_rebuilds_from_log() {
-        let actor = ActorId::new();
-        let g = HlcGenerator::new(actor);
-        let mut ws = Workspace::open_in_memory(actor).unwrap();
-
-        let first = NodeId::new();
-        ws.apply(make_op(
-            &g,
-            Op::Create {
-                node: first,
-                parent: NodeId::root(),
-                position: Fractional::first(),
-            },
-        ))
-        .unwrap();
-        let update = ws.build_text_replace_update(first, "hello");
-        ws.apply(make_op(
-            &g,
-            Op::Edit {
-                node: first,
-                text_op: update,
-            },
-        ))
-        .unwrap();
-
-        // Edit enough other blocks to evict `first` from the cache.
-        for i in 0..DOC_CACHE_CAP + 10 {
-            let n = NodeId::new();
-            ws.apply(make_op(
-                &g,
-                Op::Create {
-                    node: n,
-                    parent: NodeId::root(),
-                    position: Fractional::first(),
-                },
-            ))
-            .unwrap();
-            let u = ws.build_text_replace_update(n, &format!("x{i}"));
-            ws.apply(make_op(
-                &g,
-                Op::Edit {
-                    node: n,
-                    text_op: u,
-                },
-            ))
-            .unwrap();
-        }
-        assert!(!ws.content.is_cached(first));
-
-        // Rebuild on demand: appending to the evicted block keeps "hello".
-        let update = ws.build_text_replace_update(first, "hello world");
-        ws.apply(make_op(
-            &g,
-            Op::Edit {
-                node: first,
-                text_op: update,
-            },
-        ))
-        .unwrap();
-        assert_eq!(ws.block_text(first).as_deref(), Some("hello world"));
-    }
-}
+mod tests;

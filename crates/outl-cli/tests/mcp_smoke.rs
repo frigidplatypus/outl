@@ -61,6 +61,23 @@ impl McpClient {
     }
 }
 
+/// Parse the data payload out of a **successful** `tools/call` result.
+///
+/// Success replies are content-only (no `structuredContent` at this
+/// protocol version); the data lives as compact JSON in
+/// `content[0].text`. Markdown-first tools put raw `.md` there instead,
+/// so this is only for the JSON-shaped tools.
+fn success_data(result: &Value) -> Value {
+    assert_eq!(
+        result["isError"], false,
+        "expected a success reply: {result}"
+    );
+    let text = result["content"][0]["text"]
+        .as_str()
+        .expect("content[0].text is a string");
+    serde_json::from_str(text).expect("success content is JSON")
+}
+
 impl Drop for McpClient {
     fn drop(&mut self) {
         // Closing stdin makes the MCP loop exit.
@@ -109,9 +126,8 @@ fn initialize_then_call_workspace_info() {
         }
     }));
     assert_eq!(call["id"], 3);
-    let structured = &call["result"]["structuredContent"];
-    assert_eq!(structured["ok"], true);
-    assert!(structured["data"]["root"].is_string());
+    let data = success_data(&call["result"]);
+    assert!(data["root"].is_string());
 }
 
 #[test]
@@ -137,9 +153,8 @@ fn doctor_via_mcp_does_not_lie_about_lock() {
         "method": "tools/call",
         "params": { "name": "outl_workspace_doctor", "arguments": {} }
     }));
-    let structured = &resp["result"]["structuredContent"];
-    assert_eq!(structured["ok"], true, "doctor must succeed inside MCP");
-    let findings = structured["data"]["findings"].as_array().unwrap();
+    let data = success_data(&resp["result"]);
+    let findings = data["findings"].as_array().unwrap();
     let has_lock_warning = findings.iter().any(|f| {
         f["message"]
             .as_str()
@@ -220,9 +235,8 @@ fn page_create_then_get_via_mcp() {
             "arguments": { "slug": "ideas", "title": "Ideas" }
         }
     }));
-    let structured = &create["result"]["structuredContent"];
-    assert_eq!(structured["ok"], true);
-    assert_eq!(structured["data"]["meta"]["slug"], "ideas");
+    let data = success_data(&create["result"]);
+    assert_eq!(data["meta"]["slug"], "ideas");
 
     let get = client.call(serde_json::json!({
         "jsonrpc": "2.0",
@@ -233,9 +247,139 @@ fn page_create_then_get_via_mcp() {
             "arguments": { "slug": "ideas" }
         }
     }));
-    let s2 = &get["result"]["structuredContent"];
-    assert_eq!(s2["ok"], true);
-    assert_eq!(s2["data"]["meta"]["title"], "Ideas");
+    let data = success_data(&get["result"]);
+    assert_eq!(data["meta"]["title"], "Ideas");
+}
+
+/// The whole point of reading a journal over MCP is being able to act on
+/// what you read. That needs a block id, and a rendered `.md` has none —
+/// ids live in the sidecar, never in the markdown.
+///
+/// This drives the real server, so it fails if `outl_daily_today` is ever
+/// flattened to its `md` field again. The unit test in
+/// `mcp/tools/payload.rs` pins the projection; this one pins that the
+/// resulting id actually works as a write target.
+#[test]
+fn daily_today_over_mcp_returns_ids_a_write_tool_can_use() {
+    let ws = init_workspace();
+    let mut client = McpClient::spawn(ws.path());
+
+    let _ = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": { "protocolVersion": "2024-11-05", "capabilities": {} }
+    }));
+
+    let _ = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_daily_append",
+            "arguments": { "text": "TODO ship the token diet" }
+        }
+    }));
+
+    let today = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": { "name": "outl_daily_today", "arguments": {} }
+    }));
+    let data = success_data(&today["result"]);
+
+    assert!(
+        data["date"].is_string(),
+        "outl_daily_today takes no argument, so its reply is the only \
+         thing naming the journal it opened: {data}"
+    );
+    assert!(
+        data["md"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("ship the token diet"),
+        "the markdown must still be there: {data}"
+    );
+
+    let block_id = data["outline"][0]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the journal outline must carry block ids: {data}"))
+        .to_string();
+
+    // The id is only worth returning if it is a usable write target.
+    let toggled = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_block_toggle_todo",
+            "arguments": { "id": block_id }
+        }
+    }));
+    assert_eq!(
+        toggled["result"]["isError"], false,
+        "the id read back from the journal must work as a write target: {toggled}"
+    );
+}
+
+/// `outl_export_json` exists to be an interchange format, so its payload
+/// has to deserialize back into the type that produced it.
+///
+/// Its `blocks` are `outl_md::OutlineNode`s, whose `properties` field has
+/// no `#[serde(default)]`. Any projection that drops an empty
+/// `properties` breaks this on every block without one — silently, since
+/// the JSON still looks fine to a reader.
+#[test]
+fn export_json_over_mcp_round_trips_into_the_parser_ast() {
+    let ws = init_workspace();
+    let mut client = McpClient::spawn(ws.path());
+
+    let _ = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": { "protocolVersion": "2024-11-05", "capabilities": {} }
+    }));
+
+    let _ = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_page_create",
+            "arguments": { "slug": "export-me", "title": "Export me" }
+        }
+    }));
+    let _ = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_block_append",
+            "arguments": { "page": "export-me", "text": "a block with no properties" }
+        }
+    }));
+
+    let export = client.call(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+            "name": "outl_export_json",
+            "arguments": { "slug": "export-me" }
+        }
+    }));
+    let data = success_data(&export["result"]);
+
+    let blocks: Vec<outl_md::OutlineNode> = serde_json::from_value(data["blocks"].clone())
+        .unwrap_or_else(|e| {
+            panic!("export_json must deserialize back into the parser AST ({e}): {data}")
+        });
+    assert!(
+        blocks.iter().any(|b| b.text.contains("no properties")),
+        "the exported block must survive the projection: {data}"
+    );
 }
 
 /// RFC 0255 Part 1: a page that stopped syncing must come back as a
@@ -271,7 +415,7 @@ fn frozen_page_update_returns_structured_refusal_not_a_generic_error() {
                 }
             }
         }));
-        assert_eq!(create["result"]["structuredContent"]["ok"], true);
+        assert_eq!(create["result"]["isError"], false);
     }
 
     // Reproduce the exact state invariant 8 guards against: the `.md`

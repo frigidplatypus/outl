@@ -62,27 +62,38 @@ use tracing::info;
 
 use crate::commands::{
     add_block, attach_asset, copy_block_markdown, copy_block_ref, copy_markdown, create_block,
-    cut_block, date_title, delete_block, delete_page, edit_block, exec, get_theme,
-    get_theme_config, import_asset_file, indent_block, instantiate_template_at, list_all_pages,
-    list_outline, list_templates_cmd, list_themes, move_block_after, move_block_down,
-    move_block_up, next_day, open_asset, open_journal_for, open_page_by_slug, open_ref,
-    open_today_journal, outdent_block, outl_emoji_search, outl_peer_list, outl_peer_pair_host,
-    outl_peer_pair_join, outl_peer_remove, outl_peer_status, outl_sync_now, page_backlinks,
-    paste_block_after, paste_markdown_at, paste_plain_at, plugin_config_set,
-    plugin_install_official, plugin_list, plugin_registry_list, plugin_run, plugin_secret_remove,
-    plugin_secret_set, plugin_set_enabled, plugin_settings_describe, plugin_sync_hooks,
-    plugin_toolbar, plugin_transform, plugin_transformers, plugin_uninstall, previous_day,
-    read_asset_data_url, redo_page, reload_workspace, resolve_page_labels, resolve_ref,
-    search_blocks, search_pages, search_persons, set_backlinks_order, set_block_collapsed,
+    cut_block, date_title, delete_block, delete_page, edit_block, get_theme, get_theme_config,
+    get_window_decorations, import_asset_file, indent_block, instantiate_template_at,
+    list_all_pages, list_outline,
+    list_templates_cmd, list_themes, move_block_after, move_block_down, move_block_up, next_day,
+    open_asset, open_journal_for, open_page_by_slug, open_ref, open_today_journal, outdent_block,
+    outl_emoji_search, outl_peer_list, outl_peer_pair_host, outl_peer_pair_join, outl_peer_remove,
+    outl_peer_status, outl_sync_now, page_backlinks, paste_block_after, paste_markdown_at,
+    paste_plain_at, plugin_config_set, plugin_install_official, plugin_list, plugin_registry_list,
+    plugin_run, plugin_secret_remove, plugin_secret_set, plugin_set_enabled,
+    plugin_settings_describe, plugin_sync_hooks, plugin_toolbar, plugin_transform,
+    plugin_transformers, plugin_uninstall, previous_day, read_asset_data_url, redo_page,
+    reload_workspace, resolve_page_labels, resolve_ref, search_blocks, search_pages,
+    search_persons, set_backlinks_order, set_block_collapsed, set_window_decorations,
     split_block, today_slug_cmd, toggle_pin, toggle_quote, toggle_todo, undo_page, workspace_stats,
 };
+// Registered on mobile for the first time by the shared command catalog
+// (`outl_tauri_shared::wrappers`): the bodies always existed, only the
+// wrappers were missing, so the features were absent by omission rather
+// than by decision.
 use crate::commands::{
     clear_reminder_snooze, deliver_due_reminders, known_property_keys, list_reminders,
     mark_block_done, reminder_action_catalog, reminder_settings, set_block_property,
     set_block_remind, set_page_property, set_reminder_settings, snooze_presets, snooze_reminder,
 };
+use crate::commands::{
+    list_action_support, list_shortcut_bindings, page_timeline, resolve_embeds,
+    run_auto_run_blocks, run_code_block,
+};
 use crate::plugin_service::spawn_plugin_service;
 use crate::state::AppState;
+use outl_tauri_shared::workspace_open::WorkspaceGuards;
+
 use crate::workspace_open::{load_or_create_actor, resolve_storage_root, spawn_workspace_opener};
 
 /// A deep link that arrived during cold start, before the frontend
@@ -241,9 +252,13 @@ pub fn run() {
             let hlc = HlcGenerator::new(actor);
 
             let workspace: Arc<Mutex<Option<Workspace>>> = Arc::new(Mutex::new(None));
+            // Cross-process workspace locks, held for as long as the
+            // workspace is open. Written only by `open_workspace_at`.
+            let workspace_guards: Arc<Mutex<Option<WorkspaceGuards>>> = Arc::new(Mutex::new(None));
 
             spawn_workspace_opener(
                 workspace.clone(),
+                workspace_guards.clone(),
                 storage_root.clone(),
                 hlc.clone(),
                 app.handle().clone(),
@@ -291,6 +306,7 @@ pub fn run() {
 
             app.manage(AppState {
                 workspace,
+                workspace_guards,
                 hlc,
                 storage_root,
                 registry,
@@ -360,10 +376,19 @@ pub fn run() {
             date_title,
             workspace_stats,
             resolve_ref,
+            // Shortcuts + the per-client support matrix (invariant 12).
+            // New on mobile: the help surface can only say *where* an
+            // action exists if this device can read the matrix too.
+            list_shortcut_bindings,
+            list_action_support,
+            // Page history out of the op log (read-only). New on mobile.
+            page_timeline,
             // Theme
             list_themes,
             get_theme,
             get_theme_config,
+            set_window_decorations,
+            get_window_decorations,
             delete_page,
             page_backlinks,
             set_backlinks_order,
@@ -429,8 +454,12 @@ pub fn run() {
             plugin_secret_remove,
             // Workspace folder selection (choose where the workspace lives)
             workspace_picker::set_workspace,
-            // Code execution
-            exec::run_code_block,
+            // Code execution. `run_auto_run_blocks` and `resolve_embeds`
+            // are new on mobile — they existed in the shared crate all
+            // along and were simply never registered here.
+            run_code_block,
+            run_auto_run_blocks,
+            resolve_embeds,
             // Legacy
             list_outline,
             add_block,

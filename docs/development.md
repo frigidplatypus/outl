@@ -309,14 +309,30 @@ The expected per-edit cycle:
   When it fires, invoke the `refactor-architect` agent to propose a split.
   It covered only `.rs` until 2026-09, which is why the largest files in the repo are frontend ones it never looked at.
 
-  **A hook only runs when Claude Code is the editor.** A human in an editor, a Copilot PR and a dependabot bump all bypass it, so the same limit is enforced for everyone in CI by `scripts/check-file-size.sh` (the `hygiene` job).
+  **A hook only runs when Claude Code is the editor.** A human in an editor, a Copilot PR and a dependabot bump all bypass it, so the same limit is enforced for everyone in CI by `scripts/check-file-size.sh` (the `hygiene` job in `hygiene.yml`).
   That runs as a **ratchet**, not a cliff: the files already past the threshold are frozen with their current line counts in `.github/file-size-baseline.txt`, and the job fails only when a file **not** in the baseline crosses 600 lines, or one in it grows past its recorded number.
   Large files therefore stay editable and the ceiling only moves down.
   After a split lowers a count, re-record it with `scripts/check-file-size.sh --update`; the script refuses to write a baseline from a scan that matched nothing, so a broken checkout cannot silently empty it.
+
+- **`scripts/check-docs-index.sh`** — every RFC in `docs/rfcs/` is reachable from [`docs/SUMMARY.md`](SUMMARY.md).
+  It exists because the index was silently wrong five times in a row: one branch added five RFCs — including the two documenting the changes most capable of destroying data — and listed none of them.
+  The index was complete each time it was last edited; five separate changes each forgot the same step, and nothing failed when they did.
+  It checks **reachability, not wording**: the summary line is the RFC author's to write, and a script that generated it would become a second owner of that fact.
 - **`file-size-sweep.sh`** — the same ratchet, wired as a **`Stop`** hook so it runs once at the end of a turn.
   Every hook above it is `PostToolUse` on `Edit|Write`, and **that matcher does not include the Bash tool**: a file created with `python3 - <<'PY'`, `sed -i`, `cat >` or `git mv` lands on disk having passed no guard at all.
   The per-edit hook answers "Claude used Edit/Write on a big file"; this one answers "something got big, however it arrived".
   It exits 2 once with the failure, then reports without blocking if it fires again (`stop_hook_active`), so a condition Claude cannot clear does not loop.
+- **`single-declaration-guard.sh`** — catches code written where a cross-client surface *used* to live.
+  Three surfaces are declared once and consumed everywhere, each having replaced N hand-maintained copies.
+  The Tauri command surface (`outl-tauri-shared/src/wrappers/catalog.rs`), the post-mutation commit sequence (`outl_actions::commit_page`), and the Rust ↔ TypeScript wire contract (`tests/wire_types.rs`, `tests/wire_enums.rs`, `tests/wire_mirrors.rs`).
+  Each already has a test that fails when a client drifts; this hook solves a different problem.
+  A model working from the shape of the *old* code writes the hand-rolled version again, because the git history is full of it.
+  The test catches that in CI; this catches it at the keystroke, with the file the change belongs in.
+  Every check is deliberately narrow, because a hook that fires on correct code teaches the reader to ignore it.
+  It compares command wrappers **per function signature**, so `open_ref` — which needs an `AppHandle` — stays silent while a plain duplicate does not.
+  It flags a bare `apply_page_md_with_sidecar_guarded` only in a file that also mutates.
+  And it carries a frozen baseline of the CLI / TUI call sites [issue 264](https://github.com/outlmd/outl/issues/264) already tracks.
+  That baseline may only get shorter: migrating a file to `commit_page` deletes its row.
 - **`section-ref-guard.sh`** — flags a quoted section title that no longer exists.
   `doc-sync-guard.sh` reasons about *files touched*, so renaming a heading passes it clean while leaving the old title quoted in every file that pointed at it.
   This one resolves `` `path.md` → "Title" `` and `see "Title"` against the target's headings, bold labels and table rows.
@@ -402,7 +418,7 @@ Same file smoke-tests the block clipboard (cut arms `blockClipboard`; paste rout
 
 ### The 100% rule
 
-`do_op`, `undo_op`, `apply_op`, `creates_cycle` in `outl-core/src/tree/mod.rs` carry a **100% line and branch coverage rule**.
+`do_op` / `undo_op` (`outl-core/src/tree/op.rs`), `apply_op` (`tree/apply.rs`) and `creates_cycle` (`tree/cycle.rs`) carry a **100% line and branch coverage rule**.
 Any new branch needs a new test.
 
 ```bash
@@ -506,10 +522,14 @@ The rule from the root `CLAUDE.md` is: any operation more than one client needs 
 
 ### Add an MCP tool
 
-1. Mirror an existing tool in `crates/outl-cli/src/mcp/` — they all use the same envelope.
+1. Add the handler in `crates/outl-cli/src/cmd/*.rs` returning `Result<Value, ApiError>`, then register it in `mcp/tools/registry.rs` (schema) and `mcp/tools/dispatch.rs` (dispatch) — mirror an existing tool.
 2. Tool name: `outl_<verb>_<noun>` (e.g. `outl_block_append`, `outl_page_create`).
 3. Wire the underlying logic through `outl-actions` if it mutates state; through `outl-md` indices if it's a read.
-4. Update `docs/mcp.md` with the tool's purpose, params, and an example invocation.
+4. **Return the handler's `Value` and let `mcp/tools/payload.rs` wrap it.**
+   MCP does not use the CLI's `{ ok, data, error }` envelope: a success reply is content-only (compact JSON in `content[].text`, no `structuredContent`), and only an error keeps the envelope in `structuredContent` ([RFC 0276](rfcs/0276-mcp-content-only-replies.md)).
+   Do not build the result shape in the dispatcher, and do not add an `outputSchema` to the tool def — declaring one obliges the server to send `structuredContent` on success.
+   Only add a tool to `payload.rs`'s `markdown_field` if the caller already holds every field the flattening drops; `crates/outl-cli/CLAUDE.md` → MCP has the test and the two ways it was got wrong.
+5. Update `docs/mcp.md` with the tool's purpose, params, and an example invocation.
 
 ### Add a theme
 
@@ -659,7 +679,8 @@ cargo test -p outl-actions --release --test composite_write_bench -- --ignored -
 
 | Workflow | Triggers | What it runs | Blocks merge? |
 |---|---|---|---|
-| [`ci.yml`](../.github/workflows/ci.yml) | Push / PR to `main` (skipped on docs-only) | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo doc -D warnings`, plus a dedicated **`sync`** job (`outl-core` + `outl-sync-iroh` with `PROPTEST_CASES=1024`), a **`frontend`** job (`bun run test` + `bun run typecheck` over every bun workspace package) and a **`hygiene`** job (`scripts/check-file-size.sh`). Excludes `outl-mobile` + `outl-desktop` from the Rust jobs. Test matrix: `test (linux)` + `test (macos)`. | **Yes** |
+| [`ci.yml`](../.github/workflows/ci.yml) | Push / PR to `main` (skipped on docs-only) | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo doc -D warnings`, plus a dedicated **`sync`** job (`outl-core` + `outl-sync-iroh` with `PROPTEST_CASES=1024`), and a **`frontend`** job (`bun run test` + `bun run typecheck` over every bun workspace package). Excludes `outl-mobile` + `outl-desktop` from the Rust jobs. Test matrix: `test (linux)` + `test (macos)`. | **Yes** |
+| [`hygiene.yml`](../.github/workflows/hygiene.yml) | Push / PR to `main`, **including** docs-only changes | `scripts/check-file-size.sh` (the file size ratchet) + `scripts/check-docs-index.sh` (every RFC reachable from `docs/SUMMARY.md`). Kept out of `ci.yml` on purpose: that workflow skips `docs/**`, which is exactly the change set the index check has to see. | **Yes** |
 | [`mobile.yml`](../.github/workflows/mobile.yml) | Push / PR touching mobile paths | Frontend tests, Swift tests, Rust mobile crate, iOS archive + sign on `push` | Mobile changes only |
 | [`desktop.yml`](../.github/workflows/desktop.yml) | Push / PR touching desktop paths | Tauri build matrix (macOS/Linux/Windows) | Desktop changes only |
 | [`bench.yml`](../.github/workflows/bench.yml) | Push / PR touching `outl-md`, plus weekly cron | Criterion (small/medium/large) on every PR; xlarge + CLI hyperfine on cron / manual dispatch. Artifacts retained 14–30 days. | No (informational) |
@@ -686,7 +707,7 @@ Sizes as of the Blacksmith migration, from a full run of every workflow:
 | Job | SKU | Why |
 |---|---|---|
 | `ci.yml::fmt` | 2 vCPU | rustfmt compiles nothing (16s) |
-| `mobile.yml::frontend`, `ci.yml::frontend`, `ci.yml::hygiene` | 2 vCPU | vitest + Vite build, 12s, never saturated 4 vCPU; the `ci.yml` pair is ~4s of vitest and a line-count scan, with no compilation at all |
+| `mobile.yml::frontend`, `ci.yml::frontend`, `hygiene.yml::hygiene` | 2 vCPU | vitest + Vite build, 12s, never saturated 4 vCPU; the other two are ~4s of vitest and a line-count scan, with no compilation at all |
 | `release.yml` orchestration (`prepare`, `tag`, `create_release`, `publish_*`, `update_tap`), `cleanup-tags.yml` | 2 vCPU | shell + `gh` calls, no compilation |
 | `ci.yml::docs`, `ci.yml::sync`, `bench.yml` | 4 vCPU | doc/proptest jobs already finish in ~100s; bench stays fixed so numbers remain comparable run over run |
 | `ci.yml::clippy`, `ci.yml::test (linux)`, `desktop.yml::check`, release builds | 8 vCPU | measured 71–76% average CPU on 4 vCPU with 2.6–4.7 GB of 16 GB used and zero OOM: CPU-bound, so more cores cut wall clock at roughly flat billing |

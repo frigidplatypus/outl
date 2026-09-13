@@ -4,16 +4,182 @@
 //! FS watcher + background reconcile + iroh slots; the mobile reconciles
 //! inline and returns through `AppState`) — but every step they compose
 //! lives here so the two can't drift on semantics.
+//!
+//! ## Why the GUI refuses instead of forking an ephemeral actor
+//!
+//! [`outl_core::resolve_write_actor`] answers `AlreadyHeld` by minting a
+//! fresh [`ActorId`] and writing to a brand-new `ops-<ephemeral>.jsonl`.
+//! That is the right answer for the CLI and TUI, and it is **not**
+//! available here, because a GUI's actor is fixed before a workspace is
+//! picked: `HlcGenerator::new(actor)` is built in the client's `setup()`
+//! from [`load_or_create_actor`], and every mutation stamps its op with
+//! that generator's actor for the life of the process.
+//!
+//! Swapping only the *storage* actor would therefore write ops stamped
+//! `device_actor` into `ops-<ephemeral>.jsonl`, and leave two live
+//! generators sharing one actor id. Two `HlcGenerator`s with the same
+//! actor emit the same `(time, counter, actor)` triple whenever they tick
+//! in the same millisecond, and op identity *is* that triple — so
+//! `Workspace::apply`'s `contains_ts` dedup silently drops one of the two
+//! ops. A fallback that loses ops is worse than the collision it is
+//! dodging, so [`open_workspace_at`] surfaces the refusal instead.
+//!
+//! Making the fallback available means making the client's `HlcGenerator`
+//! swappable at workspace-open time (it is a plain field on both
+//! `AppState`s today, read from ~56 call sites). That is a client-side
+//! change, tracked separately.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use outl_actions::{migrate_legacy_into_today, open_today};
 use outl_core::device::DeviceStore;
 use outl_core::hlc::HlcGenerator;
 use outl_core::id::ActorId;
+use outl_core::lock::{ActorWriteLock, LockError, WorkspaceLock};
 use outl_core::storage::JsonlStorage;
 use outl_core::workspace::Workspace;
+use parking_lot::Mutex;
 use tracing::{info, warn};
+
+/// The cross-process locks a GUI client holds for as long as its
+/// workspace is open — the same two every other `outl` process takes,
+/// through the same [`outl_core::lock`] API the CLI and TUI use.
+///
+/// ## Why a GUI needs them
+///
+/// The Tauri clients used to take neither, which made them invisible to
+/// every other `outl` process on the machine:
+///
+/// - [`WorkspaceLock`] is the shared advisory flock on
+///   `<root>/.outl/.lock`. `outl compact --apply` answers *"is anyone in
+///   this workspace?"* by trying to take that same file **exclusively**
+///   ([`outl_core::storage::compact::apply_compaction`]). A GUI holding
+///   nothing let that gate pass, and compaction then renamed a rewritten
+///   `ops-<actor>.jsonl` out from under a live client that still held
+///   in-memory byte offsets into the pre-compaction layout. Every later
+///   index-driven read in that session seeks into a renumbered file —
+///   "a silently dropped op on every index-driven read", in the words of
+///   compaction's own comment.
+/// - [`ActorWriteLock`] is the exclusive flock on
+///   `<root>/ops/.lock-<actor>`. It is the stated precondition of
+///   `JsonlStorage::append_ops` ("append is the SINGLE writer for its own
+///   actor file, guarded by `ActorWriteLock`") and compaction's second
+///   gate.
+///
+/// ## Lifetime
+///
+/// Held for as long as the workspace is open, and **only** that long.
+/// The guards live in the client's `workspace_guards` slot next to its
+/// `Option<Workspace>`; [`open_workspace_at`] is the single writer of
+/// that slot, installing the new set only after the open succeeds (which
+/// drops the previous workspace's set). Re-opening the root already held
+/// writes nothing at all — see `acquire_guards` on why a re-pick
+/// retains rather than releases-and-retakes. The flocks are released by
+/// `Drop`, and by the OS if the process dies — there is no stale-lock
+/// state to clean up.
+#[must_use = "the locks are released when the guards are dropped; keep them alive with the workspace"]
+#[derive(Debug)]
+pub struct WorkspaceGuards {
+    /// Shared `<root>/.outl/.lock`. Multiple holders by design.
+    _workspace: WorkspaceLock,
+    /// Exclusive `<root>/ops/.lock-<actor>`.
+    _actor: ActorWriteLock,
+    /// Canonicalized root, so a re-pick of the workspace already open can
+    /// be told from a switch to a different one.
+    root: PathBuf,
+    actor: ActorId,
+}
+
+impl WorkspaceGuards {
+    /// Root these guards were taken for (canonicalized where possible).
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Actor whose `ops-<actor>.jsonl` this process owns the write lock on.
+    pub fn actor(&self) -> ActorId {
+        self.actor
+    }
+
+    fn acquire(root: &Path, canonical: &Path, actor: ActorId) -> Result<Self, LockError> {
+        // Shared first, then per-actor — the same order `outl-ws` uses
+        // (`outl_ws::open_with`) and the order compaction checks them in.
+        let workspace = WorkspaceLock::acquire(root)?;
+        let write = ActorWriteLock::try_acquire(&root.join("ops"), actor)?;
+        Ok(Self {
+            _workspace: workspace,
+            _actor: write,
+            root: canonical.to_path_buf(),
+            actor,
+        })
+    }
+}
+
+/// Best-effort canonicalization: a path that cannot be resolved (the
+/// directory was just created, or the platform refuses) is compared as
+/// given. Only used to recognise "the workspace I already hold".
+fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// What `acquire_guards` did, and therefore what a successful open owes
+/// the guard slot afterwards.
+enum GuardClaim {
+    /// Locks taken for a root this process was not already holding.
+    /// Installing them at the end of the open is what releases the
+    /// previous workspace's; dropping them is what a failed open does.
+    Fresh(WorkspaceGuards),
+    /// The slot already held exactly these locks — same canonical root,
+    /// same actor. Nothing was released and nothing was retaken, so the
+    /// slot needs no write at all.
+    Retained,
+}
+
+/// Claim both locks for `path`.
+///
+/// Re-picking the workspace that is already open (the folder dialog
+/// pointed at the current root) gets [`GuardClaim::Retained`]: this
+/// process already holds exactly those two flocks, so there is nothing
+/// to acquire.
+///
+/// **Why it is not "release, then retake".** That is what this used to
+/// do, because a POSIX `flock` is owned by an open file description — a
+/// second `open` + `LOCK_EX|LOCK_NB` of `ops/.lock-<actor>` fails *even
+/// inside the process that already holds it*, so the re-pick refused
+/// itself unless the old guards were dropped first. But dropping them
+/// before the replacement is known to succeed is unsound: every step of
+/// [`open_workspace_at`] after this one can fail, and on failure the
+/// caller keeps the **old** `Workspace` published (`set_workspace`
+/// returns early) while its locks are already gone. `outl compact
+/// --apply` would then take `.outl/.lock` exclusively and rewrite
+/// `ops-<actor>.jsonl` under a live client still holding byte offsets
+/// into the old layout — the exact corruption these guards exist to
+/// prevent. Retaining removes the window rather than narrowing it: there
+/// is no moment at which the workspace is unguarded.
+///
+/// Any `AlreadyHeld` from here is therefore a genuinely different
+/// process on this actor, and is surfaced, never worked around — see the
+/// module docs on why the ephemeral-actor fallback is not available to a
+/// GUI.
+fn acquire_guards(
+    held: &Mutex<Option<WorkspaceGuards>>,
+    path: &Path,
+    actor: ActorId,
+) -> Result<GuardClaim, LockError> {
+    let canonical = canonical(path);
+    // Read the slot in its own statement, never in a match guard:
+    // `parking_lot::Mutex` is not reentrant, so a guard temporary still
+    // alive over an arm body would deadlock this thread against itself.
+    let ours = {
+        let slot = held.lock();
+        slot.as_ref()
+            .is_some_and(|g| g.root == canonical && g.actor == actor)
+    };
+    if ours {
+        return Ok(GuardClaim::Retained);
+    }
+    WorkspaceGuards::acquire(path, &canonical, actor).map(GuardClaim::Fresh)
+}
 
 /// Open (or create) the workspace rooted at `path`.
 ///
@@ -30,16 +196,78 @@ use tracing::{info, warn};
 /// legacy unbounded behaviour; any positive value sheds cold history
 /// after boot completes (so RSS stays constant regardless of workspace
 /// age).
+///
+/// `held` is the client's [`WorkspaceGuards`] slot. This function is its
+/// **single writer**: the new guards are installed only once the open has
+/// succeeded, which is also what releases the previous workspace's. A
+/// failed open therefore never leaves the slot holding locks for a
+/// workspace nobody has open — and never leaves the *caller's* still-open
+/// workspace without them either, because re-opening a root this process
+/// already holds retains those locks instead of releasing them up front
+/// (`acquire_guards`). A client never acquires or drops a lock itself —
+/// a second opinion about who holds the workspace is the defect this
+/// replaces.
+///
+/// # Errors
+///
+/// Beyond the usual I/O and boot failures, this refuses to open when
+/// another `outl` process on this machine already holds the write lock
+/// for `actor` (`LockError::AlreadyHeld`). See the module docs for why a
+/// GUI cannot take the ephemeral-actor fallback instead.
 pub fn open_workspace_at(
     actor: ActorId,
     hlc: &HlcGenerator,
     path: &Path,
     lru_cap: usize,
+    held: &Mutex<Option<WorkspaceGuards>>,
 ) -> anyhow::Result<Workspace> {
     std::fs::create_dir_all(path.join("ops"))?;
     std::fs::create_dir_all(path.join("journals"))?;
     std::fs::create_dir_all(path.join("pages"))?;
 
+    // Before a byte is read: announce this process to every other `outl`
+    // on the machine. A fresh claim is held in `claim` until the open
+    // succeeds, so a failed open leaves no lock behind; a re-pick of the
+    // workspace already open retains the locks it already has, so a
+    // failed open leaves none *missing* either.
+    let claim = acquire_guards(held, path, actor)?;
+
+    // A failed open drops a `Fresh` claim, so no lock is parked on a
+    // workspace nobody has open (compaction would then refuse forever
+    // with nothing running). A `Retained` claim owns nothing to drop:
+    // the slot still holds the locks it always held, still covering the
+    // workspace that is still published.
+    let workspace = boot(actor, hlc, path, lru_cap)?;
+
+    // The open succeeded, so publish a fresh claim — which is what
+    // releases the previous workspace's locks. `Retained` needs no write:
+    // the slot already holds exactly these two flocks.
+    match claim {
+        GuardClaim::Fresh(guards) => {
+            info!(
+                "workspace locks held for {} (actor {actor})",
+                guards.root().display()
+            );
+            *held.lock() = Some(guards);
+        }
+        GuardClaim::Retained => info!(
+            "workspace locks already held for {} (actor {actor})",
+            path.display()
+        ),
+    }
+
+    Ok(workspace)
+}
+
+/// Everything [`open_workspace_at`] does between taking the locks and
+/// publishing them: open the storage, replay, seed the clock, run the
+/// boot repairs, apply the LRU cap and the snapshot policy.
+fn boot(
+    actor: ActorId,
+    hlc: &HlcGenerator,
+    path: &Path,
+    lru_cap: usize,
+) -> anyhow::Result<Workspace> {
     let storage = JsonlStorage::open(path.join("ops"), actor)?;
     let mut workspace =
         Workspace::open_with_storage(actor, Box::new(storage), Some(path.to_path_buf()))?;
@@ -56,6 +284,20 @@ pub fn open_workspace_at(
     if workspace.has_page_storages() {
         workspace.reboot_with_all_storages()?;
     }
+
+    // Raise the generator above everything the log already holds, before
+    // the boot helpers below emit their first op (see
+    // `Workspace::seed_clock`). This is the GUI clients' only seeding
+    // point: their `HlcGenerator` is built in `setup()`, before a
+    // workspace is picked, and a GUI can close one workspace and open
+    // another — so it has to happen on *every* open, not once at start.
+    // Re-seeding is safe by construction: `seed` never lowers the clock.
+    //
+    // Propagated, unlike the best-effort helpers below it: those are
+    // repairs whose failure leaves a workspace that still works, while a
+    // storage read failing here says the boot that just succeeded cannot
+    // be re-read a statement later.
+    workspace.seed_clock(hlc)?;
 
     if let Err(e) = migrate_legacy_into_today(&mut workspace, hlc) {
         warn!("legacy migration: {e}");

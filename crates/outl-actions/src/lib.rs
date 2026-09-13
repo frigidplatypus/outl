@@ -58,6 +58,7 @@ pub mod block;
 pub mod clipboard;
 pub mod clock;
 pub mod collapsed;
+pub mod commit;
 pub mod dates;
 pub mod deeplink;
 pub mod desync;
@@ -66,6 +67,7 @@ pub mod exec;
 pub mod history;
 pub mod index;
 pub mod journal;
+pub mod mentions;
 pub mod outline;
 pub mod page;
 pub mod page_merge;
@@ -100,6 +102,7 @@ pub use block::{
 };
 pub use clipboard::{copy_markdown, copy_markdown_nodes};
 pub use collapsed::{set_block_collapsed, toggle_block_collapsed};
+pub use commit::{commit_page, CommitHooks};
 pub use dates::{
     date_from_slug, days_until_next_weekday, journal_ref, journal_slug, journal_title,
     next_journal_date, parse_date_arg, parse_date_label, parse_flexible_date,

@@ -12,7 +12,7 @@ This is the primary mode — Roam/Logseq users expect to launch the app and see 
 The TUI library is reused via `use outl_tui;` (the crate exposes both a library and a binary).
 Don't fork the TUI logic into the CLI.
 
-### Workspace path resolution (`resolve_path` in `main.rs`)
+### Workspace path resolution (`resolve_path` in `startup.rs`)
 
 Every subcommand that operates on a workspace runs through one helper.
 Precedence — first hit wins:
@@ -58,13 +58,21 @@ See `outl-core/CLAUDE.md` → "Actor id is device-local, and the workspace canno
 - `outl serve [<path>] [--once] [--no-watch] [--no-sync]` — the background daemon: file watcher + P2P endpoint holder, both on by default.
   `--once` reconciles every `.md` and exits (smoke tests, scripting) and implies neither half; `--no-watch` is endpoint-only, `--no-sync` is watcher-only, and both together is a usage error.
   `--no-watch` also **fails** (non-zero) when `[sync] transport` is `"file"`: with no watcher and no P2P it has no job, and exiting 0 would have a process manager restart it into that config forever. Plain `outl serve` only warns there.
+  **Third job, opposite direction:** it sweeps `tree → .md` after the initial scan and after each peer-ops reload (30s floor), writing only pages whose re-projection removes nothing.
+  The watcher carries `.md → tree`; nothing carried the reverse in bulk, so a page stayed wrong until somebody opened it (704 stale pages on a real workspace).
+  A page that would remove content is withheld for `doctor --repair`, which has the backup and the ceilings.
+  `cmd/serve/projection.rs` reports the **change**, not the state — named on first sight, again when the set differs, once when it empties.
+  `--no-watch` does not sweep.
 - `outl doctor [<path>] [--json] [--repair]` — integrity check.
   **Read-only by default**; `--repair` is the only writing mode.
   Full user-facing check list lives in [`docs/doctor.md`](../../docs/doctor.md).
   Parser warnings are appended to `.outl/orphans.log` tagged `parse-warning <iso> <path>:<line> <kind> <raw>` so the trail persists across runs.
 
   `cmd/doctor/` is a module dir, one file per class of check.
-  `oplog.rs` — raw `.jsonl` line sweep, snapshot decode, offset-index coherence.
+  `oplog.rs` — raw `.jsonl` line sweep, snapshot verdicts, offset-index coherence.
+  `check_snapshots` does **not** own "may this snapshot be dropped" — `outl_core::snapshot::gc` does, and the doctor only phrases it, so the boot selector and the report cannot disagree.
+  `--repair` re-asks `gc::survey` at write time rather than trusting the plan, the same shape `prune_binding` uses against the device store.
+  `collect_internal` opens the workspace with `root: None` **on purpose**, so the doctor judges the op log rather than a snapshot's opinion of it — which is also why a read-only run cannot collect a snapshot and invalidate its own listing (`a_doctor_run_never_boots_from_a_snapshot_so_it_cannot_collect_one`).
   `files.rs` — `.md` ↔ sidecar, parse warnings, orphan block refs, sync-conflict copies.
   `tree.rs` — trash contents, unmaterialized ops, projection drift (needs a booted `Workspace`).
   Its drift check asks `outl_actions::content_lines_missing_from` before offering a page for re-projection, because the sidecar hash gate proves the sidecar agrees with the bytes on disk and **not** that those bytes came from the log.
@@ -141,13 +149,22 @@ See `outl-core/CLAUDE.md` → "Actor id is device-local, and the workspace canno
   Run it only on a build whose parser preserves the content: reconciling with a parser that still drops prose after a block property writes the truncated text into the log, which is the one place the loss currently is not.
   `--allow-bulk-delete` is the **only** reachable `OrphanGuard::Disabled` in the binary.
   `reconcile_md` refuses a pass that would trash more than 500 blocks of a page or more than 75% of one, and that refusal is only defensible while the user can say the deletion was meant — a guard with no escape hatch is a wall (root `CLAUDE.md` invariant 9).
-  It was unreachable from any user-facing surface for one commit, so `the_bulk_delete_escape_hatch_is_reachable_from_the_command_line` in `main.rs` pins the wiring rather than the policy.
+  It was unreachable from any user-facing surface for one commit, so `the_bulk_delete_escape_hatch_is_reachable_from_the_command_line` in `cli.rs` pins the wiring rather than the policy.
+  **A page the scan could not read is counted and named, never folded into "clean".**
+  An unreadable `.md`, an unparseable sidecar and a sidecar that records no block text used to be dropped silently by `scan_pages`, so a workspace where every page was skipped printed `no page holds content outside the op log` and exited 0 — invariant 8's "a refusal has to reach the user", failing on the command a user runs *because* a silent refusal already cost them content.
+  `Verdict::{Take,Clean,Unjudged}` is what makes the three states unmixable; a missing `.md` and an empty page are `Clean`, because both are answerable and reporting them would put the happy path on the skip list.
+  Output shape lives in [`docs/cli.md`](../../docs/cli.md#outl-reconcile), pinned by `crates/outl-cli/tests/reconcile_cmd.rs`.
 - `outl recover [<path>] [--apply] [--min-lines N]` — the **op-log-side** counterpart to `--ahead-of-log`, for a page whose `.md` was already overwritten before that guard existed.
   Reads `Workspace::block_text_history` for a block whose current text is a proper prefix of an earlier `Op::Edit` — a truncating edit whose predecessor is still in the append-only log.
   Issue #210's producer emitted the truncation as a real op; it never erased anything.
   Read-only by default; `--apply` writes each recovered revision back as a **new** `Op::Edit` (never a log rewrite), refusing per-block when the text changed since the scan.
   `--min-lines` (default 1) raises the report threshold.
   Full behaviour: [`docs/cli.md`](../../docs/cli.md#outl-recover).
+- `outl compact [<path>] [--apply] [--no-horizon]` — drop provably-inert ops.
+  The **only** thing in this binary that rewrites `ops/`, and the exception that proves invariant 1: it removes lines, never edits one.
+  Read-only by default; `--apply` backs every file up to a per-run `.outl/compact-backup/<ts>-<ulid>/` first (a second-resolution name lets two valid runs share one generation, and the second copies over the first's only rollback point), takes an exclusive `.outl/.lock` plus every actor's write lock, and deletes the `.idx` sidecars rather than rebuilding them.
+  The predicate is six conditions because `Op::Create` is idempotent: an adjacent `Create`+`Move` pair reads as "the `Move` is inert" *or* as trashed-then-restored, where the `Move` is the op doing the work, and the file cannot tell you which.
+  Full behaviour: [`docs/cli.md`](../../docs/cli.md#outl-compact), predicate and soundness: [RFC 0256](../../docs/rfcs/0256-op-log-compaction.md).
 - `outl migrate-to-shared [<path>]` — copy local sqlite log into shared `ops/` JSONL for cross-device sync.
 - `outl import roam|logseq|obsidian|auto <src> <dst>` — graph import.
   Every source routes through the adapter-based `outl-import` crate (`--dry-run`, `--json`, `--preserve-timestamps`; real `((blk-XXXXXX))` ref/embed resolution, `Op::SetCollapsed`).
@@ -220,6 +237,28 @@ The full mapping (CLI ↔ MCP tool) is documented in [`docs/cli.md`](../../docs/
 - `outl mcp serve [--workspace=…]` — JSON-RPC 2.0 over stdio implementing the MCP protocol surface Claude Desktop expects (`initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`, `prompts/get`).
   Every tool is a thin router that delegates to the same handler the CLI subcommand calls — there is no second business-logic path.
 
+**The response is projected for an LLM consumer, not a script — this is the one place the MCP surface diverges from the CLI, and the handler is untouched.**
+`mcp/tools/payload.rs` owns the wrapping; [`docs/cli.md`](../../docs/cli.md#commands-by-domain) owns the wire shape itself; [RFC 0276](../../docs/rfcs/0276-mcp-content-only-replies.md) owns why (content-only success, enveloped error, no `outputSchema`) and what was rejected.
+What belongs here is the part a reader of that doc cannot see: **why a field is safe to drop**, and the two ways that judgement has already been got wrong.
+
+**A field is only droppable if the caller can still get it.**
+The GUI-only fields qualify: an outline node's `tokens` is a pre-tokenized inline AST that restates `text` for the Tauri renderers, and `collapsed: false` / `todo: null` / empty `properties` are defaults.
+Flattening a whole payload to one field is the same question asked harder, and `outl_daily_today` / `outl_daily_get` **fail** it — which is why they are not markdown-first despite being journal reads.
+Their `outline` is the only carrier of block ids (a rendered `.md` has none; ids live in the sidecar), and every block-targeting write tool requires one, so flattening them breaks "read today's journal, tick a task".
+`outl_page_render` / `outl_export_md` pass, because `{slug, md}` minus `md` is a slug the caller just sent.
+
+**Pruning keys on `id` + `text` + `children`, and the `id` is load-bearing.**
+There are *two* `OutlineNode` types in this workspace: `outl_actions`' (with `id`) and `outl_md::ast`' (`{text, properties, children}`, no `id`).
+`outl_export_json` returns the second, and its `properties` has no `#[serde(default)]`.
+So a `text` + `children` guard dropped empty `properties` there and stopped the export deserializing back into the type that produced it.
+That broke the one tool whose whole job is being an interchange format, silently, because the JSON still looks fine to a reader.
+Both mistakes are pinned twice over.
+`journal_reads_keep_their_ids_and_date` and `pruning_leaves_the_parser_ast_alone` cover the projection in `payload.rs`.
+`daily_today_over_mcp_returns_ids_a_write_tool_can_use` and `export_json_over_mcp_round_trips_into_the_parser_ast` drive the real server in `tests/mcp_smoke.rs`.
+
+The general rule, and the reason this paragraph exists: **a projection is a place to drop what the reader can re-derive, never a place to drop the only copy.**
+When adding a tool to `markdown_field` or widening the prune guard, name what the caller loses and where else they can get it.
+
 ## P2P sync: the MCP takes the endpoint when nobody else has it
 
 iroh's relay routes only ONE endpoint per `node_id` at a time.
@@ -261,12 +300,16 @@ What that means for the surfaces in this crate:
   **Only the watcher half takes the per-actor write lock.** The transport buckets writes by `op.actor` and goes through `OpsDirAppendLock`, never the `JsonlStorage::append` path that `ActorWriteLock` guards, so `--no-watch` takes no write lock at all — which is what makes it safe to run permanently beside a GUI, instead of minting that GUI a fresh ephemeral actor and `ops-<ulid>.jsonl` on every launch.
 - **`outl peer pair`/`status`** use a transient endpoint they close before returning (CLI-only, no long-lived client should be mid-pair at the same time).
 
-## JSON envelope (CLI + MCP)
+## JSON envelope (CLI)
 
 ```json
 { "ok": true,  "data": { … }, "error": null }
 { "ok": false, "data": null,  "error": { "code": "X", "message": "…" } }
 ```
+
+This is the **CLI** `--json` shape.
+MCP shares the handlers, not the wire format: a successful `tools/call` is content-only, and an error keeps the envelope in `structuredContent`.
+[`docs/cli.md`](../../docs/cli.md#commands-by-domain) owns that fact; the [MCP](#mcp) section below says why the projection exists.
 
 Stable error codes live in `output::codes` (`NO_WORKSPACE`, `PAGE_NOT_FOUND`, `BLOCK_NOT_FOUND`, `INVALID_BLOCK_ID`, `INVALID_DATE`, `CONFIRM_REQUIRED`, `CYCLE_REJECTED`, `SLUG_CONFLICT`, `PROP_NOT_FOUND`, `INTERNAL`, `INVALID_ARG`).
 Add new codes by appending — never renumber existing ones (LLMs cache them).
@@ -283,7 +326,9 @@ Exit codes follow:
 
 ```
 src/
-├── main.rs                # clap entry, dispatches to commands
+├── main.rs                # dispatch only — one arm per Command
+├── cli.rs                 # every clap declaration + the parse tests
+├── startup.rs             # path resolution, workspace bootstrap, tracing
 ├── output.rs              # JSON envelope, ApiError, exit codes
 ├── ws.rs                  # WsCtx — open Workspace + HlcGenerator + lock
 ├── workspace_layout.rs    # filesystem layout (.outl, pages/, journals/)
@@ -291,7 +336,9 @@ src/
 ├── cmd/
 │   ├── mod.rs
 │   ├── init.rs            # outl init
-│   ├── serve.rs           # outl serve — watcher half + wiring
+│   ├── serve/             # outl serve
+│   │   ├── mod.rs         #   watcher half + wiring
+│   │   └── projection.rs  #   tree → .md sweep, throttle, change-only reporter
 │   ├── sync_supervisor.rs # outl serve — deferential endpoint lease loop
 │   ├── doctor/            # outl doctor — one file per class of check
 │   │   ├── mod.rs         #   report types + orchestration
@@ -300,7 +347,9 @@ src/
 │   │   ├── tree.rs        #   trash, unmaterialized ops, projection drift
 │   │   ├── ops_guard.rs   #   restores ops/ byte-for-byte after the run
 │   │   ├── theme.rs       #   [theme] pair validation (global config)
-│   │   └── repair.rs      #   the --repair pass
+│   │   └── repair/        #   the --repair pass
+│   │       ├── mod.rs     #     page re-projection, sidecars, backups
+│   │       └── snapshots.rs #   boot-cache drops, re-judged at write time
 │   ├── reconcile.rs       # outl reconcile
 │   ├── recover.rs         # outl recover — op-log-side text recovery
 │   ├── theme.rs           # outl theme
@@ -324,19 +373,35 @@ src/
 │   ├── batch.rs           # outl batch
 │   └── workspace_info.rs  # outl workspace info
 └── mcp/
-    ├── mod.rs             # stdio loop, dispatch
+    ├── mod.rs             # stdio loop, dispatch, ServerCtx
     ├── protocol.rs        # JSON-RPC 2.0 shapes + error codes
-    ├── tools.rs           # tool registry + handler dispatch
+    ├── tools/
+    │   ├── mod.rs         #   shared helpers (tool_def, require_str, …)
+    │   ├── registry.rs    #   tools/list schema list
+    │   ├── dispatch.rs    #   tools/call router → cmd/* handlers
+    │   └── payload.rs     #   LLM-facing result projection (see MCP section)
     ├── resources.rs       # outl:// URI handlers + templates
     └── prompts.rs         # /outl-* prompts
 ```
 
-Every `commands/*.rs` handler is `pub fn` so `mcp/tools.rs` reuses it directly.
+Every `cmd/*.rs` handler is `pub fn` so `mcp/tools/dispatch.rs` reuses it directly.
 New tools land by:
 
 1. Adding a function in the relevant `cmd/*.rs` returning `Result<Value, ApiError>`.
 2. Threading it through the local `Subcommand` and `run()` switch.
-3. Registering the tool in `mcp/tools::list` (schema) and `mcp/tools::run_tool` (dispatch).
+3. Registering the tool in `mcp/tools::registry::list` (schema) and `mcp/tools::dispatch::run_tool` (dispatch).
+
+## Mutating a page: use the commit pipeline
+
+`outl_actions::commit_page(ws, hooks, page, mutate)` owns the five steps a mutation needs around it — undo snapshot, the mutation, backlink invalidation, peer announce, projection.
+Only `CommitHooks::project` is required; the rest default to no-ops, so a subcommand with no undo stack and no backlink cache implements one method and still gets the ordering.
+
+Several subcommands (`page`, `prop`, `asset`, `block`, `daily`, `template`) still call `apply_page_md_with_sidecar_guarded` directly.
+That is step 5 alone.
+Those call sites are frozen in `.claude/hooks/single-declaration-guard.sh`'s baseline and tracked by [issue 264](https://github.com/outlmd/outl/issues/264); the list may only get shorter.
+
+**A new mutating subcommand goes through `commit_page`.**
+If it deliberately skips a step — a bulk import that announces once at the end rather than per page, say — put that reason in a comment next to the call.
 
 ## Conventions
 

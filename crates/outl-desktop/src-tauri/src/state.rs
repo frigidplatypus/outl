@@ -19,15 +19,14 @@ use outl_core::hlc::HlcGenerator;
 use outl_core::id::NodeId;
 use outl_core::workspace::Workspace;
 use outl_exec::RuntimeRegistry;
+use outl_tauri_shared::workspace_open::WorkspaceGuards;
 use outl_tauri_shared::{AppHost, ProjectionWriter};
 use parking_lot::Mutex;
 
 use crate::fs_watcher::WatcherHandle;
 use crate::settings::Settings;
 
-pub(crate) use outl_tauri_shared::{
-    CreateBlockReply, CutBlockReply, PageView, WorkspaceSummary, ERR_LOADING,
-};
+pub(crate) use outl_tauri_shared::{PageView, WorkspaceSummary, ERR_LOADING};
 
 /// Shared mutable state held by Tauri.
 pub(crate) struct AppState {
@@ -37,6 +36,15 @@ pub(crate) struct AppState {
     /// Filesystem root of the active workspace (parent of `ops/`,
     /// `journals/`, `pages/`). Tracks `workspace` 1:1.
     pub storage_root: Arc<Mutex<Option<PathBuf>>>,
+    /// Cross-process locks held for the active workspace: the shared
+    /// `<root>/.outl/.lock` every `outl` process takes, and the exclusive
+    /// `<root>/ops/.lock-<actor>` write lock. Tracks `workspace` 1:1.
+    ///
+    /// `outl_tauri_shared::workspace_open::open_workspace_at` is the only
+    /// writer — it installs the new set after a successful open, which
+    /// releases the previous workspace's. Never acquire or drop a lock
+    /// from this crate; `outl-core` owns the protocol.
+    pub workspace_guards: Arc<Mutex<Option<WorkspaceGuards>>>,
     /// Per-device HLC generator. Static for the process lifetime —
     /// actors identify devices, not workspaces.
     pub hlc: HlcGenerator,

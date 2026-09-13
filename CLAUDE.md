@@ -221,8 +221,7 @@ Violating any one breaks user trust irreversibly.
       `Backspace` on an empty textarea works on the desktop and has no handler, because the platform does it.
       A boolean would have forced that row to lie in one direction or the other, so `Support::Native` is its own state: reachable, no handler, no nudge.
 
-    **The general rule:** invariant 9 asks where a problem moved to, invariant 10 asks who was standing on what you moved, invariant 11 asks whether the cost is even yours.
-    This one asks **who does not have what you just built, and does anything fail if you don't say?**
+    **The general rule** (9 → 10 → 11 above): this one asks **who does not have what you just built, and does anything fail if you don't say?**
 
 13. **A colour token has exactly one meaning, on every client.**
     A token name that resolves to `bg` in one client and `bg_elev` in another is not a naming inconsistency — it is two definitions of one fact, and the wrong one gets selected by whatever signal happens to be wired to it.
@@ -249,8 +248,7 @@ Violating any one breaks user trust irreversibly.
     **The regression net:** `no_client_references_the_legacy_ios_namespace`, `the_theme_tokens_match_the_palette` (`crates/outl-theme/tests/tokens.rs`).
     [RFC 0022](docs/rfcs/0022-unified-design-tokens.md).
 
-    **The general rule:** invariant 9 asks where a problem moved to, invariant 10 asks who was standing on what you moved, invariant 11 asks whether the cost is even yours, invariant 12 asks who does not have what you just built.
-    This one asks **does this name mean the same fact everywhere it appears?**
+    **The general rule** (9 → 12 above): this one asks **does this name mean the same fact everywhere it appears?**
 
 
 ## Repo layout
@@ -356,7 +354,7 @@ Don't unilaterally pivot.
 | Decision | Why |
 |----------|-----|
 | `ULID` for IDs | Lexicographically sortable, 128 bits, no central server needed |
-| `uhlc` for time | HLC with actor tiebreak is total order without coordination |
+| Hybrid logical clocks for time | Actor tiebreak gives total order without coordination. **Hand-rolled, not `uhlc`** — that crate is in no manifest, so its drift bound was never inherited ([`architecture.md`](docs/architecture.md) §8) |
 | Yrs for block text | Battle-tested CRDT for strings, lets us focus on the tree |
 | `comrak` for markdown | CommonMark-compliant, fast, customizable |
 | `iroh` as the default sync transport | QUIC + hole punching + relay, no central server for data; iroh is `[sync] transport` default |
@@ -364,6 +362,8 @@ Don't unilaterally pivot.
 | Tauri 2 for mobile (replaces earlier uniffi plan) | Single Rust surface across TUI + mobile via `outl-actions`, Solid + Tailwind frontend, ObjC bridge only for iCloud watcher |
 | Tauri for desktop (shipping today) | Rust core reuse, smaller than Electron. macOS / Linux / Windows; Solid frontend shares `@outl/shared` with mobile |
 | `outl-shortcuts` is the single (chord → action) catalog | Two parallel implementations is the bug we paid to remove (TUI used to define bindings in `input/`, desktop wired its own `KeyboardEvent` handlers — `Cmd+P` and `Ctrl+P` drifted within a sprint). Adding a key on any client without going through `defaults.rs` puts that drift back. See `outl-shortcuts/CLAUDE.md`. **Only the desktop resolves through `lookup()` today** — the TUI still dispatches Normal-mode keys from its own `match` in `input/normal.rs`, and mobile consumes neither; `docs/shortcuts.md` claimed otherwise for months. Finishing that migration is open work, not a settled decision |
+| `wrappers/catalog.rs` is the single declaration of the **Tauri command surface** | The bodies were shared; the wrappers were not, and 3,033 lines of hand-written shim diverged by omission (`history`: 183 lines vs 22). A client takes a whole module or records the gap. `tests/command_parity.rs` catches both a skipped module and a generated command missing from `generate_handler!`. See `outl-tauri-shared/CLAUDE.md` |
+| `outl_actions::commit_page` owns **what happens around a page mutation** | The five-step sequence had one implementation, behind a trait wanting `&Mutex<Option<Workspace>>` — unreachable from the TUI and CLI, which each re-derived a subset. `AppHost` stayed put on purpose ([#264](https://github.com/outlmd/outl/issues/264)) |
 | `outl_shortcuts::support` is the single owner of **which client performs which action** | An exhaustive `match`, so a new `Action` variant does not compile until all three clients declare what they do with it. The lesser states carry the sentence shown to the user, so a client cannot invent its own wording. See [invariant 12](#critical-invariants-never-violate) |
 | One `ops-<actor>.jsonl` per device, never shared | Any file transport (iCloud, Syncthing, shared FS) is last-write-wins per file; per-actor files turn that into a non-issue; iroh ships ops directly |
 | MIT license | Simple, widely understood, no patent grant baggage |
@@ -426,14 +426,25 @@ Full review policy (Rust quality, hot paths, architecture, simplicity, testing) 
 - ❌ Writing the "this isn't available here" wording in a client instead of in the catalog
 - ❌ Marking work "done" without `/check` passing
 - ❌ Re-introducing `"version"` in `crates/outl-mobile/src-tauri/tauri.conf.json` — Tauri must keep falling back to `Cargo.toml` (see "Versioning + TestFlight release" in `crates/outl-mobile/CLAUDE.md`)
+- ❌ Hand-writing a `#[tauri::command]` wrapper in a client crate, or taking only part of a `*_commands!` module.
+  The surface is declared once in `wrappers/catalog.rs`; a client takes a whole module or adds a `DECLARED_GAPS` row with a reason.
+- ❌ Giving a shared command body a `&str` parameter — Tauri hands the wrapper an owned `String`.
+- ❌ Calling `apply_page_md_with_sidecar_guarded` for a page you just mutated.
+  That is step 5 of five: use `outl_actions::commit_page`, or comment which steps you skip and why.
+- ❌ Adding a wire DTO field, an **enum variant**, or an `export interface` / `export type` without a pin in `outl-tauri-shared/tests/` (`wire_types.rs` for struct key sets, `wire_enums.rs` for variant sets, `wire_mirrors.rs` for mirrors living outside `@outl/shared/api/types.ts`).
+  The Rust↔TS mirror is hand-written on purpose; the pin is what makes that safe.
+- ❌ Adding a field to `Workspace` without asking which of its four owners it belongs to: the document (`tree`/`log`/`content`), `StorageRouter`, `SnapshotPolicy`, or the batch buffer.
+- ❌ Destructuring props in a Solid component — reactivity rides the getter, so a destructured prop freezes at first render.
 - ❌ Adding a helper that re-implements something already in `outl-core` / `outl-md` / `outl-actions` (see [Reuse-first](docs/contributing.md#reuse-first-no-parallel-implementations)).
   The fix is to wrap the upstream API, not to write a parallel one.
-- ❌ Adding a hex colour to a client stylesheet instead of a `Palette` field (invariant 13)
+- ❌ A hex colour in a client stylesheet, or a `--color-outl-*` token with no `Palette` field behind it (invariant 13).
+  [`DESIGN.md`](DESIGN.md) is the specification — roles, theming, spacing, components, and the live exceptions named so none is cited as precedent.
 - ❌ Reintroducing a second token namespace "just for this client"
 
 ## When in doubt
 
 1. Read the relevant `docs/*.md`.
+   Anything visual — a colour, a token, spacing, a component, an interaction — starts at [`DESIGN.md`](DESIGN.md).
 2. Read the per-crate `CLAUDE.md`.
 3. Read the paper for sync stuff: <https://martin.kleppmann.com/papers/move-op.pdf>.
 4. Ask the user.
