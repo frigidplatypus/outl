@@ -73,7 +73,13 @@ function pageView(): PageView {
 }
 
 function backlinksReply(backlinks: Backlink[]): PageBacklinks {
-  return { backlinks, backlinks_order: "newest" };
+  return {
+    backlinks,
+    backlinks_order: "newest",
+    namespace_children: [],
+    namespace_backlinks: [],
+    namespace_backlinks_total: 0,
+  };
 }
 
 afterEach(() => {
