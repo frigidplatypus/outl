@@ -8,6 +8,7 @@ The rules a contributor must not break stayed in `CLAUDE.md`.
 
 Platform plumbing has its own homes: [`docs/ios-platform.md`](ios-platform.md), [`docs/android-platform.md`](android-platform.md).
 Anything visual — colours, tokens, spacing, components — is specified in [`DESIGN.md`](../DESIGN.md).
+The behaviour rules these sections are instances of — the interaction patterns, the voice a nudge has to pass, which state converges — are in [`UX.md`](../UX.md).
 
 ## Opening a ref that may not exist yet
 

@@ -18,7 +18,8 @@
 
 * [TUI manual](tui.md)
 * [Paste](paste.md)
-* [Design specification](../DESIGN.md)
+* [Design specification (UI)](../DESIGN.md)
+* [UX specification](../UX.md)
 * [Theming](theming.md)
 * [Configuration](config.md)
 * [Shortcuts](shortcuts.md)

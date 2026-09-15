@@ -130,10 +130,12 @@ Quote the invariant by name in your comment.
     a page mutation followed by a bare `apply_page_md_with_sidecar_guarded`,
     or a new `export interface` with no pin — each is a blocker, and each names the file the change belongs in.
 
-11. **Design decisions come from `DESIGN.md` and `outl_theme::Palette`.**
+11. **Design decisions come from `DESIGN.md` and `outl_theme::Palette`; behaviour comes from `UX.md`.**
     A hex literal in a client stylesheet, a `--color-outl-*` token with no `Palette` field behind it,
     or a token that means one thing on one client and another elsewhere, is a blocker (invariant 13).
     The only exception is a client's `@theme` boot block, which exists so the first painted frame is branded before the palette arrives over the wire.
+    `UX.md` is the other half: a nudge written in a client instead of the catalog, a refusal that reaches only a log line,
+    or converging state kept outside the op log is a blocker there for the same reason.
 
 12. **A capability difference between clients is declared, never discovered.**
     `outl_shortcuts::{support, capability_support}` are exhaustive `match`es;

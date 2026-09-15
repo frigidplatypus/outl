@@ -7,6 +7,13 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Added
 
+- **`UX.md` — the behaviour half of the design specification.**
+  `DESIGN.md` was carrying two documents. One of them answered *what it looks like* — roles, tokens, spacing, elevation — and the other, scattered through the Components, Do's-and-Don'ts, Platform-divergence and Accessibility sections, answered *what happens*: what a `Missing` verdict promises the user, why a nudge may not say "unimplemented", why a chord with no handler is worse than an error. The second document had no name, so nothing linked to it and every new interaction rule landed wherever it fit.
+
+  The split follows the [UX-context design](https://www.nngroup.com/articles/ux-context-design/) framing: research findings written as constraints rather than as insights, interaction patterns as rules, and the domain vocabulary written down once so three surfaces stop inventing three names for one operation. `UX.md` now owns the user models (who this is for, what they already know from Roam and Logseq, what makes them leave), the world models (offline for days, asleep during quiet hours, a phone with no `outl` binary and no `git`, a terminal with no OS appearance API, ~2,500 pages and ~64k blocks), eight principles that act as tie-breakers, the five channels a message can land in and which one each condition earns, the voice rules that `DEV_WORDS` already enforces in code, the glossary — including the words we deliberately do not use — and a findings table that traces each principle back to the incident that produced it.
+
+  **Nothing is duplicated between the two files**, per root `CLAUDE.md`'s one-owner rule: the visual half of a shared affordance stays in `DESIGN.md` and `UX.md` links to it. Two facts were also stale on the way out and are corrected rather than copied — the capability catalog has **9** rows, not 7, and the client-behaviour divergences (no chords on mobile, no character cursor on the desktop, `lookup()` reaching only the desktop) now sit in the file that owns behaviour instead of beside the ANSI-preset and colour-field-count rows that are genuinely visual.
+
 - **Nested tags and page namespaces — `#os/linux/debian` ([#275](https://github.com/outlmd/outl/issues/275)).**
   `#os/linux` already parsed, already resolved, already kept its name verbatim. What it did not do was anything a *hierarchy* implies: the `os` page had no idea `os/linux` existed, and a block tagged `#os/linux` was invisible to it. So the feature looked present and behaved like a coincidence — a page whose name happens to contain a slash.
 

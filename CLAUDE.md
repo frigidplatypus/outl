@@ -440,12 +440,14 @@ Full review policy (Rust quality, hot paths, architecture, simplicity, testing) 
   The fix is to wrap the upstream API, not to write a parallel one.
 - ❌ A hex colour in a client stylesheet, or a `--color-outl-*` token with no `Palette` field behind it (invariant 13).
   [`DESIGN.md`](DESIGN.md) is the specification — roles, theming, spacing, components, and the live exceptions named so none is cited as precedent.
+  Its behavioural counterpart is [`UX.md`](UX.md): user and world models, interaction patterns, the voice rules a nudge has to pass, and the domain glossary.
 - ❌ Reintroducing a second token namespace "just for this client"
 
 ## When in doubt
 
 1. Read the relevant `docs/*.md`.
-   Anything visual — a colour, a token, spacing, a component, an interaction — starts at [`DESIGN.md`](DESIGN.md).
+   Anything visual — a colour, a token, spacing, a component — starts at [`DESIGN.md`](DESIGN.md).
+   Anything behavioural — what an interaction does, who it is for, what we say when a client cannot deliver it — starts at [`UX.md`](UX.md).
 2. Read the per-crate `CLAUDE.md`.
 3. Read the paper for sync stuff: <https://martin.kleppmann.com/papers/move-op.pdf>.
 4. Ask the user.
