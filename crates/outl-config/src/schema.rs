@@ -156,6 +156,10 @@ pub struct DisplayCfg {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TuiCfg {
+    /// Chrome icon set. Nerd Font preserves the original compact glyphs;
+    /// Emoji avoids private-use characters on terminals without a Nerd Font.
+    pub icons: TuiIconStyle,
+
     /// Capture the mouse so the app owns selection: drag across blocks
     /// selects a range and copies it as clean markdown on release, the
     /// scroll wheel moves the selection, a click selects a block.
@@ -168,6 +172,17 @@ pub struct TuiCfg {
     /// selection. The keyboard yank (`yy` / `Y` / Visual `y`) copies
     /// markdown to the clipboard regardless of this flag.
     pub mouse_capture: bool,
+}
+
+/// Icon set used by TUI chrome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TuiIconStyle {
+    /// Font Awesome / Material Design glyphs from a Nerd Font.
+    #[default]
+    NerdFont,
+    /// Unicode emoji and symbols supported by ordinary terminal fonts.
+    Emoji,
 }
 
 /// Workspace section — primarily where the desktop remembers the
@@ -515,6 +530,7 @@ mod tests {
         assert_eq!(c.snapshot.op_threshold, 10_000);
         assert_eq!(c.display.backlinks_order, BacklinksOrder::Newest);
         assert!(c.display.backlinks_order.newest_first());
+        assert_eq!(c.tui.icons, TuiIconStyle::NerdFont);
         assert!(c.backup.enabled, "backups default ON — see BackupCfg docs");
         assert_eq!(c.backup.interval_minutes, 30);
     }
@@ -549,6 +565,15 @@ mod tests {
         // (newest-first), so an older config keeps the issue-#142 fix.
         let c: Config = toml::from_str("[theme]\npreset = \"nord\"\n").unwrap();
         assert_eq!(c.display.backlinks_order, BacklinksOrder::Newest);
+    }
+
+    #[test]
+    fn tui_icon_style_parses_and_defaults() {
+        let c: Config = toml::from_str("[tui]\nicons = \"emoji\"\n").unwrap();
+        assert_eq!(c.tui.icons, TuiIconStyle::Emoji);
+
+        let c: Config = toml::from_str("[theme]\npreset = \"nord\"\n").unwrap();
+        assert_eq!(c.tui.icons, TuiIconStyle::NerdFont);
     }
 
     #[test]

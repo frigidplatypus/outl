@@ -9,7 +9,6 @@
 //! the `Rect` the orchestrator already laid out — no layout decisions
 //! here.
 
-use crate::icons;
 use crate::outline_ops::count_todos;
 use crate::state::{App, Mode, View, HELP_HINT_INSERT, HELP_HINT_NORMAL, HELP_HINT_VISUAL};
 use outl_actions::clock;
@@ -17,6 +16,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
+use unicode_width::UnicodeWidthStr;
 
 /// Header (top, 3 lines): breadcrumb on the left, status chips on the
 /// right. Splits the row in half so chips never overlap the title even
@@ -113,7 +113,7 @@ fn breadcrumb(app: &App) -> Line<'static> {
 fn view_icon_and_title(app: &App) -> (Option<String>, String) {
     match &app.view {
         View::Journal(date) => (
-            Some(icons::CALENDAR.to_string()),
+            Some(app.icons.calendar.to_string()),
             format!("Journal · {}", date.format("%A, %Y-%m-%d")),
         ),
         View::Page(p) => {
@@ -298,13 +298,13 @@ fn left_segments(app: &App) -> Line<'static> {
 fn right_segments(app: &App) -> Line<'static> {
     let now = clock::now_local().format("%H:%M").to_string();
     let saved = match app.last_saved_at {
-        Some(_) if app.status.is_empty() => format!(" {} saved ", icons::SAVE),
-        Some(_) => format!(" {} ", icons::SAVE),
+        Some(_) if app.status.is_empty() => format!(" {} saved ", app.icons.save),
+        Some(_) => format!(" {} ", app.icons.save),
         None => " ○ ".to_string(),
     };
     Line::from(vec![
         Span::styled(
-            format!(" {} {now} ", icons::CLOCK),
+            format!(" {} {now} ", app.icons.clock),
             Style::default().bg(Color::DarkGray).fg(Color::Gray),
         ),
         Span::raw(" "),
@@ -317,9 +317,14 @@ fn right_segments(app: &App) -> Line<'static> {
     ])
 }
 
-fn right_segments_width(_app: &App) -> u16 {
-    // clock HH:MM (9) + saved (9) + help (8) + padding ≈ 31. The Nerd
-    // Font glyphs are single-width (the old emoji were double-width);
-    // the returned value stays an over-estimate on purpose.
-    34
+fn right_segments_width(app: &App) -> u16 {
+    // Measure the selected icon set rather than assuming Nerd Font glyphs
+    // are one cell wide. Emoji terminals commonly render these as two cells.
+    let clock = format!(" {} 00:00 ", app.icons.clock).width();
+    let saved = format!(" {} saved ", app.icons.save).width();
+    let help = " ? help ".width();
+    clock
+        .saturating_add(saved)
+        .saturating_add(help)
+        .saturating_add(2) as u16
 }

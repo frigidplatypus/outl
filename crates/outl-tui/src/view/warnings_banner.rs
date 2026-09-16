@@ -4,7 +4,6 @@
 //! preserves them verbatim as blocks — this banner tells the user
 //! why they're seeing rows that don't look like normal bullets.
 
-use crate::icons;
 use crate::state::App;
 use outl_md::view::header_level;
 use ratatui::layout::Rect;
@@ -62,7 +61,7 @@ pub(crate) fn render_banner(f: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
     };
     let title = format!(
         " {} {} line(s) outside outl dialect — preserved as blocks ",
-        icons::WARNING,
+        app.icons.warning,
         warnings.len()
     );
     let line = Line::from(vec![Span::styled(

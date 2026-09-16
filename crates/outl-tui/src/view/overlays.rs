@@ -6,7 +6,6 @@
 //! on `app.overlay`.
 
 use crate::actions::plugins::value_to_input;
-use crate::icons;
 use crate::state::{
     App, AutocompleteKind, AutocompleteState, CommandState, ErrorState, PluginSettingsState,
     QuickSwitchState, RemindersState, SearchState, SlashState, SwitchKind, TemplatePickerState,
@@ -180,8 +179,8 @@ pub(crate) fn render_quick_switch(
         .enumerate()
         .map(|(i, c)| {
             let icon = match c.kind {
-                SwitchKind::Page => format!("{} ", icons::FILE),
-                SwitchKind::Journal => format!("{} ", icons::CALENDAR),
+                SwitchKind::Page => format!("{} ", app.icons.file),
+                SwitchKind::Journal => format!("{} ", app.icons.calendar),
             };
             let style = if i == qs.selected {
                 app.theme.list_selected
@@ -257,8 +256,8 @@ fn render_preview_pane(f: &mut ratatui::Frame<'_>, area: Rect, app: &App, qs: &Q
     };
 
     let title_prefix = match candidate.kind {
-        SwitchKind::Page => format!("{} ", icons::FILE),
-        SwitchKind::Journal => format!("{} ", icons::CALENDAR),
+        SwitchKind::Page => format!("{} ", app.icons.file),
+        SwitchKind::Journal => format!("{} ", app.icons.calendar),
     };
     let preview = Paragraph::new(body_lines)
         .block(
@@ -425,7 +424,7 @@ pub(crate) fn render_slash_overlay(
                 lines.push(Line::raw(""));
             }
             lines.push(Line::from(Span::styled(
-                format!(" {} {} ", category_icon(cat), cat),
+                format!(" {} {} ", category_icon(cat, &app.icons), cat),
                 app.theme.help_title,
             )));
             prev_cat = Some(cat);
@@ -441,7 +440,11 @@ pub(crate) fn render_slash_overlay(
         let suffix = if c.needs_args { " …" } else { "" };
         lines.push(Line::from(vec![
             Span::styled(
-                format!("   {}  {}{suffix}  ", command_icon(&c.name), c.name),
+                format!(
+                    "   {}  {}{suffix}  ",
+                    command_icon(&c.name, &app.icons),
+                    c.name
+                ),
                 style,
             ),
             Span::styled(c.description.to_string(), app.theme.dim),
@@ -550,32 +553,32 @@ pub(crate) fn visual_order(candidates: &[crate::state::SlashCommand]) -> Vec<usi
     buckets.into_iter().flat_map(|(_, idxs)| idxs).collect()
 }
 
-fn category_icon(cat: &str) -> &'static str {
+fn category_icon(cat: &str, icons: &crate::icons::IconSet) -> &'static str {
     match cat {
-        "Actions" => icons::BOLT,
+        "Actions" => icons.bolt,
         "Navigation" => "↪",
-        "Search" => icons::SEARCH,
-        "Settings" => icons::COG,
-        "Dates & time" => icons::CALENDAR,
+        "Search" => icons.search,
+        "Settings" => icons.cog,
+        "Dates & time" => icons.calendar,
         _ => "•",
     }
 }
 
 /// Per-command leading glyph. Falls back to a dot for anything we
 /// haven't curated.
-fn command_icon(name: &str) -> &'static str {
+fn command_icon(name: &str, icons: &crate::icons::IconSet) -> &'static str {
     match name {
         "run" => "▶",
         "prop" => "≡",
-        "search" | "find" => icons::SEARCH,
-        "theme" => icons::PAINT_BRUSH,
+        "search" | "find" => icons.search,
+        "theme" => icons.paint_brush,
         "open" | "switch" => "↪",
         "quit" | "q" => "✕",
-        n if n.starts_with("date") || n == "dt" || n == "dy" || n == "dtm" => icons::CALENDAR,
-        n if n.starts_with("time") => icons::CLOCK,
-        n if n.starts_with("iso") => icons::HASHTAG,
-        n if n.starts_with("week") => icons::CALENDAR,
-        "stamp" => icons::CLOCK,
+        n if n.starts_with("date") || n == "dt" || n == "dy" || n == "dtm" => icons.calendar,
+        n if n.starts_with("time") => icons.clock,
+        n if n.starts_with("iso") => icons.hashtag,
+        n if n.starts_with("week") => icons.calendar,
+        "stamp" => icons.clock,
         _ => "·",
     }
 }
@@ -595,7 +598,7 @@ pub(crate) fn render_template_picker(
         .split(area);
 
     let input = Paragraph::new(Line::from(vec![
-        Span::styled(format!(" {} ", icons::CLIPBOARD), app.theme.help_title),
+        Span::styled(format!(" {} ", app.icons.clipboard), app.theme.help_title),
         Span::raw(tp.query.clone()),
         Span::styled("▏", app.theme.cursor_caret),
     ]))
@@ -614,9 +617,9 @@ pub(crate) fn render_template_picker(
             continue;
         };
         let icon = if tpl.params.is_empty() {
-            icons::FILE
+            app.icons.file
         } else {
-            icons::BOLT
+            app.icons.bolt
         };
         let label = format!(" {icon} {:<20} {}", tpl.name, tpl.slug);
         if vis_i == tp.selected {
@@ -670,7 +673,7 @@ pub(crate) fn render_reminders(
             None => "—".to_string(),
         };
         let snoozed = if r.snoozed_until_ms.is_some() {
-            format!(" {}", icons::MOON)
+            format!(" {}", app.icons.moon)
         } else {
             String::new()
         };
@@ -935,7 +938,7 @@ pub(crate) fn render_help_popup(f: &mut ratatui::Frame<'_>, full: Rect, app: &Ap
     .divider(Span::styled("│", app.theme.dim));
     f.render_widget(tabs, chunks[0]);
 
-    let body = help_tab_body(tab, &app.theme);
+    let body = help_tab_body(tab, &app.theme, &app.icons);
     let body_len = body.len() as u16;
     // Inner height = block area minus the 2 border rows.
     let inner_h = chunks[1].height.saturating_sub(2);
@@ -976,7 +979,7 @@ pub(crate) fn render_help_popup(f: &mut ratatui::Frame<'_>, full: Rect, app: &Ap
 /// `outl-shortcuts`, so a chord added to the catalog does NOT appear
 /// here on its own. The guard test at the bottom of this file is what
 /// keeps the reminder chords from silently dropping out again.
-fn help_tab_body(tab: usize, theme: &Theme) -> Vec<Line<'static>> {
+fn help_tab_body(tab: usize, theme: &Theme, icons: &crate::icons::IconSet) -> Vec<Line<'static>> {
     match HELP_TABS.get(tab).copied().unwrap_or("Normal") {
         "Normal" => vec![
             Line::from(Span::styled("Editing", theme.help_title)),
@@ -1075,16 +1078,16 @@ fn help_tab_body(tab: usize, theme: &Theme) -> Vec<Line<'static>> {
             Line::from(Span::styled("Sections", theme.help_title)),
             Line::from(format!(
                 "  {} Calendar  current month — journals marked with ●",
-                icons::CALENDAR
+                icons.calendar
             )),
             Line::from(format!(
                 "  {} Pinned    pages with `pinned:: true` property",
-                icons::STAR
+                icons.star
             )),
             Line::from("              (toggle with `g P` chord in Normal, or `/pin`)"),
             Line::from(format!(
                 "  {} Recent    pages opened this session (LRU, cap 20)",
-                icons::HISTORY
+                icons.history
             )),
         ],
         "Overlays" => vec![
@@ -1136,7 +1139,7 @@ mod help_coverage_tests {
 
     fn normal_help() -> String {
         let theme = default_theme();
-        help_tab_body(0, &theme)
+        help_tab_body(0, &theme, &crate::icons::IconSet::default())
             .iter()
             .map(|line| {
                 line.spans

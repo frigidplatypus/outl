@@ -11,7 +11,6 @@
 //! — the single source for backlinks across the TUI, shared with the
 //! mobile client through `outl_actions::backlinks_for_page`.
 
-use crate::icons;
 use crate::state::{App, EditTarget, Focus, Mode};
 use crate::view::outline::{emit_block_lines, RenderMode};
 use outl_actions::{Backlink, BacklinkCrumb, OutlineNode};
@@ -94,7 +93,7 @@ pub(crate) fn render_backlinks_inline(
             }
             let header = match source_icon {
                 Some(icon) => format!("{icon}  {source_title}"),
-                None => format!("{}  {source_title}", icons::FILE),
+                None => format!("{}  {source_title}", app.icons.file),
             };
             out.push(Line::from(Span::styled(header, app.theme.heading)));
             prev_source = Some(source_slug.to_string());

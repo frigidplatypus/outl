@@ -7,7 +7,6 @@
 //! index itself is whole-workspace, not per-view, so a plain view
 //! switch does **not** touch it — it's keyed by slug on read.
 
-use crate::icons;
 use crate::outline_ops::flat_count;
 use crate::state::{App, Focus, ToastKind};
 use anyhow::{Context, Result};
@@ -129,7 +128,7 @@ impl App {
         // Untouched — slot has a non-chip status (save error etc.):
         //   the user reads that first, the banner above the outline
         //   stays as the persistent warning signal.
-        let chip_marker = format!("{} ", icons::WARNING);
+        let chip_marker = format!("{} ", self.icons.warning);
         let chip_is_ours =
             self.status.starts_with(&chip_marker) && self.status.contains("outside outl dialect");
         if self.parse_warnings.is_empty() {

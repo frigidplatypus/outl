@@ -1,6 +1,6 @@
-//! Nerd Font glyphs for TUI chrome.
+//! Icon sets for TUI chrome.
 //!
-//! Every icon is a Font Awesome glyph from the set embedded in any
+//! The default icon set uses Font Awesome glyphs from the set embedded in any
 //! [Nerd Font](https://www.nerdfonts.com) build (`nf-fa-*`). The TUI
 //! assumes the terminal runs a Nerd Font; on a font without the PUA
 //! cells these render as tofu. That is the deliberate trade for not
@@ -9,6 +9,90 @@
 //! Codepoints verified against the Nerd Fonts 3.5.1 `glyphnames.json`
 //! (`fa-*` entries), which embeds Font Awesome 4 at its original
 //! codepoints.
+
+use outl_config::TuiIconStyle;
+
+/// Runtime-selected TUI chrome icons.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct IconSet {
+    pub(crate) calendar: &'static str,
+    pub(crate) file: &'static str,
+    pub(crate) clock: &'static str,
+    pub(crate) star: &'static str,
+    pub(crate) history: &'static str,
+    pub(crate) bolt: &'static str,
+    pub(crate) search: &'static str,
+    pub(crate) cog: &'static str,
+    pub(crate) paint_brush: &'static str,
+    pub(crate) warning: &'static str,
+    pub(crate) save: &'static str,
+    pub(crate) clipboard: &'static str,
+    pub(crate) moon: &'static str,
+    pub(crate) hashtag: &'static str,
+    pub(crate) bell: &'static str,
+    pub(crate) headers: [&'static str; 6],
+}
+
+impl IconSet {
+    pub(crate) fn new(style: TuiIconStyle) -> Self {
+        match style {
+            TuiIconStyle::NerdFont => Self::nerd_font(),
+            TuiIconStyle::Emoji => Self::emoji(),
+        }
+    }
+
+    pub(crate) fn header(&self, level: usize) -> &'static str {
+        self.headers[level]
+    }
+
+    fn nerd_font() -> Self {
+        Self {
+            calendar: CALENDAR,
+            file: FILE,
+            clock: CLOCK,
+            star: STAR,
+            history: HISTORY,
+            bolt: BOLT,
+            search: SEARCH,
+            cog: COG,
+            paint_brush: PAINT_BRUSH,
+            warning: WARNING,
+            save: SAVE,
+            clipboard: CLIPBOARD,
+            moon: MOON,
+            hashtag: HASHTAG,
+            bell: BELL,
+            headers: [HEADER_1, HEADER_2, HEADER_3, HEADER_4, HEADER_5, HEADER_6],
+        }
+    }
+
+    fn emoji() -> Self {
+        Self {
+            calendar: "📅",
+            file: "📄",
+            clock: "🕒",
+            star: "⭐",
+            history: "🕘",
+            bolt: "⚡",
+            search: "🔍",
+            cog: "⚙️",
+            paint_brush: "🎨",
+            warning: "⚠️",
+            save: "💾",
+            clipboard: "📋",
+            moon: "🌙",
+            hashtag: "#",
+            bell: "🔔",
+            headers: ["H1", "H2", "H3", "H4", "H5", "H6"],
+        }
+    }
+}
+
+impl Default for IconSet {
+    fn default() -> Self {
+        Self::new(TuiIconStyle::NerdFont)
+    }
+}
 
 /// Journal / calendar (`nf-fa-calendar`).
 pub const CALENDAR: &str = "\u{f073}";

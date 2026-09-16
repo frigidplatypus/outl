@@ -36,6 +36,10 @@
 //! transport = "iroh"   # "iroh" (P2P, default) | "file" (iCloud/fs opt-out)
 //! relay_url = ""        # optional; empty = outl's default relay (use1-1.relay.avelino.outl.iroh.link)
 //!
+//! [tui]
+//! icons = "nerd-font"    # "nerd-font" (default) | "emoji"
+//! mouse_capture = false
+//!
 //! [snapshot]
 //! enabled = true        # default; long-lived clients write a snapshot periodically
 //! op_threshold = 10000  # write after this many applied ops
@@ -66,7 +70,7 @@ pub use paths::{config_dir, config_path};
 pub use schema::{
     AssetsCfg, BacklinksOrder, BackupCfg, CalendarCfg, Config, DisplayCfg, EditorCfg, RemindersCfg,
     SnapshotCfg, StorageCfg, SyncConfig, SyncTransportKind, ThemeCfg, ThemeMode, TuiCfg,
-    WorkspaceCfg,
+    TuiIconStyle, WorkspaceCfg,
 };
 
 use std::fs;

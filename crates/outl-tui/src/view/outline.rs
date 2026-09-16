@@ -2,6 +2,7 @@
 //! flat `Vec<Line>` for ratatui, with selection / cursor / TODO
 //! decoration.
 
+#[cfg(test)]
 use crate::icons;
 use crate::outline_ops::path_for_index;
 use crate::state::{App, Focus, Mode};
@@ -33,6 +34,7 @@ const EMBED_MAX_DEPTH: u32 = 4;
 /// `format_header_N` glyph per level (H1–H6) so a heading's rank reads
 /// at a glance without the raw `#` markers, which pretty mode strips
 /// from the text. Codepoints live in [`crate::icons`].
+#[cfg(test)]
 const HEADER_GLYPHS: [&str; 6] = [
     icons::HEADER_1,
     icons::HEADER_2,
@@ -231,7 +233,7 @@ pub(crate) fn render_block(
             prop_spans.push(Span::styled("│ ", app.theme.dim));
         }
         prop_spans.push(Span::raw("  ".to_string()));
-        if let Some(glyph) = property_glyph(k) {
+        if let Some(glyph) = property_glyph(k, &app.icons) {
             prop_spans.push(Span::raw(format!("{glyph} ")));
         }
         prop_spans.push(Span::styled(format!("{k}:: "), app.theme.property_key));
@@ -493,13 +495,13 @@ pub(crate) fn emit_block_lines(
                 // bullet so the user can see at a glance which cells
                 // re-run themselves on page open.
                 if has_auto_run {
-                    head.push(Span::styled(icons::BOLT, app.theme.hint));
+                    head.push(Span::styled(app.icons.bolt, app.theme.hint));
                 }
                 match header {
                     Some(lvl) => {
                         let idx = (lvl - 1) as usize;
                         head.push(Span::styled(
-                            format!("{} ", HEADER_GLYPHS[idx]),
+                            format!("{} ", app.icons.header(idx)),
                             app.theme.header_levels[idx],
                         ));
                     }
@@ -638,11 +640,11 @@ enum CursorStyle {
 /// Rust/TS boundary any more than a DTO field can, so the two tables
 /// are edited together. A user's own key (`priority::`) gets no glyph;
 /// interpreting it isn't ours to do.
-fn property_glyph(key: &str) -> Option<&'static str> {
+fn property_glyph(key: &str, icons: &crate::icons::IconSet) -> Option<&'static str> {
     match key.to_ascii_lowercase().as_str() {
-        outl_md::remind::REMIND_KEY => Some(icons::BELL),
+        outl_md::remind::REMIND_KEY => Some(icons.bell),
         "auto-run" => Some("▶"),
-        "template" => Some(icons::CLIPBOARD),
+        "template" => Some(icons.clipboard),
         _ => None,
     }
 }
