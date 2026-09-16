@@ -386,14 +386,14 @@ Hooks are dispatched once per mutation; a hook that itself mutates the workspace
 ```
 
 - **Outline** — the current view (journal or named page).
-  Markdown renders inline (bold/italic/code/strike); the selected/editing block is shown raw so cursor columns align with source bytes.
+  Markdown renders inline (bold/italic/code/strike); the selected/editing block is shown raw so cursor columns align with source bytes, except a selected query embed, which resolves to the source task and keeps its `((blk-XXXXXX))` handle visible so the target is clear.
   Block references (`((blk-XXXXXX))`) resolve to the source block's text plus its page icon; orphaned handles render dimmed.
   Embeds (`!((blk-XXXXXX))`) — when the block contains a single embed token (whitespace OK) — render the source block **and its children** expanded read-only below the carrying block.
   Every embed row carries a `↳ ` prefix (root + descendants), so the expansion reads as one cohesive block.
   Descendants are indented by `2 * (depth + 1)` spaces before their `↳ ` so children align under the source's *text*, not under the parent's `↳ `.
   Task checkboxes (`☐` TODO, `◐` DOING, `☑` DONE), page refs, and tags render with their normal styling inside the expansion.
   Recursion is capped at depth 4 to break embed cycles.
-   The cursor-bearing block always keeps the raw `((…))` / `!((…))` literal on its first row so column counting stays exact.
+   Ordinary cursor-bearing blocks keep the raw `((…))` / `!((…))` literal on their first row so column counting stays exact. A selected query embed is the deliberate exception: it shows the resolved source text plus the non-embedding `((…))` handle, while actions still target the source block.
    A block whose first line is an ATX heading (`#`–`######` followed by a space) renders as a header: the leading `- ` bullet is replaced by a header level glyph (H1–H6, Material Design `format_header_N` Nerd Font icons) in the palette's per-level header colour, and the `#` markers are stripped from the displayed text. The cursor-bearing row keeps the raw `#` markers so byte columns stay exact, mirroring the raw-literal rule above.
 - **Backlinks (inline)** — rendered below the outline, separated by a full-width `─` rule.
   Every block in any other page that contains `[[this]]` or `#this` shows up with its children, grouped by source page.

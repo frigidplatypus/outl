@@ -14,6 +14,7 @@ That's the spec; don't change it.
 - Block references and embeds: `((blk-XXXXXX))` resolves to the source block's text + page icon.
   `!((blk-XXXXXX))` (when the block contains a single embed token) expands the source block **and its children** read-only below the carrying block.
   `Enter` on either form opens the source page and lands the cursor on the referenced block.
+  `Ctrl+T` on an embed-only row cycles the **source** block's task state — never prefixing the token, which would destroy the ref — then re-runs the page's auto-run blocks so a query list updates on the spot; the same cross-page save path as backlink edits (`actions/block/metadata.rs::cycle_embed_source_status`).
   The `y r` chord plus `/refer` and `/refer-embed` slash commands copy the current block's handle to the **OS clipboard** (via `arboard`) and stash it in `App::last_yanked_ref` for in-app paste;
   the `((` autocomplete fuzzy-matches block text in Insert.
 - Help popup.
@@ -191,7 +192,7 @@ TUI-specific contracts worth remembering:
   - Task checkboxes (`☐` TODO / `◐` DOING / `☑` DONE), page refs and tags render with their normal styling inside the expansion (via `render_pretty_block_text`).
   - Recursion is capped at depth 4 to break embed cycles.
   - Expansion runs in every render mode — but the carrying block's first row keeps the raw `!((…))` literal under the cursor so column-byte alignment holds.
-- The selected/editing block renders **raw** (delimiters visible, dimmed) so cursor columns map 1:1 to source bytes — including the literal `((blk-XXXXXX))` and `!((blk-XXXXXX))` forms.
+- The selected/editing block renders **raw** (delimiters visible, dimmed) so cursor columns map 1:1 to source bytes — including the literal `((blk-XXXXXX))` and `!((blk-XXXXXX))` forms. The deliberate exception is a selected query embed: it resolves to the source text and appends the non-embedding `((blk-XXXXXX))` handle, so the user can verify the task before acting; actions still target the source block.
 - A block whose text starts with the CommonMark `"> "` prefix renders with a left `│ ` bar (dimmed, `theme.dim`) and full body colour — the `│` is enough of a cue, dimming refs / tags / bold would erase their affordance.
   Same affordance as `TODO`/`DONE`.
   The chrome lives in **`view::inline::render_pretty_block_text_impl`** and is the **only owner** of the bar + checkbox + token rendering pipeline;

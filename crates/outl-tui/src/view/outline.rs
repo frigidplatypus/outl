@@ -150,9 +150,10 @@ pub(crate) fn render_block(
 
     // Determine which text and cursor position to render. Four cases:
     //   1. Editing here       → buffer with caret cursor (raw fence).
-    //   2. Selected in Normal → block text with block-style cursor (raw).
-    //   3. Plugin-transformed → cached transformer output (read-only).
-    //   4. Anything else      → block text, no cursor, pretty render.
+    //   2. Selected embed in Normal → resolved source text plus its handle.
+    //   3. Selected in Normal → block text with block-style cursor (raw).
+    //   4. Plugin-transformed → cached transformer output (read-only).
+    //   5. Anything else      → block text, no cursor, pretty render.
     //
     // The cursor cases (1, 2) always win over a cached transform: a
     // block under the cursor shows its real fence source so the user
@@ -168,9 +169,23 @@ pub(crate) fn render_block(
             unreachable!("editing_here matched but mode isn't Insert")
         }
     } else if is_selected && matches!(app.mode, Mode::Normal) {
-        RenderMode::NormalCursor {
-            text: b.text.clone(),
-            cursor_char: app.cursor_col,
+        if let Some(handle) = embed_only_handle(&b.text) {
+            if let Some(entry) = app.index.resolve_block_ref(handle) {
+                RenderMode::SelectedEmbed {
+                    text: entry.text.clone(),
+                    handle: handle.to_owned(),
+                }
+            } else {
+                RenderMode::NormalCursor {
+                    text: b.text.clone(),
+                    cursor_char: app.cursor_col,
+                }
+            }
+        } else {
+            RenderMode::NormalCursor {
+                text: b.text.clone(),
+                cursor_char: app.cursor_col,
+            }
         }
     } else if let Some(content) = block_id.and_then(|id| app.transform_cache.get(&id)) {
         RenderMode::Transformed {
@@ -274,7 +289,11 @@ pub(crate) fn render_block(
 /// Mixed content (`prelude !((blk-X)) postlude`) keeps the inline
 /// `↳ <text>` render — we only expand when the user clearly meant
 /// the whole block to *be* the embed.
-fn embed_only_handle(text: &str) -> Option<&str> {
+///
+/// Re-exported from `view` so the actions layer can reuse this exact
+/// predicate to tell a query-result row apart from an ordinary block
+/// before deciding what a TODO toggle should act on.
+pub(crate) fn embed_only_handle(text: &str) -> Option<&str> {
     let mut handle: Option<&str> = None;
     for tok in tokenize(text.trim()) {
         match tok {
@@ -374,6 +393,9 @@ pub(crate) enum RenderMode {
     /// Normal mode on the selected block — show a vim-style block
     /// cursor on the character under `cursor_char`. Raw render.
     NormalCursor { text: String, cursor_char: usize },
+    /// Normal mode on a query result row — show the resolved source text
+    /// while keeping the embed handle visible for target confidence.
+    SelectedEmbed { text: String, handle: String },
     /// Anything else — markdown is rendered prettily; no cursor.
     Pretty { text: String },
     /// A read-only block whose code fence a plugin content-transformer
@@ -404,22 +426,33 @@ pub(crate) fn emit_block_lines(
     out: &mut Vec<Line<'static>>,
     text_width: u16,
 ) {
-    let (text, cursor_char, cursor_style) = match mode {
-        RenderMode::Editing { text, cursor_char } => {
-            (text.as_str(), Some(*cursor_char), Some(CursorStyle::Caret))
+    let (text, cursor_char, cursor_style, selected_embed_handle) = match mode {
+        RenderMode::Editing { text, cursor_char } => (
+            text.as_str(),
+            Some(*cursor_char),
+            Some(CursorStyle::Caret),
+            None,
+        ),
+        RenderMode::NormalCursor { text, cursor_char } => (
+            text.as_str(),
+            Some(*cursor_char),
+            Some(CursorStyle::Block),
+            None,
+        ),
+        RenderMode::SelectedEmbed { text, handle } => {
+            (text.as_str(), None, None, Some(handle.as_str()))
         }
-        RenderMode::NormalCursor { text, cursor_char } => {
-            (text.as_str(), Some(*cursor_char), Some(CursorStyle::Block))
-        }
-        RenderMode::Pretty { text } => (text.as_str(), None, None),
+        RenderMode::Pretty { text } => (text.as_str(), None, None, None),
         // Transformer output renders as pretty markdown — same styling
         // path as `Pretty`, just sourced from the cached `content`
         // instead of the raw fence text.
-        RenderMode::Transformed { content } => (content.as_str(), None, None),
+        RenderMode::Transformed { content } => (content.as_str(), None, None, None),
     };
     let pretty = matches!(
         mode,
-        RenderMode::Pretty { .. } | RenderMode::Transformed { .. }
+        RenderMode::SelectedEmbed { .. }
+            | RenderMode::Pretty { .. }
+            | RenderMode::Transformed { .. }
     );
     let rows = block_to_rows(text, indent, cursor_char);
 
@@ -534,6 +567,11 @@ pub(crate) fn emit_block_lines(
                 }
                 _ => content.extend(render_markdown_inline(display, &app.theme, &app.index)),
             }
+        }
+
+        if let (Some(handle), BlockRowKind::Bullet) = (selected_embed_handle, row.kind) {
+            content.push(Span::raw(" "));
+            content.push(Span::styled(format!("(({handle}))"), app.theme.ref_link));
         }
 
         // Cursor rows wrap too (#99). The cursor is already baked into
@@ -799,6 +837,32 @@ mod tests {
             "expected level-2 glyph, got: {text}"
         );
         assert!(text.contains("##"), "raw header must keep hashes: {text}");
+    }
+
+    #[test]
+    fn selected_embed_shows_source_text_and_handle() {
+        let (app, _dir) = test_app();
+        let out = render_block_lines(
+            &app,
+            RenderMode::SelectedEmbed {
+                text: "TODO Refuse the unethical contract #bounty".into(),
+                handle: "blk-znpf0j".into(),
+            },
+            80,
+        );
+        let text = line_text(&out[0]);
+        assert!(
+            text.contains("Refuse the unethical contract"),
+            "selected embed must show source text: {text}"
+        );
+        assert!(
+            text.contains("((blk-znpf0j))"),
+            "selected embed must show source handle: {text}"
+        );
+        assert!(
+            !text.contains("!((blk-znpf0j))"),
+            "selected embed must not expose the raw embed token: {text}"
+        );
     }
 
     /// A non-header block keeps the plain `- ` bullet and never draws a
