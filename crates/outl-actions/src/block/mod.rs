@@ -46,7 +46,7 @@ pub use create::{
     append_block, append_forest, append_tree, create_after, create_after_or_append, create_before,
     create_before_or_append, create_under, BlockTreeOutcome, BlockTreeSpec,
 };
-pub use edit::{edit_text, toggle_quote, toggle_todo};
+pub use edit::{edit_text, mark_done, toggle_quote, toggle_todo};
 pub use moves::{delete, indent, move_after, move_down, move_under, move_up, outdent};
 pub use split::split_block;
 

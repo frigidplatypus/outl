@@ -26,6 +26,7 @@ import {
   deletePage,
   editBlock,
   indentBlock,
+  markBlockDone,
   moveBlockAfter,
   moveBlockDown,
   moveBlockUp,
@@ -160,6 +161,20 @@ export function buildHandlers(deps: DesktopHandlerDeps): ActionHandlers {
     if (nextSelectedId !== undefined) {
       setAppState("selectedBlockId", nextSelectedId);
     }
+  }
+
+  /** Fire the plugin `onOp` sweep off the input path after a mutation
+   *  that is an op. Never awaited by the caller (see the outl
+   *  async-writes principle) — blocking a TODO toggle on plugin JS just
+   *  delayed the checkbox. Shared by `Cmd+T` and `g D` so a `ui-render`
+   *  plugin (e.g. confetti on DONE) sees one shape and can't drift
+   *  between cycling-to-DONE and marking-done outright. */
+  function sweepPlugins(pageId: string) {
+    void safeCall(pluginSyncHooks(pageId)).then((hooked) => {
+      if (hooked?.view) deps.applyView(hooked.view);
+      for (const err of hooked?.errors ?? []) deps.setError(err);
+      if (hooked) playPluginViews(hooked.views);
+    });
   }
 
   /** Walk every block in the current Visual range and fire `op` for
@@ -705,15 +720,30 @@ export function buildHandlers(deps: DesktopHandlerDeps): ActionHandlers {
       }
       const view = await safeCall(toggleTodoCmd(pageId, id));
       if (view) deps.applyView(view);
-      // Plugin `onOp` sweep runs OFF the input path — fire-and-forget, no
-      // `await` (see the outl async-writes principle). A TODO toggle is an
-      // op; a `ui-render` plugin emits HTML here (e.g. confetti on DONE).
-      // Blocking the toggle on the plugin JS just delayed the checkbox.
-      void safeCall(pluginSyncHooks(pageId)).then((hooked) => {
-        if (hooked?.view) deps.applyView(hooked.view);
-        for (const err of hooked?.errors ?? []) deps.setError(err);
-        if (hooked) playPluginViews(hooked.views);
-      });
+      // Plugin `onOp` sweep runs OFF the input path — fire-and-forget.
+      sweepPlugins(pageId);
+    },
+
+    // ── block mark-done (`g D`) ───────────────────────────────────
+    //
+    // Sets DONE outright rather than cycling: unlike `Cmd+T`, `g D` is a
+    // completion gesture that lands on any state (unmarked / TODO / DOING)
+    // and should always end at DONE, idempotent when already there.
+    // Delegates to the same `mark_block_done` command RemindersPanel uses
+    // so a rule's "done" button and this chord can't diverge on semantics.
+    MarkDone: async () => {
+      const pageId = appState.page?.id;
+      if (!pageId) return;
+      const id = targetBlockId();
+      if (!id) {
+        deps.setError(
+          "Select or click a block first, then g D marks it done",
+        );
+        return;
+      }
+      const view = await safeCall(markBlockDone(pageId, id));
+      if (view) deps.applyView(view);
+      sweepPlugins(pageId);
     },
 
     // ── overlays + insert escape ─────────────────────────────────
