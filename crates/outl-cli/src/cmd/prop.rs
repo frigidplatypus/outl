@@ -10,7 +10,7 @@ use std::path::Path;
 use clap::Subcommand;
 use serde_json::{json, Value};
 
-use outl_actions::{find_by_slug, set_property};
+use outl_actions::{find_by_slug, property::key_rejection, property::normalize_key, set_property};
 use outl_core::id::NodeId;
 use outl_core::property::PropValue;
 
@@ -148,9 +148,13 @@ pub fn set_kv(ctx: &mut WsCtx, page: &str, key: &str, value: &str) -> Result<Val
 ///
 /// An empty string is *not* a clear: `set_kv` with `""` stores `Text("")`.
 pub fn clear_kv(ctx: &mut WsCtx, page: &str, key: &str) -> Result<Value, ApiError> {
+    let key = normalize_key(key);
+    if let Some(reason) = key_rejection(&key) {
+        return Err(ApiError::new(codes::INVALID_ARG, reason));
+    }
     let id = resolve_page(ctx, page)?;
     let hlc = ctx.hlc.clone();
-    ctx.commit_with(id, |ws| set_property(ws, &hlc, id, key, None))?;
+    ctx.commit_with(id, |ws| set_property(ws, &hlc, id, &key, None))?;
     Ok(json!({ "page": page, "key": key, "value": Value::Null }))
 }
 

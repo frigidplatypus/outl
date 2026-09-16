@@ -14,13 +14,16 @@
 use outl_actions::reminders::{
     scan_reminders, snooze, snooze_until, FiredLog, Reminder, SnoozePreset, Urgency,
 };
-use outl_actions::{clock, mark_done, set_property};
+use outl_actions::{clock, find_by_slug, mark_done, set_property};
 use outl_core::property::PropValue;
 use serde::{Deserialize, Serialize};
 
-use crate::helpers::{finish_in_page, parse_node_id, with_ws, with_ws_mut};
+use crate::commands::exec::run_auto_run_blocks;
+use crate::helpers::{finish_in_page, parse_node_id, storage_root_or_err, with_ws, with_ws_mut};
 use crate::host::AppHost;
 use crate::state::PageView;
+use outl_md::index::WorkspaceIndex;
+use outl_md::inline::{tokenize, InlineTok};
 
 /// Wire shape of one scheduled reminder.
 ///
@@ -288,8 +291,44 @@ pub fn mark_block_done<S: AppHost>(
 ) -> Result<PageView, String> {
     let page = parse_node_id(&page_id)?;
     let node = parse_node_id(&block_id)?;
+    if let Some(handle) = with_ws(state, |ws| {
+        Ok(ws
+            .block_text(node)
+            .and_then(|text| single_embed_handle(&text)))
+    })? {
+        let root = storage_root_or_err(state)?;
+        let index = WorkspaceIndex::build(&root);
+        let entry = index
+            .resolve_block_ref(&handle)
+            .ok_or_else(|| format!("orphan ref: {handle}"))?;
+        let source_page = with_ws(state, |ws| {
+            find_by_slug(ws, &entry.source_slug)
+                .map(Ok)
+                .unwrap_or_else(|| Err(format!("source page not found: {}", entry.source_slug)))
+        })?;
+        let hlc = state.hlc().clone();
+        finish_in_page(state, source_page, |ws| mark_done(ws, &hlc, entry.id))?;
+        return Ok(run_auto_run_blocks(state, page_id)?.view);
+    }
     let hlc = state.hlc().clone();
     finish_in_page(state, page, |ws| mark_done(ws, &hlc, node))
+}
+
+/// Return the handle when a block consists only of one embed token. Query
+/// result rows have this shape; mutating the row itself would prefix the
+/// `DONE` marker onto the token and destroy the live reference.
+fn single_embed_handle(text: &str) -> Option<String> {
+    let mut handle = None;
+    for token in tokenize(text.trim()) {
+        match token {
+            InlineTok::Plain(value) if value.trim().is_empty() => {}
+            InlineTok::Embed { handle: value } if handle.is_none() => {
+                handle = Some(value.to_owned());
+            }
+            _ => return None,
+        }
+    }
+    handle
 }
 
 /// Set (or clear) a block's `remind::` rule. Thin alias over
@@ -308,4 +347,19 @@ pub fn set_block_remind<S: AppHost>(
         outl_md::remind::REMIND_KEY.to_string(),
         rule,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::single_embed_handle;
+
+    #[test]
+    fn single_embed_handle_rejects_mixed_content() {
+        assert_eq!(
+            single_embed_handle("!((blk-aaaaaa))"),
+            Some("blk-aaaaaa".into())
+        );
+        assert_eq!(single_embed_handle("text !((blk-aaaaaa))"), None);
+        assert_eq!(single_embed_handle("((blk-aaaaaa))"), None);
+    }
 }

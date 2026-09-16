@@ -135,6 +135,29 @@ impl Ws {
         ])
     }
 
+    /// Read the full envelope for a clear, including expected validation
+    /// failures such as attempts to clear page identity keys.
+    fn clear_prop_envelope(&self, slug: &str, key: &str) -> Value {
+        let root = self.root_str();
+        let out = self.run(&[
+            "page",
+            "prop",
+            "clear",
+            slug,
+            key,
+            "--json",
+            "--workspace",
+            root.as_str(),
+        ]);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        serde_json::from_str(&stdout).unwrap_or_else(|e| {
+            panic!(
+                "non-JSON stdout for `outl page prop clear`: {e}\n{stdout}\nstderr: {}",
+                String::from_utf8_lossy(&out.stderr)
+            )
+        })
+    }
+
     /// Read a page property; returns the envelope (may be an error).
     fn get_prop_envelope(&self, slug: &str, key: &str) -> Value {
         let root = self.root_str();
@@ -332,6 +355,29 @@ fn projection_drops_only_the_cleared_line() {
         .filter(|l| l.trim_start().starts_with("status::"))
         .count();
     assert_eq!(status_lines, 0, "no `status::` line may survive the clear");
+}
+
+#[test]
+fn structural_page_properties_cannot_be_cleared() {
+    let ws = Ws::new();
+    ws.create_page("notes");
+
+    for key in ["page-slug", "page-kind", "page-slug::"] {
+        let envelope = ws.clear_prop_envelope("notes", key);
+        assert_eq!(envelope["ok"], false, "clear must reject {key}");
+        assert_eq!(envelope["error"]["code"], "INVALID_ARG");
+    }
+
+    // The page remains addressable after each rejected attempt.
+    let page = ws.json_data(&[
+        "page",
+        "get",
+        "notes",
+        "--json",
+        "--workspace",
+        ws.root_str().as_str(),
+    ]);
+    assert_eq!(page["meta"]["slug"], "notes");
 }
 
 #[test]
