@@ -2,8 +2,17 @@
 //!
 //! Emoji is the default because it works with ordinary terminal fonts.
 //! Nerd Font glyphs are opt-in through `[tui] icons = "nerd-font"`.
+//!
+//! Scope: every TUI-owned icon — status/footer chips, fold markers,
+//! property/command/palette glyphs. What stays Unicode in both sets by
+//! design: task checkboxes (`☐`/`◐`/`☑`, they mirror the document
+//! state), calendar day dots, scrollbar symbols, and plain geometric
+//! separators (`↪`, `≡`, `✕`, `·`).
 
+use crate::theme::Theme;
+use crate::view::outline::FoldMarker;
 use outl_config::TuiIconStyle;
+use ratatui::text::Span;
 
 /// Icons used by the TUI's own chrome and placeholders.
 #[derive(Debug, Clone, Copy)]
@@ -25,6 +34,23 @@ pub(crate) struct IconSet {
     pub(crate) hashtag: &'static str,
     pub(crate) bell: &'static str,
     pub(crate) play: &'static str,
+    /// TODO-progress header chip (`nf-fa-check-square-o`).
+    pub(crate) todo_chip: &'static str,
+    /// Insert-mode footer chip (`nf-fa-circle`).
+    pub(crate) editing: &'static str,
+    /// "saved Ns ago" freshness chip (`nf-fa-refresh`).
+    pub(crate) freshness: &'static str,
+    /// Workspace-name footer chip (`nf-fa-circle-thin`).
+    pub(crate) workspace: &'static str,
+    /// Backlink-count footer chip (`nf-fa-link`).
+    pub(crate) backlinks: &'static str,
+    /// Fold marker before an expanded parent; carries its own padding
+    /// space so columns stay flush (`nf-fa-chevron-down`).
+    pub(crate) fold_open: &'static str,
+    /// Fold marker before a collapsed parent (`nf-fa-chevron-right`).
+    pub(crate) fold_closed: &'static str,
+    /// Help-overlay legend line explaining the two fold markers.
+    pub(crate) fold_legend: &'static str,
 }
 
 impl IconSet {
@@ -52,6 +78,17 @@ impl IconSet {
             "Settings" => self.cog,
             "Dates & time" => self.calendar,
             _ => "•",
+        }
+    }
+
+    /// The fold marker as a styled span, glyph and colour together.
+    /// The `None` arm keeps the two-cell gap so leaf bullets stay
+    /// aligned with their parent's.
+    pub(crate) fn fold_span(&self, marker: FoldMarker, theme: &Theme) -> Span<'static> {
+        match marker {
+            FoldMarker::None => Span::raw("  "),
+            FoldMarker::Expanded => Span::styled(self.fold_open, theme.dim),
+            FoldMarker::Collapsed => Span::styled(self.fold_closed, theme.hint),
         }
     }
 
@@ -88,9 +125,17 @@ impl IconSet {
             save: "💾",
             clipboard: "📋",
             moon: "🌙",
-            hashtag: "#",
+            hashtag: "🔢",
             bell: "⏰",
             play: "▶",
+            todo_chip: "☑",
+            editing: "●",
+            freshness: "⟳",
+            workspace: "◌",
+            backlinks: "⇇",
+            fold_open: "▼ ",
+            fold_closed: "▶ ",
+            fold_legend: "              (▼ expanded · ▶ collapsed · synced via op log)",
         }
     }
 
@@ -113,6 +158,15 @@ impl IconSet {
             hashtag: "\u{f292}",
             bell: "\u{f0f3}",
             play: "\u{f04b}",
+            todo_chip: "\u{f046}",
+            editing: "\u{f111}",
+            freshness: "\u{f021}",
+            workspace: "\u{f1db}",
+            backlinks: "\u{f0c1}",
+            fold_open: "\u{f078} ",
+            fold_closed: "\u{f054} ",
+            fold_legend:
+                "              (\u{f078} expanded · \u{f054} collapsed · synced via op log)",
         }
     }
 }
@@ -156,5 +210,37 @@ mod tests {
         let nerd = IconSet::new(TuiIconStyle::NerdFont);
         assert_eq!(nerd.property_glyph("auto-run"), Some("\u{f04b}"));
         assert_eq!(nerd.command_glyph("run"), "\u{f04b}");
+    }
+
+    #[test]
+    fn emoji_preserves_the_pre_iconset_glyphs() {
+        let emoji = IconSet::new(TuiIconStyle::Emoji);
+        assert_eq!(emoji.command_glyph("iso-date-today"), "🔢");
+        assert_eq!(emoji.todo_chip, "☑");
+        assert_eq!(emoji.fold_open, "▼ ");
+        assert_eq!(emoji.fold_closed, "▶ ");
+    }
+
+    #[test]
+    fn chrome_and_fold_glyphs_route_through_the_set() {
+        let nerd = IconSet::new(TuiIconStyle::NerdFont);
+        for glyph in [
+            nerd.todo_chip,
+            nerd.editing,
+            nerd.freshness,
+            nerd.workspace,
+            nerd.backlinks,
+            nerd.fold_open,
+            nerd.fold_closed,
+        ] {
+            assert!(
+                glyph
+                    .chars()
+                    .all(|ch| ch == ' ' || (0xE000..=0xF8FF).contains(&(ch as u32))),
+                "nerd chip must be PUA-only: {glyph:?}"
+            );
+        }
+        assert!(nerd.fold_legend.contains('\u{f078}'));
+        assert!(nerd.fold_legend.contains('\u{f054}'));
     }
 }
