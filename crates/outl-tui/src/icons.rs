@@ -34,6 +34,43 @@ impl IconSet {
         }
     }
 
+    pub(crate) fn property_glyph(&self, key: &str) -> Option<&'static str> {
+        match key.to_ascii_lowercase().as_str() {
+            outl_md::remind::REMIND_KEY => Some(self.bell),
+            "auto-run" => Some("▶"),
+            "template" => Some(self.clipboard),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn category_glyph(&self, category: &str) -> &'static str {
+        match category {
+            "Actions" => self.bolt,
+            "Navigation" => "↪",
+            "Search" => self.search,
+            "Settings" => self.cog,
+            "Dates & time" => self.calendar,
+            _ => "•",
+        }
+    }
+
+    pub(crate) fn command_glyph(&self, name: &str) -> &'static str {
+        match name {
+            "run" => "▶",
+            "prop" => "≡",
+            "search" | "find" => self.search,
+            "theme" => self.paint_brush,
+            "open" | "switch" => "↪",
+            "quit" | "q" => "✕",
+            n if n.starts_with("date") || n == "dt" || n == "dy" || n == "dtm" => self.calendar,
+            n if n.starts_with("time") => self.clock,
+            n if n.starts_with("iso") => self.hashtag,
+            n if n.starts_with("week") => self.calendar,
+            "stamp" => self.clock,
+            _ => "·",
+        }
+    }
+
     fn emoji() -> Self {
         Self {
             calendar: "📅",

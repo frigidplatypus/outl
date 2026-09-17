@@ -201,7 +201,7 @@ pub(crate) fn render_block(
             prop_spans.push(Span::styled("│ ", app.theme.dim));
         }
         prop_spans.push(Span::raw("  ".to_string()));
-        if let Some(glyph) = property_glyph(k, &app.icons) {
+        if let Some(glyph) = app.icons.property_glyph(k) {
             prop_spans.push(Span::raw(format!("{glyph} ")));
         }
         prop_spans.push(Span::styled(format!("{k}:: "), app.theme.property_key));
@@ -553,22 +553,6 @@ fn emit_row_with_cursor(
 enum CursorStyle {
     Caret,
     Block,
-}
-
-/// Leading glyph for a property key outl gives a meaning to.
-///
-/// Mirrors `KNOWN_PROPERTIES` in
-/// `@outl/shared/markdown/properties` — a const can't cross the
-/// Rust/TS boundary any more than a DTO field can, so the two tables
-/// are edited together. A user's own key (`priority::`) gets no glyph;
-/// interpreting it isn't ours to do.
-fn property_glyph(key: &str, icons: &crate::icons::IconSet) -> Option<&'static str> {
-    match key.to_ascii_lowercase().as_str() {
-        outl_md::remind::REMIND_KEY => Some(icons.bell),
-        "auto-run" => Some("▶"),
-        "template" => Some(icons.clipboard),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

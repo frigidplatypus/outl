@@ -424,7 +424,7 @@ pub(crate) fn render_slash_overlay(
                 lines.push(Line::raw(""));
             }
             lines.push(Line::from(Span::styled(
-                format!(" {} {} ", category_icon(cat, &app.icons), cat),
+                format!(" {} {} ", app.icons.category_glyph(cat), cat),
                 app.theme.help_title,
             )));
             prev_cat = Some(cat);
@@ -442,7 +442,7 @@ pub(crate) fn render_slash_overlay(
             Span::styled(
                 format!(
                     "   {}  {}{suffix}  ",
-                    command_icon(&c.name, &app.icons),
+                    app.icons.command_glyph(&c.name),
                     c.name
                 ),
                 style,
@@ -551,36 +551,6 @@ pub(crate) fn visual_order(candidates: &[crate::state::SlashCommand]) -> Vec<usi
     }
     buckets.sort_by_key(|(k, _)| category_order(k));
     buckets.into_iter().flat_map(|(_, idxs)| idxs).collect()
-}
-
-fn category_icon(cat: &str, icons: &crate::icons::IconSet) -> &'static str {
-    match cat {
-        "Actions" => icons.bolt,
-        "Navigation" => "↪",
-        "Search" => icons.search,
-        "Settings" => icons.cog,
-        "Dates & time" => icons.calendar,
-        _ => "•",
-    }
-}
-
-/// Per-command leading glyph. Falls back to a dot for anything we
-/// haven't curated.
-fn command_icon(name: &str, icons: &crate::icons::IconSet) -> &'static str {
-    match name {
-        "run" => "▶",
-        "prop" => "≡",
-        "search" | "find" => icons.search,
-        "theme" => icons.paint_brush,
-        "open" | "switch" => "↪",
-        "quit" | "q" => "✕",
-        n if n.starts_with("date") || n == "dt" || n == "dy" || n == "dtm" => icons.calendar,
-        n if n.starts_with("time") => icons.clock,
-        n if n.starts_with("iso") => icons.hashtag,
-        n if n.starts_with("week") => icons.calendar,
-        "stamp" => icons.clock,
-        _ => "·",
-    }
 }
 
 pub(crate) fn render_template_picker(
