@@ -410,7 +410,7 @@ fn open_workspace(
 #[allow(clippy::too_many_arguments)]
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    workspace_root: PathBuf,
+    root: PathBuf,
     workspace: Workspace,
     actor: ActorId,
     theme: Theme,
@@ -418,14 +418,7 @@ fn event_loop(
     backlinks_newest_first: bool,
     icon_style: outl_config::TuiIconStyle,
 ) -> Result<()> {
-    let mut app = App::new(
-        workspace_root,
-        workspace,
-        actor,
-        theme,
-        shared_workspace,
-        icon_style,
-    )?;
+    let mut app = App::new(root, workspace, actor, theme, shared_workspace, icon_style)?;
     app.backlinks_newest_first = backlinks_newest_first;
     loop {
         // Pick up the background index build if it finished since the
