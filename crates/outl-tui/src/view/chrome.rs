@@ -165,13 +165,16 @@ fn chips(app: &App) -> Line<'static> {
                 .fg(Color::LightYellow)
                 .add_modifier(Modifier::BOLD)
         };
-        spans.push(Span::styled(format!(" ☑ {done}/{total} "), chip_style));
+        spans.push(Span::styled(
+            format!(" {} {done}/{total} ", app.icons.todo_chip),
+            chip_style,
+        ));
         spans.push(Span::raw(" "));
     }
 
     if matches!(app.mode, Mode::Insert { .. }) {
         spans.push(Span::styled(
-            " ● editing ",
+            format!(" {} editing ", app.icons.editing),
             Style::default()
                 .bg(Color::DarkGray)
                 .fg(Color::LightMagenta)
@@ -184,7 +187,7 @@ fn chips(app: &App) -> Line<'static> {
         let secs = at.elapsed().as_secs();
         let label = format_age(secs);
         spans.push(Span::styled(
-            format!(" ⟳ {label} "),
+            format!(" {} {label} ", app.icons.freshness),
             Style::default().bg(Color::DarkGray).fg(Color::Gray),
         ));
         spans.push(Span::raw(" "));
@@ -259,7 +262,7 @@ fn left_segments(app: &App) -> Line<'static> {
         // any terminal without nerd-font.
         Span::styled(" ", Style::default().bg(Color::DarkGray)),
         Span::styled(
-            format!(" ◌ {workspace_label} "),
+            format!(" {} {workspace_label} ", app.icons.workspace),
             Style::default().bg(Color::DarkGray).fg(Color::Gray),
         ),
         Span::raw(" "),
@@ -270,7 +273,8 @@ fn left_segments(app: &App) -> Line<'static> {
     if bl_count > 0 {
         spans.push(Span::styled(
             format!(
-                " ⇇ {bl_count} backlink{} ",
+                " {} {bl_count} backlink{} ",
+                app.icons.backlinks,
                 if bl_count == 1 { "" } else { "s" }
             ),
             Style::default().bg(Color::DarkGray).fg(Color::LightCyan),

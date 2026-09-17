@@ -962,7 +962,7 @@ fn help_tab_body(tab: usize, theme: &Theme, icons: &crate::icons::IconSet) -> Ve
             Line::from("  yy / p / P  yank · paste after · paste before"),
             Line::from("  Ctrl+T      cycle TODO / DOING / DONE / none"),
             Line::from("  c           fold / unfold the selected block"),
-            Line::from("              (▼ expanded · ▶ collapsed · synced via op log)"),
+            Line::from(icons.fold_legend),
             Line::from("  u / Ctrl+R  undo / redo"),
             Line::from("  g P         toggle pinned:: on this page (chord)"),
             Line::from(""),

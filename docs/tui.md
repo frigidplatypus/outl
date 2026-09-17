@@ -16,6 +16,8 @@ The TUI requires a real interactive terminal.
 If stdout isn't a TTY (e.g. CI), it exits with a clear error instead of hanging.
 TUI chrome uses ordinary emoji and symbols by default, so it works without a special font.
 Set `[tui] icons = "nerd-font"` to opt into compact Nerd Font glyphs.
+That set covers every TUI-owned icon — status chips, fold markers, property and command glyphs.
+Task checkboxes (`☐`/`◐`/`☑`), calendar day dots, and scrollbar symbols stay Unicode in both styles: the checkbox mirrors the document's own task state, and the rest are geometry, not icons.
 
 ## Copy to clipboard
 

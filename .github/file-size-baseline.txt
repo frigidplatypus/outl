@@ -38,7 +38,7 @@
 710 crates/outl-cli/src/cmd/doctor/repair/mod.rs
 798 crates/outl-cli/src/cmd/doctor/tests/mod.rs
 626 crates/outl-cli/src/cmd/page.rs
-730 crates/outl-config/src/schema.rs
+713 crates/outl-config/src/schema.rs
 768 crates/outl-core/src/storage/jsonl/read.rs
 810 crates/outl-core/src/storage/jsonl/tests.rs
 877 crates/outl-core/src/workspace.rs
@@ -80,6 +80,6 @@
 620 crates/outl-tui/src/actions/properties.rs
 661 crates/outl-tui/src/input/normal.rs
 646 crates/outl-tui/src/input/overlay.rs
-688 crates/outl-tui/src/runtime.rs
+687 crates/outl-tui/src/runtime.rs
 983 crates/outl-tui/src/state.rs
-1179 crates/outl-tui/src/view/overlays.rs
+1166 crates/outl-tui/src/view/overlays.rs

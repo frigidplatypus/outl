@@ -157,8 +157,8 @@ pub(crate) fn render_block(
     };
 
     // Fold indicator for the bullet row.
-    //   - `▼ ` when the block has children and is expanded
-    //   - `▶ ` when it has children and is collapsed
+    //   - `IconSet.fold_open` when the block has children and is expanded
+    //   - `IconSet.fold_closed` when it has children and is collapsed
     //   - `  ` (two spaces) when it has no children — keeps column
     //     alignment with the other two cases so the bullet column
     //     never jitters across blocks on the same indent.
@@ -313,11 +313,7 @@ pub(crate) fn emit_block_lines(
                 // the marker is visible or not. Keeps the bullet `-`
                 // column stable across siblings (leaf next to a
                 // parent must line up).
-                match fold {
-                    FoldMarker::None => head.push(Span::raw("  ")),
-                    FoldMarker::Expanded => head.push(Span::styled("▼ ", app.theme.dim)),
-                    FoldMarker::Collapsed => head.push(Span::styled("▶ ", app.theme.hint)),
-                }
+                head.push(app.icons.fold_span(fold, &app.theme));
                 // Blocks with `auto-run::` get a ⚡ before the bullet
                 // so the user can see at a glance which cells re-run
                 // themselves on page open.

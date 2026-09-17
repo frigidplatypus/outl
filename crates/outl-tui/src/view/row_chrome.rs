@@ -85,9 +85,9 @@ pub(crate) fn push_property_row(
 pub(crate) enum FoldMarker {
     /// Block has no children — no marker, gap only.
     None,
-    /// Block has children and they're visible. `▼ ` prefix.
+    /// Block has children and they're visible. `fold_open` prefix.
     Expanded,
-    /// Block has children but they're folded away. `▶ ` prefix.
+    /// Block has children but they're folded away. `fold_closed` prefix.
     Collapsed,
 }
 
