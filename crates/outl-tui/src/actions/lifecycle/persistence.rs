@@ -260,6 +260,7 @@ mod tests {
             actor,
             crate::theme::default_theme(),
             false,
+            outl_config::TuiIconStyle::Emoji,
         )
         .unwrap();
         (app, dir)
