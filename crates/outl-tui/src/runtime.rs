@@ -420,9 +420,6 @@ fn event_loop(
 ) -> Result<()> {
     let mut app = App::new(workspace_root, workspace, actor, theme, shared_workspace)?;
     app.icons = crate::icons::IconSet::new(icon_style);
-    // Apply the persisted backlinks direction (issue #142); the field
-    // only feeds the render path, so setting it post-construction is
-    // enough and keeps it out of `App::new`'s already-long signature.
     app.backlinks_newest_first = backlinks_newest_first;
     loop {
         // Pick up the background index build if it finished since the

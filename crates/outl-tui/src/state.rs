@@ -10,7 +10,6 @@
 //! reads or writes these types, but nothing outside `outl-tui` should.
 
 use crate::edit_buffer::EditBuffer;
-use crate::icons::IconSet;
 use crate::theme::Theme;
 use chrono::NaiveDate;
 use outl_core::hlc::HlcGenerator;
@@ -533,9 +532,8 @@ pub(crate) struct AutocompleteState {
     pub(crate) selected: usize,
 }
 
-/// Application state.
 pub(crate) struct App {
-    pub(crate) icons: IconSet,
+    pub(crate) icons: crate::icons::IconSet,
     pub(crate) workspace_root: PathBuf,
     pub(crate) workspace: Workspace,
     pub(crate) hlc: HlcGenerator,

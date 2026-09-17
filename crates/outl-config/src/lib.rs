@@ -64,13 +64,14 @@
 
 mod paths;
 mod schema;
+mod tui;
 
 pub use paths::{config_dir, config_path};
 pub use schema::{
     AssetsCfg, BacklinksOrder, BackupCfg, CalendarCfg, Config, DisplayCfg, EditorCfg, RemindersCfg,
-    SnapshotCfg, StorageCfg, SyncConfig, SyncTransportKind, ThemeCfg, ThemeMode, TuiCfg,
-    TuiIconStyle, WorkspaceCfg,
+    SnapshotCfg, StorageCfg, SyncConfig, SyncTransportKind, ThemeCfg, ThemeMode, WorkspaceCfg,
 };
+pub use tui::{TuiCfg, TuiIconStyle};
 
 use std::fs;
 use std::path::{Path, PathBuf};

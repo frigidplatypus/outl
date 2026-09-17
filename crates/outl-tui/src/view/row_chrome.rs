@@ -43,7 +43,7 @@ pub(crate) fn push_body_indent(
 ///
 /// Single owner for the property row, because there are two callers
 /// (the outline and the backlinks mini-outline) and they had already
-/// drifted: backlinks never drew the [`property_glyph`], so the same
+/// drifted: backlinks never drew the property glyph, so the same
 /// `remind::` read differently depending on which pane you saw it in.
 ///
 /// The row wraps like any block row — a long `template::` used to run
@@ -66,7 +66,7 @@ pub(crate) fn push_property_row(
     }
     let mut head: Vec<Span<'static>> = Vec::new();
     push_body_indent(&mut head, has_auto_run, &app.icons);
-    if let Some(glyph) = property_glyph(key, &app.icons) {
+    if let Some(glyph) = app.icons.property_glyph(key) {
         head.push(Span::raw(format!("{glyph} ")));
     }
     let content = vec![
@@ -89,22 +89,6 @@ pub(crate) enum FoldMarker {
     Expanded,
     /// Block has children but they're folded away. `▶ ` prefix.
     Collapsed,
-}
-
-/// Leading glyph for a property key outl gives a meaning to.
-///
-/// Mirrors `KNOWN_PROPERTIES` in
-/// `@outl/shared/markdown/properties` — a const can't cross the
-/// Rust/TS boundary any more than a DTO field can, so the two tables
-/// are edited together. A user's own key (`priority::`) gets no glyph;
-/// interpreting it isn't ours to do.
-pub(crate) fn property_glyph(key: &str, icons: &IconSet) -> Option<&'static str> {
-    match key.to_ascii_lowercase().as_str() {
-        outl_md::remind::REMIND_KEY => Some(icons.bell),
-        "auto-run" => Some("▶"),
-        "template" => Some(icons.clipboard),
-        _ => None,
-    }
 }
 
 #[cfg(test)]
