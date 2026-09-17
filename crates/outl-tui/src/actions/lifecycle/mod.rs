@@ -178,6 +178,28 @@ impl App {
         s.spawn_orphan_md_scanner();
         Ok(s)
     }
+
+    /// Test-only constructor pinning the emoji icon set, so test call
+    /// sites don't restate the boot-ordering parameter. Tests that
+    /// assert icon-style behaviour call [`App::new`] directly with the
+    /// style under test.
+    #[cfg(test)]
+    pub(crate) fn new_for_tests(
+        workspace_root: PathBuf,
+        workspace: Workspace,
+        actor: ActorId,
+        theme: Theme,
+        shared_workspace: bool,
+    ) -> Result<Self> {
+        Self::new(
+            workspace_root,
+            workspace,
+            actor,
+            theme,
+            shared_workspace,
+            outl_config::TuiIconStyle::Emoji,
+        )
+    }
 }
 
 /// Last-modified time of `path`, or `None` if the file isn't there
