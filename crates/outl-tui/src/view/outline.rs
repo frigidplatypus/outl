@@ -201,7 +201,7 @@ pub(crate) fn render_block(
             prop_spans.push(Span::styled("│ ", app.theme.dim));
         }
         prop_spans.push(Span::raw("  ".to_string()));
-        if let Some(glyph) = property_glyph(k) {
+        if let Some(glyph) = property_glyph(k, &app.icons) {
             prop_spans.push(Span::raw(format!("{glyph} ")));
         }
         prop_spans.push(Span::styled(format!("{k}:: "), app.theme.property_key));
@@ -320,7 +320,7 @@ fn emit_embedded_children(
             guides.push(Span::raw("  "));
         }
         let head = vec![Span::styled("↳ ", app.theme.dim)];
-        let content = render_pretty_block_text(&child.text, &app.theme, &app.index);
+        let content = render_pretty_block_text(&child.text, &app.theme, &app.index, &app.icons);
         push_wrapped(guides, head, content, text_width, out);
         emit_embedded_children(
             &child.children,
@@ -438,7 +438,7 @@ pub(crate) fn emit_block_lines(
                 // so the user can see at a glance which cells re-run
                 // themselves on page open.
                 if has_auto_run {
-                    head.push(Span::styled("⚡", app.theme.hint));
+                    head.push(Span::styled(app.icons.bolt, app.theme.hint));
                 }
                 head.push(Span::styled("- ", bullet_style));
             }
@@ -488,9 +488,13 @@ pub(crate) fn emit_block_lines(
                     // function the embed expansion uses, so the
                     // chrome stays in lockstep between bullet and
                     // embed root.
-                    content.extend(render_pretty_block_text(row.text, &app.theme, &app.index));
+                    content.extend(render_pretty_block_text(
+                        row.text, &app.theme, &app.index, &app.icons,
+                    ));
                 }
-                _ => content.extend(render_markdown_inline(row.text, &app.theme, &app.index)),
+                _ => content.extend(render_markdown_inline(
+                    row.text, &app.theme, &app.index, &app.icons,
+                )),
             }
         }
 
@@ -558,11 +562,11 @@ enum CursorStyle {
 /// Rust/TS boundary any more than a DTO field can, so the two tables
 /// are edited together. A user's own key (`priority::`) gets no glyph;
 /// interpreting it isn't ours to do.
-fn property_glyph(key: &str) -> Option<&'static str> {
+fn property_glyph(key: &str, icons: &crate::icons::IconSet) -> Option<&'static str> {
     match key.to_ascii_lowercase().as_str() {
-        outl_md::remind::REMIND_KEY => Some("⏰"),
+        outl_md::remind::REMIND_KEY => Some(icons.bell),
         "auto-run" => Some("▶"),
-        "template" => Some("📋"),
+        "template" => Some(icons.clipboard),
         _ => None,
     }
 }

@@ -128,9 +128,9 @@ impl App {
         // Untouched — slot has a non-chip status (save error etc.):
         //   the user reads that first, the banner above the outline
         //   stays as the persistent warning signal.
-        const CHIP_MARKER: &str = "⚠ ";
+        let chip_marker = format!("{} ", self.icons.warning);
         let chip_is_ours =
-            self.status.starts_with(CHIP_MARKER) && self.status.contains("outside outl dialect");
+            self.status.starts_with(&chip_marker) && self.status.contains("outside outl dialect");
         if self.parse_warnings.is_empty() {
             if chip_is_ours {
                 self.status.clear();
@@ -138,7 +138,7 @@ impl App {
         } else if self.status.is_empty() || chip_is_ours {
             self.status = format!(
                 "{}{} line(s) outside outl dialect — preserved (open :warnings to see)",
-                CHIP_MARKER,
+                chip_marker,
                 self.parse_warnings.len()
             );
         }

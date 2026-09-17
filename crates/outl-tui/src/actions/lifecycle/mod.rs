@@ -51,6 +51,7 @@ impl App {
     ) -> Result<Self> {
         let orphans_log = workspace_root.join(".outl").join("orphans.log");
         let mut s = Self {
+            icons: crate::icons::IconSet::default(),
             hlc: HlcGenerator::new(actor),
             workspace_root,
             workspace,
