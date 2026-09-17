@@ -23,7 +23,10 @@ The crate is intentionally tiny and modular:
 - **`runtime::ExecOutput`** — stdout, stderr, duration, exit status, and `format: OutputFormat`.
 - **`runtime::OutputFormat`** — `Text` (default: result subblock as `> **result:** …`) or `Embeds` (result subblock with one child bullet per stdout line, rendered as embeds).
 - **`registry::RuntimeRegistry`** — resolves a fence info-string to the concrete `Runtime`.
-- **`sandbox`** — cross-platform timeout helper.
+- **`sandbox`** — cross-platform termination helpers.
+  `with_timeout` runs the work on a thread and releases the caller at the deadline without stopping the work; a runtime with a real cancellation point stops itself in-band and uses the wrapper only as a backstop.
+  Abandoned workers are counted, and past `MAX_RUNAWAY_WORKERS` the wrapper refuses to spawn another.
+  See [What a block may reach, and for how long](#what-a-block-may-reach-and-for-how-long).
 - **`result_block`** — pure functions that find / create the result subblock under a code block.
   Includes `upsert_result_child` (text), `upsert_result_embeds` (embed children), and hash-stamped variants for auto-run cache.
 - **`orchestrate::run_block_at_index`** — single entry point for every UI.
@@ -32,11 +35,67 @@ The crate is intentionally tiny and modular:
 - **`orchestrate::run_block_at_index_if_source_changed`** — cache-aware variant used by auto-run loop.
 
 
+## What a block may reach, and for how long
+
+Two questions every runtime has to answer, pinned together in `tests/sandbox.rs` rather than per runtime file — adding a language must not get to answer them differently by omission.
+
+**A fence body is not always written by the person running it.**
+It arrives over iroh from a paired device, through `outl import` from someone else's graph, or under an LLM agent driving `outl_template_run` over MCP.
+So the host surface an interpreter exposes is a security boundary, and it is an **allowlist**: a denylist fails open, because the next release of an interpreter crate adds a library nobody decided to grant.
+
+**`lisp` had the same hole, it was found reviewing the fix for `lua`, and it could not be closed.**
+`Engine::new()` registers `steel/filesystem`, `steel/process`, `steel/tcp` and `steel/http`, so a fence had `command` (a shell), `open-output-file` and `tcp-connect`.
+`Engine::new_sandboxed()` plus shadowing the surviving names (`HOST_BINDINGS` in `runtimes/lisp.rs`) is a denylist, and reading steel 0.8.3 shows it fails open in three separate ways: `new_sandboxed()` still registers the full `steel/meta` module (`(run! (Engine::new) "...")` builds an unsandboxed engine), `steel/process` stays reachable as `#%prim.command` and through `(require-builtin steel/process)`, and a `defmacro` body runs in a kernel engine that is `pub(crate)`.
+There is no public allowlist constructor to build from.
+So **`lang-lisp` is not a default feature**: the runtime is for a build whose operator accepts that a `lisp` fence is as trusted as a shell.
+The module doc in `runtimes/lisp.rs` holds the full reasoning; `lisp_cannot_reach_the_host` pins only that the shadow list still matches Steel's names, not that the boundary holds.
+
+`lua` is the cautionary example (issue #278).
+It used `Lua::new()`, which loads `StdLib::ALL_SAFE` — and "safe" in mlua's vocabulary means *memory-safe*, not sandboxed.
+It excludes `debug` and `ffi` and **includes** `os` (which carries `execute`), `io` and `package`.
+`runtimes::lua::stdlib` now names the allowed set, and `LOADERS` strips the base-library loaders separately, because Lua's base library is not covered by any `StdLib` flag.
+
+**Execution is in-process and synchronous**, so a block that does not terminate does not hang "the block" — it hangs the TUI event loop, the desktop while it holds the workspace mutex, and `outl mcp serve` (issue #279).
+`Runtime::execute` must honour `ctx.timeout`, and there are two grades of doing so:
+
+| runtime | mechanism | stops the work? |
+|---|---|---|
+| `lua` | mlua `set_global_hook`, every 10k VM instructions, inside `sandbox::with_timeout` | yes for Lua code: the VM unwinds itself. A single long C call is released to the caller by the wrapper and ends when the call returns |
+| `rust` | wasmtime epoch interruption (`wasm::module`) | yes |
+| `python` | `sandbox::with_timeout` | no: caller released, thread leaks (bounded, see below) |
+| `lisp` (opt-in) | `sandbox::with_timeout` | no: caller released, thread leaks (bounded, see below) |
+| `js` | `sandbox::with_timeout` | no: caller released, thread leaks (bounded, see below) |
+| `query` | none — bounded by the workspace, not by a clock | n/a |
+| `echo` | none — returns its input | n/a |
+
+`set_global_hook`, not `set_hook`: the per-thread variant is not inherited by a coroutine the *script* creates, and mlua responds to a missing per-thread callback by disabling the hook — so `coroutine.wrap(function() while true do end end)()` ran unbounded.
+
+**A deadline does not bound memory.**
+It counts VM instructions, so it cannot fire inside one long C call — `string.rep('x', 2e9)` is a single instruction and two gigabytes.
+`ctx.mem_limit` is the other half, and `lua` is the only runtime that can honour it (`Lua::set_memory_limit`).
+`ExecContext::default()` and both `orchestrate` paths set it to `runtime::DEFAULT_MEM_LIMIT` (64 MiB), so a caller opts *out* of the cap, never in.
+A C call that is long without allocating is caught by neither hook nor allocator, which is why `lua` runs inside `with_timeout` as well: the caller is released at the deadline, and the hook ends the worker once the call returns.
+
+**The leak is bounded.**
+`with_timeout` counts workers whose caller gave up and that are still running, and refuses with `ExecError::Sandbox` once `MAX_RUNAWAY_WORKERS` (4) are live.
+A worker that finishes late hands its slot back, including by panicking (`WorkerSlot` is a `Drop` guard).
+Without the cap, one `while (true) {}` fence under `auto-run::` spawned a fresh core-burning thread per page load.
+`runaway_workers_are_bounded` pins it, against a budget of its own so it cannot refuse runs in other tests.
+
+The weak form is a deliberate trade, not an oversight: the alternative to a leaked thread is a frozen client.
+Before choosing it for a new runtime, check the interpreter for a cancellation point and record what you found.
+`sandbox`'s module doc holds that survey for the three above — including the one that looks like a cancellation point and is not: `steel`'s `with_interrupted` stores a flag the VM never reads.
+Re-check each on a dependency bump.
+
 ## Adding a new language runtime
 
 1. Add a `lang-<name>` feature in `Cargo.toml`.
 2. Create `runtimes/<name>.rs` with one struct + one `impl Runtime`.
 3. Register it in `RuntimeRegistry::with_builtins` behind the feature.
+3.5. **Answer the two questions in [What a block may reach, and for how long](#what-a-block-may-reach-and-for-how-long)**: name the host surface explicitly (allowlist, never the interpreter crate's default constructor) and say what happens at `ctx.timeout`.
+   Add both to `tests/sandbox.rs`.
+   Both holes this section describes — `lua` in issue 278 and `lisp` found reviewing its fix — were an embedder default nobody re-read, so this step is the one that would have caught them.
+   If the interpreter offers no allowlist (Steel does not), the answer is a non-default feature, not a longer denylist.
 4. Add aliases to `KNOWN_ALIASES` in `crates/outl-md/src/lang.rs` **and** the TS mirror at `crates/outl-frontend-shared/src/highlight/aliases.ts`.
 5. If the runtime needs workspace access, override `needs_workspace_index()` to `true`, read `ctx.index` first, and only build one from `ctx.workspace_root` when it is `None`.
 6. If the runtime should auto-run on page load, override `auto_run()` to return `true`.
@@ -128,7 +187,7 @@ Two paths trigger execution:
 
 - `outl-core` — for `Workspace`, `NodeId`, `HlcGenerator`.
 - `outl-md` — for `parse`, `render`, `reconcile_md`, `WorkspaceIndex`, `KNOWN_ALIASES`.
-- Language interpreters behind features: `steel-core` (lisp), `boa_engine` (js), `rustpython-vm` (python), `mlua` (lua), `wasmtime` (rust/wasm).
+- Language interpreters behind features: `steel-core` (lisp, opt-in), `boa_engine` (js), `rustpython-vm` (python), `mlua` (lua), `wasmtime` (rust/wasm).
 - The `query` runtime needs no external dependency — it runs against the in-process `WorkspaceIndex`.
 
 ## When you're done

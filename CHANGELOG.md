@@ -7,6 +7,13 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Added
 
+- **`UX.md` — the behaviour half of the design specification.**
+  `DESIGN.md` was carrying two documents. One of them answered *what it looks like* — roles, tokens, spacing, elevation — and the other, scattered through the Components, Do's-and-Don'ts, Platform-divergence and Accessibility sections, answered *what happens*: what a `Missing` verdict promises the user, why a nudge may not say "unimplemented", why a chord with no handler is worse than an error. The second document had no name, so nothing linked to it and every new interaction rule landed wherever it fit.
+
+  The split follows the [UX-context design](https://www.nngroup.com/articles/ux-context-design/) framing: research findings written as constraints rather than as insights, interaction patterns as rules, and the domain vocabulary written down once so three surfaces stop inventing three names for one operation. `UX.md` now owns the user models (who this is for, what they already know from Roam and Logseq, what makes them leave), the world models (offline for days, asleep during quiet hours, a phone with no `outl` binary and no `git`, a terminal with no OS appearance API, ~2,500 pages and ~64k blocks), eight principles that act as tie-breakers, the five channels a message can land in and which one each condition earns, the voice rules that `DEV_WORDS` already enforces in code, the glossary — including the words we deliberately do not use — and a findings table that traces each principle back to the incident that produced it.
+
+  **Nothing is duplicated between the two files**, per root `CLAUDE.md`'s one-owner rule: the visual half of a shared affordance stays in `DESIGN.md` and `UX.md` links to it. Two facts were also stale on the way out and are corrected rather than copied — the capability catalog has **9** rows, not 7, and the client-behaviour divergences (no chords on mobile, no character cursor on the desktop, `lookup()` reaching only the desktop) now sit in the file that owns behaviour instead of beside the ANSI-preset and colour-field-count rows that are genuinely visual.
+
 - **Nested tags and page namespaces — `#os/linux/debian` ([#275](https://github.com/outlmd/outl/issues/275)).**
   `#os/linux` already parsed, already resolved, already kept its name verbatim. What it did not do was anything a *hierarchy* implies: the `os` page had no idea `os/linux` existed, and a block tagged `#os/linux` was invisible to it. So the feature looked present and behaved like a coincidence — a page whose name happens to contain a slash.
 
@@ -140,6 +147,42 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   ([#13](https://github.com/outlmd/outl/issues/13))
 
 ### Fixed
+
+- **A `lua` code block could run arbitrary shell, and no interpreter honoured its timeout ([#278](https://github.com/outlmd/outl/issues/278), [#279](https://github.com/outlmd/outl/issues/279)).**
+  `runtimes/lua.rs` built its interpreter with `Lua::new()`, which loads mlua's `StdLib::ALL_SAFE` — and "safe" there means *memory-safe*, not sandboxed. It excludes `debug` and `ffi` and **includes** `os` (which carries `execute`), `io` and `package`. So a fenced ` ```lua ` block had a shell, arbitrary file read and write, and `getenv`, in 7ms:
+
+  ```
+  $ outl template run pwn --page host --block 01M2… --json
+  {"result":{"duration_ms":7,"exit":"Ok","stdout":"os:\ttable\tio:\ttable\nHOME:\t/Users/avelino\n"}}
+  $ ls /tmp/outl-exec-*.txt
+  /tmp/outl-exec-escape.txt   # io.open + write
+  /tmp/outl-exec-shell.txt    # os.execute
+  ```
+
+  **The reason this is a defect and not a feature is that a fence body is not always written by the person running it.** It arrives over iroh from a paired device, through `outl import` from someone else's graph, or under an LLM agent driving `outl_template_run` over MCP. Pairing a device is a decision about *sync*; it was silently also a decision about code execution on the host.
+
+  The fix is an allowlist, because a denylist fails open — the next mlua release that adds a library would grant it without anyone deciding to. `runtimes::lua::stdlib` names the permitted set (string, table, math, utf8, coroutine) and `LOADERS` strips `load` / `loadstring` / `loadfile` / `dofile` / `require` separately, since Lua's base library is not covered by any `StdLib` flag and a loader re-opens what the allowlist closed.
+
+  **The second half is that nothing stopped a block that never finished.** `runtime.rs` said implementations "**must** honour `ctx.timeout`"; `sandbox::with_timeout` had **zero callers in production**, and three of four runtimes took `_ctx` — discarding the argument. Measured: `while true do end` was still running after 20 seconds. Because execution is in-process and synchronous, that is not a stuck block — it is the TUI event loop frozen, the desktop wedged while holding the workspace mutex, and `outl mcp serve` hung with its agent waiting on it.
+
+  There are now two grades of stopping, and the difference is recorded rather than averaged over. `lua` gets a real abort through mlua's instruction hook: the VM unwinds itself, nothing leaks. `python`, `lisp` and `js` go through `sandbox::with_timeout`, which releases the caller but leaves the worker running until the process exits. That leak is a deliberate trade — the alternative is not "no leak", it is a frozen client — and each is the way it is for a reason worth re-checking on a dependency bump:
+
+  - **boa 0.22** — `RuntimeLimits` caps loop iterations, recursion and stack; nothing per-instruction or wall-clock, and `HostHooks` has no interrupt.
+  - **rustpython 0.5** — `eval_breaker_tripped` is `pub(crate)`, and the opcode trace hook only fires when a frame's `f_trace_opcodes` is set from Python.
+  - **steel 0.8.2** — `Engine::with_interrupted` takes an `Arc<AtomicBool>` and **the VM never reads it**. Every occurrence in the crate is a write. An API shaped like a cancellation point that is not one, and the reason the first attempt at this fix appeared to work and did not.
+
+  **Reviewing that fix found the same hole in `lisp`, which this change also closes.** `Engine::new()` registers `steel/filesystem`, `steel/process`, `steel/tcp` and `steel/http`, so a ```` ```lisp ```` fence had `command` (a shell), `open-output-file` and `tcp-connect` — never mentioned in issue 278 because nobody had looked. It now builds sandboxed and shadows the names that survive that (`HOST_BINDINGS`); the second half is a denylist, which fails open, and is held shut by a test rather than by design.
+
+  Two more escapes in the `lua` deadline, both found in review and both fixed:
+
+  - **A coroutine the script created ran with no deadline at all.** `Lua::set_hook` installs per Lua thread, and mlua resolves the per-thread callback through a registry table — a coroutine from `coroutine.create` is absent from it, and mlua's response is to *disable the hook*. `set_global_hook` is inherited by every thread.
+  - **`pcall` swallowed the deadline and the block reported success.** The hook raises an ordinary Lua error and `pcall` catches ordinary Lua errors, so `pcall(function() while true do end end) print('escaped')` returned `ExitStatus::Ok` with `escaped` written to the page. The expiry flag is now checked on the success path too, not only on the error path.
+
+  `docs/privacy.md` said the execution was bounded and sandboxed while neither was true; it now describes what the code does, including that a block may have arrived from a paired device and that finishing an edit on a `call:` block runs the template's code.
+
+  **This removes `os` and `io` from `lua` blocks entirely, and that is a breaking change for a note that used the harmless half.** `os.date('%Y')`, `os.time()` and `os.clock()` are gone along with `os.execute` and `os.getenv`, because they ship in the same `StdLib::OS` flag. Re-exposing the clock functions as a hand-built `os` table would keep the allowlist honest and is worth doing — but it is a feature, not part of closing the hole, so it stays out of this change. A `lua` block that formatted a date now traps with `attempt to index a nil value (global 'os')`.
+
+  `tests/sandbox.rs` pins both questions for every runtime in one place, so adding a language cannot answer them differently by omission. Its deadline assertions run the block on a worker thread and fail on a timeout rather than blocking — a red test for "it never returns" has to fail, not wedge CI.
 
 - **`outl peer remove` did not remove the device. Membership gossip put it back within about five seconds.**
   The receiver-side check landed earlier and was correct — an inbound sync connection from a device absent from `peers.json` is refused. What it could not survive was this project's own membership gossip, which broadcasts each device's peer list every 5s and merges anything it does not already know. Every *other* paired device still listed the removed one, so the entry came back and the check then passed honestly. A guard and its undo, shipped in the same binary.
