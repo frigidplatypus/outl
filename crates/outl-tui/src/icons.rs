@@ -24,6 +24,7 @@ pub(crate) struct IconSet {
     pub(crate) moon: &'static str,
     pub(crate) hashtag: &'static str,
     pub(crate) bell: &'static str,
+    pub(crate) play: &'static str,
 }
 
 impl IconSet {
@@ -37,7 +38,7 @@ impl IconSet {
     pub(crate) fn property_glyph(&self, key: &str) -> Option<&'static str> {
         match key.to_ascii_lowercase().as_str() {
             outl_md::remind::REMIND_KEY => Some(self.bell),
-            "auto-run" => Some("▶"),
+            "auto-run" => Some(self.play),
             "template" => Some(self.clipboard),
             _ => None,
         }
@@ -56,7 +57,7 @@ impl IconSet {
 
     pub(crate) fn command_glyph(&self, name: &str) -> &'static str {
         match name {
-            "run" => "▶",
+            "run" => self.play,
             "prop" => "≡",
             "search" | "find" => self.search,
             "theme" => self.paint_brush,
@@ -89,6 +90,7 @@ impl IconSet {
             moon: "🌙",
             hashtag: "#",
             bell: "⏰",
+            play: "▶",
         }
     }
 
@@ -110,6 +112,7 @@ impl IconSet {
             moon: "\u{f186}",
             hashtag: "\u{f292}",
             bell: "\u{f0f3}",
+            play: "\u{f04b}",
         }
     }
 }
@@ -142,5 +145,16 @@ mod tests {
             .calendar
             .chars()
             .any(|ch| (0xE000..=0xF8FF).contains(&(ch as u32))));
+    }
+
+    #[test]
+    fn play_routes_through_the_icon_set() {
+        let emoji = IconSet::new(TuiIconStyle::Emoji);
+        assert_eq!(emoji.property_glyph("auto-run"), Some("▶"));
+        assert_eq!(emoji.command_glyph("run"), "▶");
+
+        let nerd = IconSet::new(TuiIconStyle::NerdFont);
+        assert_eq!(nerd.property_glyph("auto-run"), Some("\u{f04b}"));
+        assert_eq!(nerd.command_glyph("run"), "\u{f04b}");
     }
 }

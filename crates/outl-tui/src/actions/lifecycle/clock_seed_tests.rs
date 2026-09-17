@@ -54,6 +54,7 @@ fn app_over(ws: Workspace, actor: ActorId) -> (App, TempDir) {
         actor,
         crate::theme::default_theme(),
         false,
+        outl_config::TuiIconStyle::Emoji,
     )
     .expect("App::new");
     (app, dir)

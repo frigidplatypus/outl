@@ -48,10 +48,15 @@ impl App {
         actor: ActorId,
         theme: Theme,
         shared_workspace: bool,
+        icon_style: outl_config::TuiIconStyle,
     ) -> Result<Self> {
         let orphans_log = workspace_root.join(".outl").join("orphans.log");
         let mut s = Self {
-            icons: crate::icons::IconSet::default(),
+            // Set before the first `load_current` below: that load stamps
+            // the parse-warning status chip with `icons.warning`, and a
+            // chip painted with the wrong set can never be cleared —
+            // the clear path only recognises its own marker.
+            icons: crate::icons::IconSet::new(icon_style),
             hlc: HlcGenerator::new(actor),
             workspace_root,
             workspace,

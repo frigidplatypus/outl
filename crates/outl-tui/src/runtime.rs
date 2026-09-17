@@ -418,8 +418,14 @@ fn event_loop(
     backlinks_newest_first: bool,
     icon_style: outl_config::TuiIconStyle,
 ) -> Result<()> {
-    let mut app = App::new(workspace_root, workspace, actor, theme, shared_workspace)?;
-    app.icons = crate::icons::IconSet::new(icon_style);
+    let mut app = App::new(
+        workspace_root,
+        workspace,
+        actor,
+        theme,
+        shared_workspace,
+        icon_style,
+    )?;
     app.backlinks_newest_first = backlinks_newest_first;
     loop {
         // Pick up the background index build if it finished since the

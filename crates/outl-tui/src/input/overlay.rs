@@ -366,6 +366,7 @@ mod properties_overlay_tests {
             actor,
             crate::theme::default_theme(),
             false,
+            outl_config::TuiIconStyle::Emoji,
         )
         .unwrap();
         app.page.blocks.clear();

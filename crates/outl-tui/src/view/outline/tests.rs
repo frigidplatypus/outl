@@ -19,6 +19,7 @@ fn test_app() -> (App, TempDir) {
         actor,
         crate::theme::default_theme(),
         false,
+        outl_config::TuiIconStyle::Emoji,
     )
     .unwrap();
     (app, dir)
