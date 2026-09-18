@@ -159,6 +159,26 @@ It refuses a page that already has a title, and reports a slug two spellings cla
 `descendants` returns rows with `depth` and `label` already computed, so the TUI's `view/namespace.rs` and the desktop / mobile `<NestedPages />` render the same list without three copies of the split rule.
 Per-client coverage is recorded as `Capability::NestedPages` (the TUI lists them but has no cursor in the list).
 
+## Opening an external file (`open_with`)
+
+`open_with.rs` owns the "Open With → outl" import: an OS gesture hands a client a `.md` / `.txt` that lives outside the workspace, and what lands is an ordinary page.
+User-facing contract: [`docs/clients.md` → Opening a file from the OS](../../docs/clients.md#opening-a-file-from-the-os-open-with--outl).
+
+Four decisions worth not re-litigating:
+
+- **The namespace is a title, never a slug.** `slugify` folds the `/`, so the page projects to `pages/open-in-<stem>.md` while `open-in` becomes a real parent page (same mechanism as [Page namespaces](#page-namespaces)).
+  **`import_into` calls `page::open_or_create` with the slug `slug_for` already resolved, never `resolve::open_or_create_by_name`.** The by-name path re-slugifies the title, and that is precisely how a non-ASCII stem (`会議メモ`) reached the namespace page: it folds to nothing, `open-in/<stem>` collapses to bare `open-in`, and the import lands on the parent. `slug_for` refuses that collision; going back through the by-name helper undoes it. Pinned by `a_non_latin_file_name_never_lands_on_the_namespace_page`.
+- **Re-opening a file does not import again.** The page carries `page-source::` (the canonicalised absolute path), and `resolve_target` returns `OpenWithTarget::Existing` when it matches. That key is in `tree::is_page_model_key`, so it **never reaches the `.md`** — the value is the user's directory structure, and `outl export hugo` copies unknown properties straight into published front matter. Hiding it costs nothing, because the check reads the op log and `outl_md::diff` only emits `SetProp` for properties the `.md` actually has. A second import would duplicate every block; overwriting would delete whatever the user wrote after the first import. Neither is acceptable, so the client navigates instead.
+  The same property is what stops two *different* files named `notes.md` from being merged into one page — the second becomes `open-in/notes 2`.
+  **The value is carried on `OpenWithTarget::New`, never recomputed at import time.** It used to be derived twice — once to match against, once to write — and a file that moved between the two made `canonicalize` fail on the second, so the page recorded the uncanonicalised path while the match had used the canonical one. The next open then failed to recognise its own page and minted `open-in/notes 2`: the duplicate the property exists to prevent, produced by the property itself. Pinned by `the_recorded_source_survives_the_file_moving_mid_import`.
+  **A `New` target is re-checked by `import_into`, on the workspace it is mutating.** A client resolves under a read lock and imports under the mutation lock, and two deliveries can both see the slug free in between. `open_or_create` would silently return the page the first one made, and the second would paste every block again and link the journal twice. So `import_into` asks `find_by_slug` again: the same `page-source::` means "already landed" and behaves as `Existing`; a different one is `ActionError::ExternalFileTargetTaken`, because picking the next free slug there would create a page under an id the caller's `commit_page` is not snapshotting or projecting. The client re-resolves and gets `open-in/notes 2`. Pinned by `a_stale_target_for_the_same_file_lands_on_the_page_that_won` and `a_stale_target_for_a_different_file_is_refused_not_merged`.
+- **`OpenWithTarget::page_id()` answers for a page that does not exist yet.** Page ids derive from the slug, which is what lets a client run the whole create + import inside one `commit_page`. `the_page_id_is_known_before_the_page_exists` pins it; if id derivation ever stops being deterministic, that commit would snapshot and project the wrong page.
+- **A new import is linked from today's journal.** outl is journal-first, and a page reachable only by search is a page the user forgets they have, so `import_into` appends `[[<title>]]` to today's journal. It is a ref rather than plain text, so the imported page answers "where did this come from" through its own backlinks.
+  That dirties **two** pages, and `commit_page` is scoped to one ([#264](https://github.com/outlmd/outl/issues/264)), which is why `import_into` returns `ImportOutcome { page, journal }` instead of a bare `NodeId` — the caller projects the journal itself. `journal` is `None` for an `Existing` target, which is what stops re-opening the same file five times from leaving five entries.
+
+`read_source` owns the three refusals (extension, size, non-UTF-8) so the wording exists once rather than per client.
+Content goes in through `paste::paste_markdown`, deliberately — a bulleted file lands as an outline and a bullet-free one as one block per line, which is the behaviour a paste of the same text already has.
+
 ## Page model
 
 Pages are **regular nodes** directly under [`NodeId::root`] tagged with a `page-slug` property.
