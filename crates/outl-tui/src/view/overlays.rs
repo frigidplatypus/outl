@@ -643,7 +643,7 @@ pub(crate) fn render_reminders(
             None => "—".to_string(),
         };
         let snoozed = if r.snoozed_until_ms.is_some() {
-            format!(" {}", app.icons.moon)
+            format!(" {}", app.icons.snooze)
         } else {
             String::new()
         };

@@ -410,7 +410,7 @@ fn open_workspace(
 #[allow(clippy::too_many_arguments)]
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    root: PathBuf,
+    workspace_root: PathBuf,
     workspace: Workspace,
     actor: ActorId,
     theme: Theme,
@@ -418,7 +418,17 @@ fn event_loop(
     backlinks_newest_first: bool,
     icon_style: outl_config::TuiIconStyle,
 ) -> Result<()> {
-    let mut app = App::new(root, workspace, actor, theme, shared_workspace, icon_style)?;
+    let mut app = App::new(
+        workspace_root,
+        workspace,
+        actor,
+        theme,
+        shared_workspace,
+        icon_style,
+    )?;
+    // Apply the persisted backlinks direction (issue #142); the field
+    // only feeds the render path, so setting it post-construction is
+    // enough and keeps it out of `App::new`'s already-long signature.
     app.backlinks_newest_first = backlinks_newest_first;
     loop {
         // Pick up the background index build if it finished since the
