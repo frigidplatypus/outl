@@ -22,6 +22,25 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
   **Mobile registers the command and has no way to be handed a file** — no share-sheet or document-type association is declared — and that gap is now a recorded fact rather than a discovery: `Capability::OpenExternalFile` in `outl_shortcuts::capability_support`, which is an exhaustive `match`, so the three clients had to declare a verdict before this compiled (root `CLAUDE.md` invariant 12). The TUI's verdict is `NotApplicable`: a file manager has no terminal process to hand a file to.
 
+- **Monochrome Nerd Font icons in the TUI, opt-in via `[tui] icons = "nerd-font"`.**
+  Every TUI icon — footer chips, fold markers, sidebar glyphs, palette/property/command glyphs — used to render as a colour emoji, with no way to turn that off.
+  Some terminals (alacritty without `font-emoji`, kitty in some configs, most tmux setups) either render them as broken boxes, double them with the surrounding text, or pick a fallback that disagrees with the rest of the UI's typography.
+  There was no supported way to get a compact monochrome outline.
+
+  `[tui] icons` now selects between two sets shipped from one `IconSet` in `outl-tui::icons`:
+  `"emoji"` (the default, byte-for-byte what the TUI rendered before) and `"nerd-font"` (Font Awesome 4 + Material Design codepoints from any patched font).
+  The selection is read once at boot in `runtime::run`, propagated to `App::icons`, and threaded through every view module that renders a glyph.
+  `property_glyph`, `category_glyph`, `command_glyph` and `fold_span` are now methods on `IconSet`, so a per-view "which glyph does this role take" question can no longer be answered twice.
+
+  **Emoji mode is pinned to upstream's literals by an exhaustive test** (`emoji_preserves_the_pre_iconset_glyphs`) that asserts every field value AND every `property_glyph` / `category_glyph` / `command_glyph` arm returns the byte sequence the pre-IconSet code returned.
+  The `📅`/`📆` and `🕐`/`🕒` pairs are split into `calendar`/`week` and `clock`/`stamp` fields for exactly that reason — the Emoji set must keep them distinct (the upstream `/week*` and `/stamp` commands render different glyphs from `/date*` and `/time*`), even though Nerd Font collapses each pair to one codepoint.
+  The mirror test (`nerd_font_uses_only_pua_glyphs`) walks every nerd field and refuses anything outside the three Unicode PUA planes, so a future contributor cannot quietly drop a colour emoji back into the Nerd Font set.
+  The same exhaustive `match` shape on a new Tauri command or wire DTO is what makes those safe; this is the same discipline applied to glyphs.
+
+  The desktop settings modal had a sibling defect on the way out — saving it stomped the `[tui]` block out of the global config because `TuiCfg` was not part of its round-trip.
+  The same hole existed for `[snapshot]` and `[storage]`, neither of which the modal models either: a save silently reset a hand-set boot-cache policy or op-log LRU cap to the defaults.
+  All three are now restored from disk on save, pinned by the extended `save_restores_the_sections_the_desktop_never_models` test.
+
 - **`UX.md` — the behaviour half of the design specification.**
   `DESIGN.md` was carrying two documents. One of them answered *what it looks like* — roles, tokens, spacing, elevation — and the other, scattered through the Components, Do's-and-Don'ts, Platform-divergence and Accessibility sections, answered *what happens*: what a `Missing` verdict promises the user, why a nudge may not say "unimplemented", why a chord with no handler is worse than an error. The second document had no name, so nothing linked to it and every new interaction rule landed wherever it fit.
 

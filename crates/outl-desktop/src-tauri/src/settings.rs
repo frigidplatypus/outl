@@ -261,6 +261,13 @@ fn restore_unmodeled_sections(cfg: &mut Config, on_disk: &Config) {
     // style or mouse-capture toggle (the `into()` conversion leaves
     // `TuiCfg::default()`, and a default here silently means "emoji").
     cfg.tui = on_disk.tui.clone();
+    // `[snapshot]` (boot-cache policy) and `[storage]` are core-managed and
+    // not modeled in the flat Settings; restore them so a modal save can't
+    // silently flip a hand-set snapshot toggle/threshold or storage choice
+    // back to the defaults — the same `[tui]`-style loss these restores exist
+    // to prevent.
+    cfg.snapshot = on_disk.snapshot.clone();
+    cfg.storage = on_disk.storage.clone();
     // `[theme]` (all three fields: `preset`, `preset_dark`, `mode`) is now
     // FULLY modeled in `Settings` — the modal owns the whole pair. Do NOT
     // add a restore-from-disk line for any of them here: that was the
@@ -417,12 +424,15 @@ mod tests {
     /// `[calendar]` / `[backup]` restores exist to prevent, and worse
     /// here because the default reads as the user's own opt-in.
     #[test]
-    fn save_restores_the_tui_section_the_desktop_never_models() {
+    fn save_restores_the_sections_the_desktop_never_models() {
         use outl_config::TuiIconStyle;
 
         let mut on_disk = Config::default();
         on_disk.tui.icons = TuiIconStyle::NerdFont;
         on_disk.tui.mouse_capture = true;
+        on_disk.snapshot.enabled = false;
+        on_disk.snapshot.op_threshold = 500;
+        on_disk.storage.lru_cap = 5_000;
 
         let mut cfg: Config = Settings::fresh().into();
         assert_eq!(
@@ -436,6 +446,16 @@ mod tests {
             cfg.tui, on_disk.tui,
             "[tui] is unmodelled by Settings and must be restored from disk — \
              dropping it wipes the user's icon style and mouse-capture opt-in"
+        );
+        assert_eq!(
+            cfg.snapshot, on_disk.snapshot,
+            "[snapshot] is unmodelled by Settings and must be restored from disk — \
+             dropping it silently flips the boot-cache policy back to the defaults"
+        );
+        assert_eq!(
+            cfg.storage, on_disk.storage,
+            "[storage] is unmodelled by Settings and must be restored from disk — \
+             dropping it silently flips the op-log LRU cap back to the default"
         );
     }
 }
