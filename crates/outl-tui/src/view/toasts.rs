@@ -78,10 +78,10 @@ pub(crate) fn render_toasts(f: &mut ratatui::Frame<'_>, full: Rect, app: &App) {
 
 fn icon_and_color(kind: ToastKind, icons: &IconSet) -> (&'static str, Color) {
     match kind {
-        ToastKind::Success => ("✓", Color::LightGreen),
-        ToastKind::Info => ("ℹ", Color::LightCyan),
+        ToastKind::Success => (icons.success, Color::LightGreen),
+        ToastKind::Info => (icons.info, Color::LightCyan),
         ToastKind::Warning => (icons.warning, Color::LightYellow),
-        ToastKind::Error => ("✕", Color::LightRed),
+        ToastKind::Error => (icons.error, Color::LightRed),
     }
 }
 

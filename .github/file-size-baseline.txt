@@ -80,7 +80,7 @@
 620 crates/outl-tui/src/actions/properties.rs
 661 crates/outl-tui/src/input/normal.rs
 646 crates/outl-tui/src/input/overlay.rs
-687 crates/outl-tui/src/runtime.rs
+697 crates/outl-tui/src/runtime.rs
 983 crates/outl-tui/src/state.rs
 725 crates/outl-tui/src/view/outline.rs
 1166 crates/outl-tui/src/view/overlays.rs

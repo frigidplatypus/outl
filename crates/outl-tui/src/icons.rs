@@ -15,12 +15,19 @@ use outl_config::TuiIconStyle;
 use ratatui::text::Span;
 
 /// Icons used by the TUI's own chrome and placeholders.
+///
+/// `calendar`/`week` and `clock`/`stamp` are split so Emoji mode can
+/// preserve the upstream glyphs (`📅`/`📆`, `🕐`/`🕒`) for the
+/// `/date` vs `/week` and `/time` vs `/stamp` commands respectively,
+/// even though Nerd Font collapses each pair to one codepoint.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct IconSet {
     pub(crate) calendar: &'static str,
+    pub(crate) week: &'static str,
     pub(crate) file: &'static str,
     pub(crate) image: &'static str,
     pub(crate) clock: &'static str,
+    pub(crate) stamp: &'static str,
     pub(crate) star: &'static str,
     pub(crate) history: &'static str,
     pub(crate) bolt: &'static str,
@@ -28,9 +35,15 @@ pub(crate) struct IconSet {
     pub(crate) cog: &'static str,
     pub(crate) paint_brush: &'static str,
     pub(crate) warning: &'static str,
+    /// Toast accents — one per `ToastKind` arm, so the four states do
+    /// not drift between Emoji and Nerd Font.
+    pub(crate) success: &'static str,
+    pub(crate) info: &'static str,
+    pub(crate) error: &'static str,
     pub(crate) save: &'static str,
     pub(crate) clipboard: &'static str,
-    pub(crate) moon: &'static str,
+    /// Snoozed-reminder chip in the reminders overlay.
+    pub(crate) snooze: &'static str,
     pub(crate) hashtag: &'static str,
     pub(crate) bell: &'static str,
     pub(crate) play: &'static str,
@@ -103,8 +116,8 @@ impl IconSet {
             n if n.starts_with("date") || n == "dt" || n == "dy" || n == "dtm" => self.calendar,
             n if n.starts_with("time") => self.clock,
             n if n.starts_with("iso") => self.hashtag,
-            n if n.starts_with("week") => self.calendar,
-            "stamp" => self.clock,
+            n if n.starts_with("week") => self.week,
+            "stamp" => self.stamp,
             _ => "·",
         }
     }
@@ -112,19 +125,24 @@ impl IconSet {
     fn emoji() -> Self {
         Self {
             calendar: "📅",
+            week: "📆",
             file: "📄",
             image: "🖼",
             clock: "🕐",
+            stamp: "🕒",
             star: "⭐",
             history: "🕘",
             bolt: "⚡",
-            search: "🔍",
+            search: "🔎",
             cog: "⚙",
             paint_brush: "🎨",
             warning: "⚠",
+            success: "✓",
+            info: "ℹ",
+            error: "✕",
             save: "💾",
             clipboard: "📋",
-            moon: "🌙",
+            snooze: "💤",
             hashtag: "🔢",
             bell: "⏰",
             play: "▶",
@@ -142,19 +160,24 @@ impl IconSet {
     fn nerd_font() -> Self {
         Self {
             calendar: "\u{f073}",
+            week: "\u{f073}",
             file: "\u{f016}",
             image: "\u{f03e}",
             clock: "\u{f017}",
+            stamp: "\u{f017}",
             star: "\u{f005}",
             history: "\u{f1da}",
             bolt: "\u{f0e7}",
             search: "\u{f002}",
             cog: "\u{f013}",
-            paint_brush: "\u{f1fc}",
+            paint_brush: "\u{f07c0}",
             warning: "\u{f071}",
+            success: "\u{f00c}",
+            info: "\u{f05a}",
+            error: "\u{f00d}",
             save: "\u{f0c7}",
             clipboard: "\u{f0ea}",
-            moon: "\u{f186}",
+            snooze: "\u{f1f6}",
             hashtag: "\u{f292}",
             bell: "\u{f0f3}",
             play: "\u{f04b}",
@@ -202,6 +225,59 @@ mod tests {
     }
 
     #[test]
+    fn nerd_font_uses_only_pua_glyphs() {
+        // Nerd Font mode renders nothing the user's font cannot
+        // draw as a single-colour cell. Every codepoint that ships
+        // in this set is in some Unicode PUA plane (BMP PUA,
+        // PUA-A in plane 15, or PUA-B in plane 16), so a terminal
+        // without a Nerd Font shows the well-known "missing box"
+        // glyph rather than a colour emoji.
+        fn in_some_pua(ch: char) -> bool {
+            let cp = ch as u32;
+            (0xE000..=0xF8FF).contains(&cp)
+                || (0xF0000..=0xFFFFD).contains(&cp)
+                || (0x100000..=0x10FFFD).contains(&cp)
+        }
+        let nerd = IconSet::new(TuiIconStyle::NerdFont);
+        for glyph in [
+            nerd.calendar,
+            nerd.week,
+            nerd.file,
+            nerd.image,
+            nerd.clock,
+            nerd.stamp,
+            nerd.star,
+            nerd.history,
+            nerd.bolt,
+            nerd.search,
+            nerd.cog,
+            nerd.paint_brush,
+            nerd.warning,
+            nerd.success,
+            nerd.info,
+            nerd.error,
+            nerd.save,
+            nerd.clipboard,
+            nerd.snooze,
+            nerd.hashtag,
+            nerd.bell,
+            nerd.play,
+            nerd.todo_chip,
+            nerd.editing,
+            nerd.freshness,
+            nerd.workspace,
+            nerd.backlinks,
+            nerd.fold_open,
+            nerd.fold_closed,
+        ] {
+            assert!(
+                glyph.chars().all(|ch| ch == ' ' || in_some_pua(ch)),
+                "nerd glyph must be PUA-only (or a padding space): {glyph:?}"
+            );
+        }
+    }
+
+    #[test]
     fn play_routes_through_the_icon_set() {
         let emoji = IconSet::new(TuiIconStyle::Emoji);
         assert_eq!(emoji.property_glyph("auto-run"), Some("▶"));
@@ -215,10 +291,82 @@ mod tests {
     #[test]
     fn emoji_preserves_the_pre_iconset_glyphs() {
         let emoji = IconSet::new(TuiIconStyle::Emoji);
-        assert_eq!(emoji.command_glyph("iso-date-today"), "🔢");
+
+        // Every field literal that used to be a hardcoded glyph in
+        // `view/outline.rs` / `view/overlays.rs` / `view/sidebar.rs` /
+        // `view/chrome.rs` / `view/inline.rs` / `view/toasts.rs`.
+        // Reverting any of these is a silent visual regression.
+        assert_eq!(emoji.calendar, "📅");
+        assert_eq!(emoji.week, "📆");
+        assert_eq!(emoji.file, "📄");
+        assert_eq!(emoji.image, "🖼");
+        assert_eq!(emoji.clock, "🕐");
+        assert_eq!(emoji.stamp, "🕒");
+        assert_eq!(emoji.star, "⭐");
+        assert_eq!(emoji.history, "🕘");
+        assert_eq!(emoji.bolt, "⚡");
+        assert_eq!(emoji.search, "🔎");
+        assert_eq!(emoji.cog, "⚙");
+        assert_eq!(emoji.paint_brush, "🎨");
+        assert_eq!(emoji.warning, "⚠");
+        assert_eq!(emoji.success, "✓");
+        assert_eq!(emoji.info, "ℹ");
+        assert_eq!(emoji.error, "✕");
+        assert_eq!(emoji.save, "💾");
+        assert_eq!(emoji.clipboard, "📋");
+        assert_eq!(emoji.snooze, "💤");
+        assert_eq!(emoji.hashtag, "🔢");
+        assert_eq!(emoji.bell, "⏰");
+        assert_eq!(emoji.play, "▶");
         assert_eq!(emoji.todo_chip, "☑");
+        assert_eq!(emoji.editing, "●");
+        assert_eq!(emoji.freshness, "⟳");
+        assert_eq!(emoji.workspace, "◌");
+        assert_eq!(emoji.backlinks, "⇇");
         assert_eq!(emoji.fold_open, "▼ ");
         assert_eq!(emoji.fold_closed, "▶ ");
+        assert_eq!(
+            emoji.fold_legend,
+            "              (▼ expanded · ▶ collapsed · synced via op log)"
+        );
+
+        // Property glyphs (was `view::outline::property_glyph`).
+        assert_eq!(
+            emoji.property_glyph(outl_md::remind::REMIND_KEY),
+            Some("⏰")
+        );
+        assert_eq!(emoji.property_glyph("auto-run"), Some("▶"));
+        assert_eq!(emoji.property_glyph("template"), Some("📋"));
+        assert_eq!(emoji.property_glyph("pinned"), None);
+
+        // Category glyphs (was `view::overlays::category_icon`).
+        assert_eq!(emoji.category_glyph("Actions"), "⚡");
+        assert_eq!(emoji.category_glyph("Navigation"), "↪");
+        assert_eq!(emoji.category_glyph("Search"), "🔎");
+        assert_eq!(emoji.category_glyph("Settings"), "⚙");
+        assert_eq!(emoji.category_glyph("Dates & time"), "📅");
+        assert_eq!(emoji.category_glyph("Other"), "•");
+
+        // Command glyphs (was `view::overlays::command_icon`).
+        assert_eq!(emoji.command_glyph("run"), "▶");
+        assert_eq!(emoji.command_glyph("prop"), "≡");
+        assert_eq!(emoji.command_glyph("search"), "🔎");
+        assert_eq!(emoji.command_glyph("find"), "🔎");
+        assert_eq!(emoji.command_glyph("theme"), "🎨");
+        assert_eq!(emoji.command_glyph("open"), "↪");
+        assert_eq!(emoji.command_glyph("switch"), "↪");
+        assert_eq!(emoji.command_glyph("quit"), "✕");
+        assert_eq!(emoji.command_glyph("q"), "✕");
+        assert_eq!(emoji.command_glyph("date-today"), "📅");
+        assert_eq!(emoji.command_glyph("dt"), "📅");
+        assert_eq!(emoji.command_glyph("dy"), "📅");
+        assert_eq!(emoji.command_glyph("dtm"), "📅");
+        assert_eq!(emoji.command_glyph("time-now"), "🕐");
+        assert_eq!(emoji.command_glyph("iso-date-today"), "🔢");
+        assert_eq!(emoji.command_glyph("week"), "📆");
+        assert_eq!(emoji.command_glyph("week-tag"), "📆");
+        assert_eq!(emoji.command_glyph("stamp"), "🕒");
+        assert_eq!(emoji.command_glyph("anything-else"), "·");
     }
 
     #[test]
