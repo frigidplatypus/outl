@@ -29,6 +29,8 @@
 //! - `state` — `AppState`, wire types (`PageView`, `WorkspaceSummary`).
 //! - `helpers` — argument parsers, workspace-lock acquisition,
 //!   `finish_in_page` (the mutation funnel).
+//! - `open_with` — the OS "Open With → outl" gesture (macOS
+//!   `RunEvent::Opened`, `argv` elsewhere) turned into one import.
 //! - `workspace_open` — open / reconcile / boot opener primitives.
 //! - `commands` — Tauri command surface split by responsibility
 //!   (`workspace`, `page`, `block`).
@@ -37,6 +39,7 @@ mod commands;
 mod fs_watcher;
 mod helpers;
 mod iroh_sync;
+mod open_with;
 mod plugin_service;
 mod settings;
 mod state;
@@ -59,11 +62,11 @@ use crate::commands::{
     get_window_decorations, import_asset_file, indent_block, instantiate_template_at,
     known_property_keys, list_action_support, list_all_pages, list_reminders,
     list_shortcut_bindings, list_templates_cmd, list_themes, mark_block_done, move_block_after,
-    move_block_down, move_block_up, next_day, open_asset, open_journal_for, open_page_by_slug,
-    open_ref, open_today_journal, outdent_block, outl_emoji_search, outl_peer_list,
-    outl_peer_pair_host, outl_peer_pair_join, outl_peer_remove, outl_peer_status, outl_sync_now,
-    page_backlinks, page_timeline, paste_block_after, paste_markdown_at, paste_plain_at,
-    plugin_config_set, plugin_install_official, plugin_keybindings, plugin_list,
+    move_block_down, move_block_up, next_day, open_asset, open_external_file, open_journal_for,
+    open_page_by_slug, open_ref, open_today_journal, outdent_block, outl_emoji_search,
+    outl_peer_list, outl_peer_pair_host, outl_peer_pair_join, outl_peer_remove, outl_peer_status,
+    outl_sync_now, page_backlinks, page_timeline, paste_block_after, paste_markdown_at,
+    paste_plain_at, plugin_config_set, plugin_install_official, plugin_keybindings, plugin_list,
     plugin_registry_list, plugin_run, plugin_secret_remove, plugin_secret_set, plugin_set_enabled,
     plugin_settings_describe, plugin_sync_hooks, plugin_toolbar, plugin_transform,
     plugin_transformers, plugin_uninstall, previous_day, read_asset_data_url, redo_page,
@@ -176,7 +179,20 @@ pub fn run() {
         // already running to `on_open_url` (Linux/Windows); the callback
         // only needs to surface the existing window. macOS routes the
         // URL to the running instance natively via Apple Event.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // Linux / Windows warm path for "Open With": the second
+            // process's `argv` carries the file. macOS never routes a
+            // file this way — it sends an Apple Event, which arrives as
+            // `RunEvent::Opened` below — so this is additive, not a
+            // second owner of the same delivery.
+            //
+            // `route`, not `dispatch`: "warm" means this process is
+            // running, not that its webview has mounted. Open a file
+            // during a slow workspace boot and the loading screen is
+            // still up, with no listener to receive the emit.
+            for path in open_with::file_paths_from_argv(argv) {
+                open_with::route(app, &path);
+            }
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_focus();
             }
@@ -202,6 +218,21 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
+        // A page load tears the frontend's `open-file://import` listener
+        // down with it. Clear the flag so a file opened mid-reload is
+        // buffered for the remount instead of emitted into nothing —
+        // the cold-start loss this buffer exists to prevent, arriving
+        // through a different door.
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started
+                && webview.label() == "main"
+            {
+                webview
+                    .app_handle()
+                    .state::<open_with::PendingOpenFile>()
+                    .listener_gone();
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
@@ -309,6 +340,16 @@ pub fn run() {
             });
             app.manage(plugins);
             app.manage(PendingDeepLink(parking_lot::Mutex::new(None)));
+            app.manage(open_with::PendingOpenFile::empty());
+
+            // Cold start on Linux / Windows: the file the user chose
+            // "Open With → outl" for is an argument. Buffer it — the
+            // frontend drains it in `AppShell`'s `onMount`, the same
+            // way it drains a cold-start deep link, because an emit
+            // here would land before any listener exists.
+            for path in open_with::file_paths_from_argv(std::env::args()) {
+                app.state::<open_with::PendingOpenFile>().offer(path);
+            }
 
             // `outl://` deep links (issue #98). On Linux (and Windows in
             // dev) the scheme is registered at runtime; bundled macOS /
@@ -397,7 +438,9 @@ pub fn run() {
             open_journal_for,
             open_page_by_slug,
             open_ref,
+            open_external_file,
             take_pending_deep_link,
+            crate::open_with::take_pending_open_file,
             previous_day,
             next_day,
             today_slug_cmd,
@@ -471,6 +514,26 @@ pub fn run() {
             plugin_secret_set,
             plugin_secret_remove,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running outl-desktop application");
+        .build(tauri::generate_context!())
+        .expect("error while building outl-desktop application")
+        .run(|app, event| {
+            // macOS delivers "Open With" as an Apple Event, which Tauri
+            // surfaces here — for a cold launch *and* for a running
+            // app, so this one arm covers both. `file_path_from`
+            // filters to `file://`, which is what keeps an `outl://`
+            // deep link (same event) from being navigated twice.
+            //
+            // `route` decides buffer-vs-emit from whether the frontend
+            // has actually announced itself. It must not be inferred
+            // from the window existing: `setup` creates that before the
+            // event loop starts, so every cold-start file looked warm
+            // and was emitted into a webview that had not mounted.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                for url in urls {
+                    crate::open_with::route(app, url.as_str());
+                }
+            }
+            let _ = (app, event);
+        });
 }
