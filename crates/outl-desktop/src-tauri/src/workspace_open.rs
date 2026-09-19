@@ -41,10 +41,13 @@ pub(crate) use outl_tauri_shared::workspace_open::{
 /// materialised become visible to the next read, no full reload
 /// required.
 ///
-/// Emits `workspace-reconciled` when the batch completes so a client
-/// that wants to refresh the current view can do so explicitly. The
-/// event fires only on completion of the batch, not per-page —
-/// keystroke-grained refreshes would be noisier than they help.
+/// Emits `workspace-reconciled` when the pass changed the tree, and
+/// `AppShell.tsx` (`onReconciled`) re-reads the active page and its lazy
+/// backlinks reply on it — the repaired `title::` values and the
+/// nested-pages rows would otherwise stay stale on the open screen until
+/// the next navigation. The event fires only on completion of the
+/// batch, not per-page — keystroke-grained refreshes would be noisier
+/// than they help.
 pub(crate) fn spawn_background_reconcile(
     workspace_slot: Arc<Mutex<Option<Workspace>>>,
     storage_root: PathBuf,
@@ -129,6 +132,35 @@ pub(crate) fn spawn_background_reconcile(
                     changed = true;
                 }
                 Err(e) => warn!("doubled-title repair: {e}"),
+            }
+        }
+
+        // Give an ingested page back the namespaced `title::` it never
+        // got (issue 275). `outl_actions::namespace` reads a page's
+        // hierarchy off its title, and a page that arrived as a `.md`
+        // has none — so the nested-pages section rendered empty for
+        // every namespace on an imported graph. The names are still in
+        // the mentions; this joins them back. Same shape as the repair
+        // above: idempotent, off the boot path, a no-op when clean.
+        {
+            let mut slot = workspace_slot.lock();
+            let Some(ws) = slot.as_mut() else {
+                return;
+            };
+            match outl_actions::repair_namespaced_titles(ws, &hlc) {
+                Ok(report) if report.is_clean() => {}
+                Ok(report) => {
+                    if !report.repaired.is_empty() {
+                        info!("recovered {} namespaced title(s)", report.repaired.len());
+                        changed = true;
+                    }
+                    // Reported, never guessed: two spellings of one slug
+                    // would make the choice a coin flip in the op log.
+                    for (slug, names) in &report.ambiguous {
+                        warn!("namespace title for `{slug}` is ambiguous: {names:?}");
+                    }
+                }
+                Err(e) => warn!("namespaced-title repair: {e}"),
             }
         }
 

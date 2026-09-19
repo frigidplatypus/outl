@@ -170,8 +170,15 @@ Fields are named for **what the surface is**, never what it looks like.
 the desktop paints it as an underlined link with a 40 %-opacity decoration, mobile renders the same
 token as a filled chip. The hue is one fact; the treatment is per-client.
 
+This file owns **what it looks like**.
+Its counterpart [`UX.md`](UX.md) owns **what happens** — who the user is, what they are in the middle of,
+how an interaction behaves, and what we say when a client cannot deliver it.
+An affordance has both halves; when they meet, the visual half is specified here and the behavioural half
+links back to it.
+
 Design reasoning that this file does not own:
 
+- [`UX.md`](UX.md) — user and world models, interaction patterns, voice, the domain glossary.
 - [`docs/theming.md`](docs/theming.md) — how a user picks a theme, all ten presets, per-client consumption.
 - [`docs/rfcs/0022-unified-design-tokens.md`](docs/rfcs/0022-unified-design-tokens.md) — why one namespace, rejected alternatives.
 - [`docs/shortcuts.md`](docs/shortcuts.md) — every chord.
@@ -515,35 +522,13 @@ Press feedback is `scale(0.96)` + `opacity 0.7` — the smallest transform that 
 ## Components
 
 The component surface is deliberately unequal across clients, and that inequality is a recorded fact,
-not an accident. `outl_shortcuts::support` and `outl_shortcuts::capability_support`
-(`crates/outl-shortcuts/src/`) are two exhaustive `match`es, so **a new `Action` or `Capability` does not
-compile until all three clients have declared their verdict**:
+not an accident: `outl_shortcuts::support` and `outl_shortcuts::capability_support` are two exhaustive
+`match`es, so a new `Action` or `Capability` does not compile until all three clients declare a verdict,
+and [`docs/client-parity.md`](docs/client-parity.md) is generated from them.
 
-```rust
-pub enum Support {
-    Full,                        // the client performs the action
-    Native(&'static str),        // the platform performs it — Backspace on an empty textarea
-    Partial(&'static str),       // reachable, not with the full semantics
-    Missing(&'static str),       // should exist here, doesn't yet — says what to do instead
-    NotApplicable(&'static str), // cannot exist here by construction — says why
-}
-```
-
-`Native` exists because "reachable" and "has a handler" are different questions, and a boolean would have
-forced that row to lie in one direction or the other.
-The reason string lives in the catalog, never in the client — a client that writes its own wording is a
-fourth copy of the fact. [`docs/client-parity.md`](docs/client-parity.md) is **generated** from those
-matches — 78 `Action` rows and 7 `Capability` rows across `Tui` / `Desktop` / `Mobile` — and pinned by
-`the_parity_doc_matches_the_code`:
-
-```sh
-OUTL_UPDATE_PARITY_DOC=1 cargo test -p outl-shortcuts
-```
-
-Two tests police the wording rather than the coverage: `every_degraded_state_explains_itself` rejects an
-empty reason, and `nudges_are_written_for_the_user_not_the_developer` bans "unimplemented", "no handler",
-"dispatcher" and four more, and requires more than 20 characters. A gap the user can see must be explained
-in the user's vocabulary.
+What each verdict promises the user, how the nudge is worded, and why the wording lives in the catalog
+rather than in a client are [`UX.md` → When a client cannot do the thing](UX.md#when-a-client-cannot-do-the-thing).
+What follows here is only what those components look like.
 
 ### Shared — `@outl/shared` (`crates/outl-frontend-shared/src/`)
 
@@ -615,14 +600,13 @@ appearance setting is what ended up casting the deciding vote.
 **Do** name a field for the surface it paints (`ref_link_fg`).
 **Don't** invent compound names (`inner_bold_in_quote`). If two surfaces genuinely share a style, share the field.
 
-**Do** record which clients lack a capability, in `support.rs` / `capability_support.rs`.
-**Don't** ship a chord with no handler. `y r` and `:` were listed as desktop chords for months; both were
-dead keys that logged to a console the user never opens.
-
 **Do** honour `prefers-reduced-motion` — mobile kills every keyframe animation under it and keeps only the
 press feedback, so a tap still confirms itself.
 **Don't** reintroduce a `dark:` variant to express a colour. The OS selects *which preset*; it never
 selects *which token name*.
+
+Behavioural do's and don'ts — declaring which clients lack a capability, never shipping a chord with no
+handler, where a refusal has to land — are [`UX.md` → Do's and don'ts](UX.md#dos-and-donts).
 
 ### The live exceptions, named
 
@@ -665,11 +649,13 @@ The TUI declares the gap rather than guessing — a permanent behaviour, recorde
 
 ## Platform divergence, and why each one exists
 
+Visual divergence only.
+Divergence in *what a client does* — no chords on mobile, no character cursor on the desktop, no automatic
+backups on iOS — is [`UX.md` → What each client can do](UX.md#what-each-client-can-do).
+
 | Divergence | Why |
 |---|---|
 | `default-dark` and `light` bypass the RGB path and build on ANSI named colours (`Color::Reset`, `Color::DarkGray`) | So the user's own terminal palette shows through. That is the point of those two presets, not a gap. |
-| The desktop has no character cursor inside the selected block | Its vim mode has only a selected block id. `x`/`X`/`D`/`C`/`s`/`r`/`f`/`F`/`~`/`e` surface one shared status-line nudge, written once in the catalog. |
-| Mobile binds no chords | Touch plus an on-screen keyboard. `docs/shortcuts.md` leaves its column blank rather than inventing a row. |
 | GUI clients read 28 of the 43 colour fields | The other 15 — `bold_fg`, `italic_fg`, `strike_fg`, `heading_fg`, `dim_fg`, `property_key_fg`, `property_value_fg`, `cursor_block_bg` / `_fg`, `cursor_caret_fg`, `list_selected_bg` / `_fg`, `hint`, `todo_done_body_fg`, `selected_bullet_fg` — are consumed by the TUI only. The GUI expresses those distinctions with weight (`font-semibold`), style (`italic`), opacity (`line-through opacity-70`) and the native caret. The fields stay in `Palette` because the TUI is a first-class client, not a fallback. |
 | Only the desktop resolves keystrokes through `outl_shortcuts::lookup()` | The TUI still dispatches Normal mode from its own `match` in `input/normal.rs`. Finishing that migration is open work, not a settled decision. |
 
@@ -678,11 +664,9 @@ The TUI declares the gap rather than guessing — a permanent behaviour, recorde
 - **Reduced motion** is honoured on mobile: `@media (prefers-reduced-motion: reduce)` sets `animation: none`
   on `.outl-fade-in`, `.outl-sheet-up`, `.outl-toast-in` and `.outl-skeleton`, drops the press `transform`,
   and keeps a 80ms opacity transition so a tap still confirms itself.
-- **Every icon-only control carries an `aria-label`** — 159 accessibility attributes across the two GUI
-  clients today. Labels are specific, not generic: `Delete page "{name}"`, `Delete ${noun()} ${chip.key}`,
-  `Expand` / `Collapse` computed from the block's actual state.
-- **Decorative structure is hidden**: indent guides are `aria-hidden="true"`, so a screen reader gets the
-  outline's nesting from the DOM tree, not from 22px-wide spacers.
+- **Whether an affordance can be reached at all** — labelling, hidden-but-keyboard-reachable chrome, touch
+  targets — is the behavioural half: [`UX.md` → Accessibility is a reach question](UX.md#accessibility-is-a-reach-question).
+  159 accessibility attributes across the two GUI clients today.
 - **Contrast is a preset-author obligation.** `outl-light` darkens the brand violet from `#a78bfa` to
   `#7c3aed` and replaces the lemon `#d6ff47` with `#65a30d` (lime-600) — the comment in
   `crates/outl-theme/src/presets.rs` says the lemon is *"unreadable on light bg"*. Reusing the dark

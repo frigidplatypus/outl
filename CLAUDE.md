@@ -417,6 +417,7 @@ Full review policy (Rust quality, hot paths, architecture, simplicity, testing) 
 - ❌ Rewriting a sidecar to agree with content you did not emit ops for (this is what *produces* the state invariant 8 defends against)
 - ❌ Fixing one direction of a `.md` ↔ tree divergence without stating what happens in the other
 - ❌ Rejecting a design over a cost the alternative pays too, or over a cost that was already there before your change (invariant 11 — attribute the cost before you let it decide)
+- ❌ Deriving a namespace from the slug, or `slugify` keeping `/` (it's in `title::`)
 - ❌ Comparing HLCs without actor tiebreak
 - ❌ Treating `Delete` as physical removal
 - ❌ Skipping tests because "the algorithm is the same as the paper"
@@ -425,7 +426,7 @@ Full review policy (Rust quality, hot paths, architecture, simplicity, testing) 
 - ❌ Adding an `Action`, or any cross-client capability, without recording which clients lack it (invariant 12)
 - ❌ Writing the "this isn't available here" wording in a client instead of in the catalog
 - ❌ Marking work "done" without `/check` passing
-- ❌ Re-introducing `"version"` in `crates/outl-mobile/src-tauri/tauri.conf.json` — Tauri must keep falling back to `Cargo.toml` (see "Versioning + TestFlight release" in `crates/outl-mobile/CLAUDE.md`)
+- ❌ Re-introducing `"version"` in `crates/outl-mobile/src-tauri/tauri.conf.json` — Tauri must keep falling back to `Cargo.toml` (see `outl-mobile/CLAUDE.md`)
 - ❌ Hand-writing a `#[tauri::command]` wrapper in a client crate, or taking only part of a `*_commands!` module.
   The surface is declared once in `wrappers/catalog.rs`; a client takes a whole module or adds a `DECLARED_GAPS` row with a reason.
 - ❌ Giving a shared command body a `&str` parameter — Tauri hands the wrapper an owned `String`.
@@ -439,12 +440,14 @@ Full review policy (Rust quality, hot paths, architecture, simplicity, testing) 
   The fix is to wrap the upstream API, not to write a parallel one.
 - ❌ A hex colour in a client stylesheet, or a `--color-outl-*` token with no `Palette` field behind it (invariant 13).
   [`DESIGN.md`](DESIGN.md) is the specification — roles, theming, spacing, components, and the live exceptions named so none is cited as precedent.
+  Its behavioural counterpart is [`UX.md`](UX.md): user and world models, interaction patterns, the voice rules a nudge has to pass, and the domain glossary.
 - ❌ Reintroducing a second token namespace "just for this client"
 
 ## When in doubt
 
 1. Read the relevant `docs/*.md`.
-   Anything visual — a colour, a token, spacing, a component, an interaction — starts at [`DESIGN.md`](DESIGN.md).
+   Anything visual — a colour, a token, spacing, a component — starts at [`DESIGN.md`](DESIGN.md).
+   Anything behavioural — what an interaction does, who it is for, what we say when a client cannot deliver it — starts at [`UX.md`](UX.md).
 2. Read the per-crate `CLAUDE.md`.
 3. Read the paper for sync stuff: <https://martin.kleppmann.com/papers/move-op.pdf>.
 4. Ask the user.

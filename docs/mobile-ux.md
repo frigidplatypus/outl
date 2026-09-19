@@ -8,6 +8,7 @@ The rules a contributor must not break stayed in `CLAUDE.md`.
 
 Platform plumbing has its own homes: [`docs/ios-platform.md`](ios-platform.md), [`docs/android-platform.md`](android-platform.md).
 Anything visual — colours, tokens, spacing, components — is specified in [`DESIGN.md`](../DESIGN.md).
+The behaviour rules these sections are instances of — the interaction patterns, the voice a nudge has to pass, which state converges — are in [`UX.md`](../UX.md).
 
 ## Opening a ref that may not exist yet
 
@@ -109,7 +110,7 @@ The two storage keys are pinned on both sides — `ToolbarStoreTests` in Swift, 
 Long-press a `` ```lang …``` `` block → "Run `<lang>`" fires `runCodeBlock`.
 Mobile's `src-tauri/src/exec.rs` is a **thin adapter** over `outl_actions::exec::run_code_block` (shared with desktop), wrapping the outcome with a refreshed `PageView`.
 The action only shows when `detectFence` matches; the backend re-validates in `run_block_at_index`, so a false-positive is a toast, not damage.
-Runtimes on iOS: **Lisp, JS, Python, Lua** — `lang-rust` is off in `Cargo.toml`.
+Runtimes on iOS: **JS, Python, Lua**. `lang-rust` is off in `Cargo.toml`, and `lang-lisp` is off everywhere by default (see [`docs/clients.md`](clients.md#running-code-blocks)).
 Flow + runtime-catalog rationale: [`docs/clients.md` → Running code blocks](clients.md#running-code-blocks).
 
 ## Insert template (structural templates)
