@@ -145,6 +145,10 @@ hex = "0.4"
 # (`.md` edited outside outl → recover the block's id from its old
 # text). MIT, no transitive deps, and already in the lock via clap.
 strsim = "0.11"
+# Byte-substring search for `BlockIndex::search_text` (#36). `memchr` is
+# already in the lock (via clap → regex), and its `Finder` is built once
+# per query then reused across every indexed block.
+memchr = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 # IANA timezone database — resolves a configured zone name ("Europe/London")
 # to the correct UTC offset per date (DST-aware), for `outl_actions::clock`.

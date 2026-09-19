@@ -37,7 +37,19 @@ fn build_index(blocks_total: usize, pages_count: usize) -> (BlockIndex, Vec<Stri
                 break;
             }
             let id = NodeId::new();
-            let text = format!("page {p} block {b} — decide backend item");
+            // Most blocks carry only common filler; a small fraction embed
+            // a rare token at a controlled position. This keeps every
+            // `search_text` query a *minority* match, so the cost the
+            // benches measure is the linear scan over the non-matching
+            // blocks (where memchr's finder earns its keep), not the
+            // post-scan sort. `bench_resolve` only reads handles, so the
+            // text shape is free to be search-specific.
+            let text = match b % 16 {
+                0 => format!("alpha {p} {b} record item"),
+                1 => format!("record {p} {b} omega item"),
+                2 => format!("alpha {p} {b} omega backend item"),
+                _ => format!("page {p} block {b} — decide backend item"),
+            };
             let handle = derive_ref_handle(id);
             handles.push(handle.clone());
             sidecar.push(SidecarBlock {
@@ -73,19 +85,48 @@ fn bench_resolve(c: &mut Criterion) {
 
 fn bench_search(c: &mut Criterion) {
     let mut group = c.benchmark_group("block_index_search");
-    // Search costs scale with workspace size; cap samples on the
-    // large variant so the bench finishes in under a minute on a
-    // dev laptop.
+    // Search costs scale with workspace size; cap samples on the large
+    // variant so the four scenarios × three sizes finish in a couple of
+    // minutes on a dev laptop.
     group.sample_size(30);
+    // Each query matches a small minority of the corpus (see
+    // `build_index`): the rare tokens `alpha` / `omega` land in ~6-12% of
+    // blocks, so the measured cost is the linear scan, not the sort.
     for &n in &[1_000usize, 10_000, 100_000] {
         let pages = (n / 10).max(1);
         let (idx, _) = build_index(n, pages);
-        group.bench_with_input(BenchmarkId::from_parameter(n), &"backend", |bencher, q| {
+        group.bench_with_input(BenchmarkId::new("prefix_hit", n), &"alpha", |bencher, q| {
             bencher.iter(|| {
                 let hits = idx.search_text(black_box(q), 8);
                 black_box(hits);
             });
         });
+        group.bench_with_input(BenchmarkId::new("middle_hit", n), &"omega", |bencher, q| {
+            bencher.iter(|| {
+                let hits = idx.search_text(black_box(q), 8);
+                black_box(hits);
+            });
+        });
+        group.bench_with_input(
+            BenchmarkId::new("miss", n),
+            &"zzzznotfound",
+            |bencher, q| {
+                bencher.iter(|| {
+                    let hits = idx.search_text(black_box(q), 8);
+                    black_box(hits);
+                });
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("multi_word", n),
+            &"alpha omega",
+            |bencher, q| {
+                bencher.iter(|| {
+                    let hits = idx.search_text(black_box(q), 8);
+                    black_box(hits);
+                });
+            },
+        );
     }
     group.finish();
 }

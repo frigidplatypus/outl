@@ -276,3 +276,96 @@ fn mismatched_content_hash_skips_block_indexing() {
     idx.collect_page("p", &PathBuf::from("pages/p.md"), &ast.blocks, &stale);
     assert_eq!(idx.block_count(), 0, "stale sidecar entry must not index");
 }
+
+#[test]
+fn search_text_finds_query_at_end_of_text() {
+    let mut idx = BlockIndex::default();
+    let id = NodeId::new();
+    let md = "- a long sentence ending with needle\n";
+    let ast = parse(md);
+    let sidecar = vec![sb(id, "a long sentence ending with needle", 1, 0)];
+    idx.collect_page("p", &PathBuf::from("pages/p.md"), &ast.blocks, &sidecar);
+
+    let hits = idx.search_text("needle", 5);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, id);
+}
+
+#[test]
+fn search_text_handles_multibyte_utf8() {
+    let mut idx = BlockIndex::default();
+    let id = NodeId::new();
+    let md = "- café crême brulée\n";
+    let ast = parse(md);
+    let sidecar = vec![sb(id, "café crême brulée", 1, 0)];
+    idx.collect_page("p", &PathBuf::from("pages/p.md"), &ast.blocks, &sidecar);
+
+    assert_eq!(idx.search_text("café", 5).len(), 1);
+    assert_eq!(idx.search_text("CAFÉ", 5).len(), 1);
+    assert_eq!(idx.search_text("crême", 5).len(), 1);
+    // No Unicode normalization at index or query time (issue #36 open
+    // question, left unresolved on purpose): `to_lowercase` folds case but
+    // never folds `é` to `e`, so an unaccented query is correctly a miss.
+    assert_eq!(idx.search_text("CAFE", 5).len(), 0);
+}
+
+#[test]
+fn search_text_handles_multi_word_query() {
+    let mut idx = BlockIndex::default();
+    let id = NodeId::new();
+    let md = "- decide the storage backend approach\n";
+    let ast = parse(md);
+    let sidecar = vec![sb(id, "decide the storage backend approach", 1, 0)];
+    idx.collect_page("p", &PathBuf::from("pages/p.md"), &ast.blocks, &sidecar);
+
+    assert_eq!(idx.search_text("storage backend", 5).len(), 1);
+    assert_eq!(idx.search_text("backend approach", 5).len(), 1);
+    assert!(idx.search_text("nonexistent phrase", 5).is_empty());
+}
+
+#[test]
+fn search_text_distinguishes_near_misses() {
+    let mut idx = BlockIndex::default();
+    let id_hit = NodeId::new();
+    let id_miss = NodeId::new();
+    let md = "- deciding\n- the backend\n";
+    let ast = parse(md);
+    // Sidecar order must match AST order: the disk path pairs them
+    // positionally and drops a block whose content_hash disagrees.
+    let sidecar = vec![
+        sb(id_miss, "deciding", 1, 0),
+        sb(id_hit, "the backend", 2, 0),
+    ];
+    idx.collect_page("p", &PathBuf::from("pages/p.md"), &ast.blocks, &sidecar);
+
+    let hits = idx.search_text("backend", 5);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, id_hit);
+}
+
+#[test]
+fn search_text_single_char_query() {
+    let mut idx = BlockIndex::default();
+    let id = NodeId::new();
+    let md = "- hello world\n";
+    let ast = parse(md);
+    let sidecar = vec![sb(id, "hello world", 1, 0)];
+    idx.collect_page("p", &PathBuf::from("pages/p.md"), &ast.blocks, &sidecar);
+
+    assert_eq!(idx.search_text("w", 5).len(), 1);
+    assert_eq!(idx.search_text("Z", 5).len(), 0);
+}
+
+#[test]
+fn search_text_long_query_beyond_text_length() {
+    let mut idx = BlockIndex::default();
+    let id = NodeId::new();
+    let md = "- short\n";
+    let ast = parse(md);
+    let sidecar = vec![sb(id, "short", 1, 0)];
+    idx.collect_page("p", &PathBuf::from("pages/p.md"), &ast.blocks, &sidecar);
+
+    assert!(idx
+        .search_text("short text that is much longer than the block itself", 5)
+        .is_empty());
+}

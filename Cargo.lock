@@ -6515,6 +6515,7 @@ dependencies = [
  "criterion",
  "emojis",
  "hex",
+ "memchr",
  "outl-core",
  "proptest",
  "serde",

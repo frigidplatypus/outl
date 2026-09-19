@@ -230,18 +230,20 @@ impl BlockIndex {
     ///      autocomplete order stays deterministic across rebuilds.
     ///
     /// Uses the precomputed [`BlockEntry::text_fold`] so per-keystroke
-    /// cost stays O(blocks). The bench in `#12` measures the upper
-    /// bound; a fzf-style scorer can drop in later behind this
-    /// signature without affecting callers.
+    /// cost stays O(blocks). memchr's optimized byte finder
+    /// ([`memchr::memmem::Finder`]) is built once per query and reused
+    /// across every block, which is where the throughput win lives
+    /// (issue #36).
     pub fn search_text(&self, query: &str, limit: usize) -> Vec<&BlockEntry> {
         if query.is_empty() {
             return Vec::new();
         }
         let needle = query.to_lowercase();
+        let finder = memchr::memmem::Finder::new(needle.as_bytes());
         let mut hits: Vec<(&BlockEntry, usize)> = self
             .blocks
             .values()
-            .filter_map(|b| b.text_fold.find(&needle).map(|pos| (b, pos)))
+            .filter_map(|b| finder.find(b.text_fold.as_bytes()).map(|pos| (b, pos)))
             .collect();
         hits.sort_by(|(a, ap), (b, bp)| {
             ap.cmp(bp)
