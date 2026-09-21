@@ -169,19 +169,35 @@ impl App {
     /// in the outline and silently drop the one they just typed.
     fn property_rows(&self, scope: PropertyScope) -> Vec<(String, String)> {
         match scope {
+            // Outl's own bookkeeping (`from-template`, `id`, `collapsed`) is
+            // hidden here too, matching the outline row and both GUI clients'
+            // property sheets. Consequence worth naming: with the outline and
+            // this editor both hiding it, clearing a stray `from-template`
+            // from the TUI means editing the raw `.md` — the same posture the
+            // mobile sheet takes.
             PropertyScope::Block => path_for_index(&self.page.blocks, self.selected)
                 .and_then(|path| node_at_path(&self.page.blocks, &path))
-                .map(|node| node.properties.clone())
+                .map(|node| {
+                    node.properties
+                        .iter()
+                        .filter(|(k, _)| !outl_actions::property::is_internal_key(k))
+                        .cloned()
+                        .collect()
+                })
                 .unwrap_or_default(),
             // `page-slug` / `page-kind` are the page's identity, not
             // user metadata. `outl_actions::tree` owns that predicate;
             // asking it here keeps the overlay from ever offering the
-            // two keys that would rewrite the page's identity.
+            // two keys that would rewrite the page's identity. Bookkeeping
+            // keys are hidden alongside them, per `is_internal_key`.
             PropertyScope::Page => self
                 .page
                 .properties
                 .iter()
-                .filter(|(k, _)| !outl_actions::tree::is_page_model_key(k))
+                .filter(|(k, _)| {
+                    !outl_actions::tree::is_page_model_key(k)
+                        && !outl_actions::property::is_internal_key(k)
+                })
                 .cloned()
                 .collect(),
         }

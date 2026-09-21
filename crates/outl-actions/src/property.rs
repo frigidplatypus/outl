@@ -71,24 +71,44 @@ pub fn known_keys(workspace: &Workspace) -> Vec<(String, usize)> {
     out
 }
 
+/// Whether a key is outl's own bookkeeping rather than the user's metadata.
+///
+/// The single owner of the hide policy every client applies to a block's
+/// property row and its property editor: `from-template` (how a template
+/// instance is traced back, written by the template engine), and `id` /
+/// `collapsed`, which arrive with imported Logseq graphs and mean nothing
+/// to outl's own model. A user never authors these and cannot act on them,
+/// so surfacing them in the outline is noise.
+///
+/// **Presentation-only, never a permission.** The predicate hides a key from
+/// a render and from a listing; it never stops `set_property` writing it,
+/// and it never stops `outl_md::render` putting it in the `.md`. The op log
+/// and the `.md` stay complete — this is the outline row, not the data.
+///
+/// Case-insensitive, matching the dialect's own key folding. Note the
+/// page-identity keys (`page-slug`, `page-kind`) are **not** internal in
+/// this sense — they are structural and owned by
+/// [`crate::tree::is_page_model_key`], which the same renderers consult
+/// separately. Mirrored by `INTERNAL_KEYS` in
+/// `@outl/shared/markdown/properties` (a const can't cross the Rust/TS
+/// boundary, so the two are edited together and pinned on both sides).
+pub fn is_internal_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        crate::template::FROM_TEMPLATE_KEY | "id" | "collapsed"
+    )
+}
+
 /// Whether a key belongs in an "add a property" menu.
 ///
 /// Excludes the page model's own fields (via
-/// [`crate::tree::is_page_model_key`]) plus the bookkeeping a user
-/// never authors by hand: `from-template` (how a template instance is
-/// traced back), and `id` / `collapsed`, which arrive with imported
-/// Logseq graphs and mean nothing to outl's own model.
+/// [`crate::tree::is_page_model_key`]) plus outl's own bookkeeping (via
+/// [`is_internal_key`]).
 ///
 /// This is about *suggesting*, not about permission: a user who types
 /// `collapsed` still gets it written. The menu just does not propose it.
 fn is_suggestable_key(key: &str) -> bool {
-    if crate::tree::is_page_model_key(key) {
-        return false;
-    }
-    !matches!(
-        key.to_lowercase().as_str(),
-        crate::template::FROM_TEMPLATE_KEY | "id" | "collapsed"
-    )
+    !crate::tree::is_page_model_key(key) && !is_internal_key(key)
 }
 
 /// Clean up what a user typed into a property key.
@@ -311,6 +331,35 @@ mod tests {
 
         let keys: Vec<String> = known_keys(&ws).into_iter().map(|(k, _)| k).collect();
         assert_eq!(keys, vec!["related".to_string()], "got {keys:?}");
+    }
+
+    #[test]
+    fn is_internal_key_pins_the_hide_set() {
+        // This set is the single owner of which keys every client hides from
+        // the outline row and the property editor. It must equal
+        // `INTERNAL_KEYS` in `@outl/shared/markdown/properties` — a new
+        // bookkeeping key added to one side and not the other is exactly the
+        // per-client drift this predicate exists to prevent.
+        for key in ["from-template", "id", "collapsed"] {
+            assert!(is_internal_key(key), "{key} must be internal");
+        }
+        // Casing follows the dialect's own folding.
+        assert!(is_internal_key("From-Template"));
+        assert!(is_internal_key("COLLAPSED"));
+        // The user's own keys and the reminder glyph are not hidden.
+        for key in [
+            "priority",
+            "related",
+            outl_md::remind::REMIND_KEY,
+            "template",
+        ] {
+            assert!(!is_internal_key(key), "{key} must not be internal");
+        }
+        // The page-identity pair is *structural*, not internal here — it is
+        // owned by `is_page_model_key`, and conflating the two predicates is
+        // how a renderer ends up refusing the wrong hide.
+        assert!(!is_internal_key("page-slug"));
+        assert!(!is_internal_key("page-kind"));
     }
 
     #[test]

@@ -225,7 +225,11 @@ pub(crate) fn render_block(
         text_width,
     );
 
-    for (k, v) in &b.properties {
+    for (k, v) in b
+        .properties
+        .iter()
+        .filter(|(k, _)| !outl_actions::property::is_internal_key(k))
+    {
         let mut prop_spans: Vec<Span<'_>> = Vec::new();
         for _ in 0..indent {
             prop_spans.push(Span::styled("│ ", app.theme.dim));
@@ -787,6 +791,32 @@ mod tests {
         // re-indents under the text column (two leading spaces).
         assert!(line_text(&lines[0]).contains("- "));
         assert!(line_text(&lines[1]).starts_with("  "));
+    }
+
+    /// Outl's own bookkeeping keys (`from-template`, `id`, `collapsed`)
+    /// are hidden from the outline row, matching both GUI clients' chip
+    /// row. The hide is presentation-only (see
+    /// `outl_actions::property::is_internal_key`); a user's own property
+    /// on the same block must still render.
+    #[test]
+    fn internal_keys_are_hidden_from_the_outline() {
+        let (mut app, _dir) = test_app();
+        app.page = outl_md::parse::parse(
+            "- meeting notes\n  from-template:: Weekly sync\n  related:: roadmap",
+        );
+        app.selected = 0;
+        app.mode = Mode::Normal;
+
+        let (lines, _, _) = render_outline(&app.page, &app, 80);
+        let all = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
+        assert!(
+            !all.contains("from-template"),
+            "internal key leaked into the outline:\n{all}"
+        );
+        assert!(
+            all.contains("related:: roadmap"),
+            "a user's own property must still render:\n{all}"
+        );
     }
 
     /// A level-2 header in pretty mode draws the header glyph in the

@@ -328,6 +328,36 @@ mod tests {
         assert!(!app.has_pending_save());
     }
 
+    // The outline view hides outl's own bookkeeping keys via
+    // `is_internal_key`. That filter is presentation-only and must never
+    // bleed into the persist path: if `from-template` stopped reaching the
+    // `.md`, the template engine's provenance would vanish on the next
+    // edit with no op accounting for the loss (root CLAUDE.md invariant 8
+    // — the `.md` fell ahead of / behind the log). The persist path
+    // renders the AST through `outl_md::render`, a different code path
+    // from the ratatui outline; this pins the two stayed separate.
+    #[test]
+    fn hiding_internal_keys_in_the_outline_never_reaches_the_md() {
+        let (mut app, _dir) = fresh_app();
+        app.page.blocks.clear();
+        app.page.blocks.push(outl_md::parse::OutlineNode {
+            text: "meeting notes".to_string(),
+            children: vec![],
+            properties: vec![("from-template".to_string(), "Weekly sync".to_string())],
+        });
+        app.flat_len = 1;
+        app.selected = 0;
+
+        app.save();
+        app.flush_pending_save();
+
+        let on_disk = std::fs::read_to_string(app.current_path()).unwrap();
+        assert!(
+            on_disk.contains("from-template") && on_disk.contains("Weekly sync"),
+            "the outline's hide is presentation-only; the .md must keep the property, got: {on_disk:?}"
+        );
+    }
+
     // The load-bearing guarantee: navigation reparses the page from
     // disk, so it must flush a pending edit first. Without the flush in
     // `load_current_no_autorun`, the reparse would silently drop the

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { propertyChips, remindRule } from "./properties";
+import { isInternalKey, propertyChips, remindRule } from "./properties";
 
 describe("propertyChips", () => {
   it("gives a known key its glyph and hides the key name", () => {
@@ -41,6 +41,34 @@ describe("propertyChips", () => {
   it("is empty for a block with no properties", () => {
     expect(propertyChips([])).toEqual([]);
     expect(propertyChips(undefined)).toEqual([]);
+  });
+});
+
+describe("isInternalKey", () => {
+  it("pins the hide set to the Rust mirror", () => {
+    // Must equal `is_internal_key` in `outl-actions/src/property.rs`
+    // (`is_internal_key_pins_the_hide_set`). A bookkeeping key added to
+    // one language and not the other is exactly the per-client drift the
+    // predicate exists to prevent — hence the explicit set, not just the
+    // `propertyChips` behaviour above.
+    for (const key of ["from-template", "id", "collapsed"]) {
+      expect(isInternalKey(key)).toBe(true);
+    }
+    // Casing follows the dialect's own folding.
+    expect(isInternalKey("From-Template")).toBe(true);
+    expect(isInternalKey("COLLAPSED")).toBe(true);
+    // The user's own keys, the reminder glyph, and the structural
+    // page-identity pair (owned by `is_page_model_key`, not internal).
+    for (const key of [
+      "priority",
+      "related",
+      "remind",
+      "template",
+      "page-slug",
+      "page-kind",
+    ]) {
+      expect(isInternalKey(key)).toBe(false);
+    }
   });
 });
 
