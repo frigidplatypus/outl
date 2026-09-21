@@ -98,10 +98,53 @@ The `from-template::` property is what surfaces this instance in the
 template page's backlinks panel (see [Traceability](#traceability)); it
 never appears inline in the rendered `.md` body.
 
+### Where the clones land (`insert::`)
+
+By default a structural template's blocks nest **under** the block you
+invoke it on, as its children.
+A template that should sit *beside* that block, at its own level, opts
+out with `insert:: after` on the template page:
+
+```markdown
+templates/meeting-notes
+template:: meeting-notes
+insert:: after
+
+- ## Meeting with {{page}} {{time}}
+  - TODO action items
+```
+
+Invoked on a `## Projects` block, `insert:: after` stamps the meeting as
+a **sibling** (a second `##` heading at the same level), not buried
+inside `## Projects`:
+
+```markdown
+- ## Projects
+- ## Meeting with client-acme 14:30
+  from-template:: meeting-notes
+  - TODO action items
+```
+
+| `insert::` value | Effect |
+|---|---|
+| *(absent)* or `under` | Clone nests as children of the invoked block (the default) |
+| `after` | Clone is inserted as siblings, immediately after the invoked block, at its level |
+
+The anchor is a **template-page** property — it lives in the op log like
+any other property and is never copied onto the instances it shapes.
+Only the root blocks honour it; a template's nested children always nest
+under their own cloned parent.
+When a template is applied to a whole page (a CLI `outl template apply
+--page X` with no `--block`), `after` falls back to appending, since a
+page has no block siblings.
+An unrecognised value is logged and treated as `under`.
+
 ### TUI
 
 Type `/template <name>` (or `/tpl <name>`) in the slash menu.
-The template blocks land as children of the selected block.
+The template blocks land as children of the selected block, unless the
+template declares `insert:: after` (see
+[Where the clones land](#where-the-clones-land-insert)).
 
 ### CLI
 
@@ -279,6 +322,7 @@ Constants:
 | `TEMPLATE_KEY` | `template` |
 | `FROM_TEMPLATE_KEY` | `from-template` |
 | `PARAMS_KEY` | `params` |
+| `INSERT_KEY` | `insert` |
 
 ## Using templates from plugins
 
