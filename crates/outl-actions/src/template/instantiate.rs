@@ -103,6 +103,12 @@ pub(crate) fn instantiate_template_traced(
     let mut new_ids = Vec::with_capacity(template_children.len());
     let mut prev = target_block; // anchor for the `after` sibling chain
 
+    let clone_ctx = CloneCtx {
+        vars: &ctx,
+        template_slug: &template_slug,
+        trace,
+    };
+
     for (template_id, _) in template_children {
         let raw_text = batch.block_text(template_id).unwrap_or_default();
         let substituted = substitute_vars(&raw_text, &ctx);
@@ -113,17 +119,7 @@ pub(crate) fn instantiate_template_traced(
             append_block(&mut batch, hlc, Some(target_block), Some(&substituted))?
         };
 
-        finish_clone(
-            &mut batch,
-            hlc,
-            template_id,
-            new_id,
-            &ctx,
-            &template_slug,
-            true,
-            trace,
-            0,
-        )?;
+        finish_clone(&mut batch, hlc, template_id, new_id, true, &clone_ctx, 0)?;
 
         prev = new_id;
         new_ids.push(new_id);
@@ -131,6 +127,17 @@ pub(crate) fn instantiate_template_traced(
 
     batch.commit()?;
     Ok(new_ids)
+}
+
+/// Per-invocation context threaded through every clone in one
+/// template instantiation: the variable context for substitution, the
+/// template's own slug for the `from-template` trace, and whether
+/// tracing is on. Bundled so the clone helpers stay under clippy's
+/// argument limit instead of carrying an `allow`.
+struct CloneCtx<'a> {
+    vars: &'a VarContext,
+    template_slug: &'a str,
+    trace: bool,
 }
 
 /// Finish cloning one template block that has just been created as
@@ -143,41 +150,28 @@ pub(crate) fn instantiate_template_traced(
 /// `create_after` (sibling chain); descendants always nest under their
 /// cloned parent. Everything after creation is identical, so it lives
 /// here once.
-#[allow(clippy::too_many_arguments)]
 fn finish_clone(
     workspace: &mut Workspace,
     hlc: &HlcGenerator,
     template_id: NodeId,
     new_id: NodeId,
-    ctx: &VarContext,
-    template_slug: &str,
     is_root_level: bool,
-    trace: bool,
+    ctx: &CloneCtx,
     depth: usize,
 ) -> Result<(), ActionError> {
-    copy_block_properties(workspace, hlc, template_id, new_id, ctx)?;
+    copy_block_properties(workspace, hlc, template_id, new_id, ctx.vars)?;
 
-    if is_root_level && trace {
+    if is_root_level && ctx.trace {
         set_property(
             workspace,
             hlc,
             new_id,
             FROM_TEMPLATE_KEY,
-            Some(PropValue::Text(template_slug.to_string())),
+            Some(PropValue::Text(ctx.template_slug.to_string())),
         )?;
     }
 
-    clone_children_recursive(
-        workspace,
-        hlc,
-        template_id,
-        new_id,
-        ctx,
-        template_slug,
-        false,
-        trace,
-        depth + 1,
-    )?;
+    clone_children_recursive(workspace, hlc, template_id, new_id, ctx, depth + 1)?;
 
     Ok(())
 }
@@ -186,17 +180,13 @@ fn finish_clone(
 /// `target_parent`, applying var substitution and copying
 /// properties. Descendant clones always nest under their cloned
 /// parent (only root blocks honour the template's `insert::` anchor),
-/// so `is_root_level` is `false` for every call reached from here.
-#[allow(clippy::too_many_arguments)]
+/// so every clone here is stamped as a non-root level.
 fn clone_children_recursive(
     workspace: &mut Workspace,
     hlc: &HlcGenerator,
     template_parent: NodeId,
     target_parent: NodeId,
-    ctx: &VarContext,
-    template_slug: &str,
-    is_root_level: bool,
-    trace: bool,
+    ctx: &CloneCtx,
     depth: usize,
 ) -> Result<Vec<NodeId>, ActionError> {
     if depth > MAX_TEMPLATE_DEPTH {
@@ -209,21 +199,11 @@ fn clone_children_recursive(
 
     for (template_id, _) in template_children {
         let raw_text = workspace.block_text(template_id).unwrap_or_default();
-        let substituted = substitute_vars(&raw_text, ctx);
+        let substituted = substitute_vars(&raw_text, ctx.vars);
 
         let new_id = append_block(workspace, hlc, Some(target_parent), Some(&substituted))?;
 
-        finish_clone(
-            workspace,
-            hlc,
-            template_id,
-            new_id,
-            ctx,
-            template_slug,
-            is_root_level,
-            trace,
-            depth,
-        )?;
+        finish_clone(workspace, hlc, template_id, new_id, false, ctx, depth)?;
 
         new_ids.push(new_id);
     }

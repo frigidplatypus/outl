@@ -19,6 +19,9 @@
 //! when the target page is a template — that's how the template page's
 //! backlinks panel surfaces every place it was rendered or instantiated.
 
+use outl_core::id::NodeId;
+use outl_core::workspace::Workspace;
+
 /// Property key marking a page as a template.
 pub const TEMPLATE_KEY: &str = "template";
 
@@ -56,10 +59,7 @@ pub(crate) enum TemplateAnchor {
 /// other value) keeps the historical nesting-under behaviour. An
 /// unrecognised non-empty value warns once rather than silently
 /// changing the shape of the insert.
-pub(crate) fn resolve_anchor(
-    workspace: &outl_core::workspace::Workspace,
-    template_page: outl_core::id::NodeId,
-) -> TemplateAnchor {
+pub(crate) fn resolve_anchor(workspace: &Workspace, template_page: NodeId) -> TemplateAnchor {
     match crate::page::read_text_prop(workspace, template_page, INSERT_KEY)
         .map(|v| v.trim().to_ascii_lowercase())
     {
@@ -80,11 +80,8 @@ pub(crate) fn resolve_anchor(
 /// not ordinary blocks). A template asking for [`TemplateAnchor::After`]
 /// degrades to nesting under such a target rather than fabricating a
 /// block that belongs to no page.
-pub(crate) fn is_page_or_root(
-    workspace: &outl_core::workspace::Workspace,
-    node: outl_core::id::NodeId,
-) -> bool {
-    node == outl_core::id::NodeId::root()
+pub(crate) fn is_page_or_root(workspace: &Workspace, node: NodeId) -> bool {
+    node == NodeId::root()
         || workspace
             .tree()
             .property(node, crate::page::SLUG_KEY)
