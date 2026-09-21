@@ -98,6 +98,26 @@ fn insert_after_chains_multiple_roots_in_order() {
 }
 
 #[test]
+fn insert_after_lands_immediately_before_a_trailing_sibling() {
+    let (mut w, hlc) = ws();
+    let tpl = template_with(&mut w, &hlc, "template-tail", "tail");
+    append_block(&mut w, &hlc, Some(tpl), Some("a")).unwrap();
+    append_block(&mut w, &hlc, Some(tpl), Some("b")).unwrap();
+    set_insert(&mut w, &hlc, tpl, "after");
+
+    // The target is NOT the last child: a following sibling already sits
+    // beside it, so "immediately after" must mean *between* the target and
+    // that sibling, not appended at the end of the page.
+    let page = open_or_create(&mut w, &hlc, "p", "P", PageKind::Page).unwrap();
+    let host = append_block(&mut w, &hlc, Some(page), Some("host")).unwrap();
+    append_block(&mut w, &hlc, Some(page), Some("trailing")).unwrap();
+
+    instantiate_template(&mut w, &hlc, "tail", host, "p", None).unwrap();
+
+    assert_eq!(texts(&w, page), vec!["host", "a", "b", "trailing"]);
+}
+
+#[test]
 fn insert_after_still_traces_and_substitutes() {
     let (mut w, hlc) = ws();
     let tpl = template_with(&mut w, &hlc, "template-aftrace", "aftrace");
