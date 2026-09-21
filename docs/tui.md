@@ -14,6 +14,8 @@ cd ~/notes && outl           # no args: opens TUI in cwd
 
 The TUI requires a real interactive terminal.
 If stdout isn't a TTY (e.g. CI), it exits with a clear error instead of hanging.
+TUI chrome uses ordinary emoji and symbols by default, so it works without a special font.
+Set `[tui] icons = "nerd-font"` to opt into compact Nerd Font glyphs.
 
 ## Copy to clipboard
 
@@ -72,6 +74,9 @@ The TUI reads two layers of TOML before launching:
    ```toml
    [theme]
    preset = "dracula"
+
+   [tui]
+   icons = "nerd-font"  # "emoji" (default) or "nerd-font"
 
    [editor]
    vim_mode = true

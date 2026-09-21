@@ -14,7 +14,7 @@ use outl_md::view::{block_to_rows, BlockRowKind};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
-use crate::view::row_chrome::{push_body_indent, push_property_row, FoldMarker, AUTO_RUN_GLYPH};
+use crate::view::row_chrome::{push_body_indent, push_property_row, FoldMarker};
 
 /// Render the outline into a flat list of `Line`s for ratatui, and
 /// report the visual line index where the *selected* block's bullet
@@ -322,14 +322,14 @@ pub(crate) fn emit_block_lines(
                 // so the user can see at a glance which cells re-run
                 // themselves on page open.
                 if has_auto_run {
-                    head.push(Span::styled(AUTO_RUN_GLYPH, app.theme.hint));
+                    head.push(Span::styled(app.icons.bolt, app.theme.hint));
                 }
                 head.push(Span::styled("- ", bullet_style));
             }
             BlockRowKind::Continuation
             | BlockRowKind::CodeFenceMarker
             | BlockRowKind::CodeFenceBody => {
-                push_body_indent(&mut head, has_auto_run);
+                push_body_indent(&mut head, has_auto_run, &app.icons);
             }
         }
 
@@ -371,9 +371,13 @@ pub(crate) fn emit_block_lines(
                     // function the embed expansion uses, so the
                     // chrome stays in lockstep between bullet and
                     // embed root.
-                    content.extend(render_pretty_block_text(row.text, &app.theme, &app.index));
+                    content.extend(render_pretty_block_text(
+                        row.text, &app.theme, &app.index, &app.icons,
+                    ));
                 }
-                _ => content.extend(render_markdown_inline(row.text, &app.theme, &app.index)),
+                _ => content.extend(render_markdown_inline(
+                    row.text, &app.theme, &app.index, &app.icons,
+                )),
             }
         }
 

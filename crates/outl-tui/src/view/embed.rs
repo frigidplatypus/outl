@@ -93,7 +93,7 @@ pub(crate) fn emit_embedded_children(
             guides.push(Span::raw("  "));
         }
         let head = vec![Span::styled("↳ ", app.theme.dim)];
-        let content = render_pretty_block_text(&child.text, &app.theme, &app.index);
+        let content = render_pretty_block_text(&child.text, &app.theme, &app.index, &app.icons);
         push_wrapped(guides, head, content, text_width, None, out);
         emit_embedded_children(
             &child.children,

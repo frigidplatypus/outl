@@ -6,32 +6,36 @@
 //! the property row has to move with it, which is exactly the drift
 //! [issue 319](https://github.com/outlmd/outl/issues/319) was.
 
+use crate::icons::IconSet;
 use crate::state::App;
 use crate::view::wrap::push_wrapped;
 use ratatui::text::{Line, Span};
+use unicode_width::UnicodeWidthStr;
 
-/// Marker drawn before the bullet on a block carrying `auto-run::`,
-/// so the user can see at a glance which cells re-run themselves on
-/// page open.
-pub(crate) const AUTO_RUN_GLYPH: &str = "⚡";
-
-/// Blank cells standing in for [`AUTO_RUN_GLYPH`] on the rows that
-/// don't draw it. Two, because `⚡` is two wide; the single space this
-/// used to be left every continuation row of an `auto-run::` block a
-/// column short. `the_auto_run_pad_matches_the_glyph` keeps the pair
-/// honest.
-const AUTO_RUN_PAD: &str = "  ";
+/// Blank cells standing in for the `auto-run::` marker on the rows
+/// that don't draw it. Measured from the active [`IconSet`] rather
+/// than written as a literal: `⚡` is two cells wide and the Nerd Font
+/// glyph is one, so a fixed pad put every continuation row of an
+/// `auto-run::` block a column off in one of the two modes.
+/// `the_auto_run_pad_matches_the_glyph` keeps the pair honest.
+fn auto_run_pad(icons: &IconSet) -> String {
+    " ".repeat(icons.bolt.width())
+}
 
 /// Pad the cells a bullet row spends between the indent guides and
-/// the block's text: the two-cell fold slot, the optional `⚡`, and
-/// the `- ` bullet.
+/// the block's text: the two-cell fold slot, the optional `auto-run::`
+/// marker, and the `- ` bullet.
 ///
 /// Every other row a block emits pads by exactly this, so all of them
 /// start in the block's own text column (#319).
-pub(crate) fn push_body_indent(spans: &mut Vec<Span<'static>>, has_auto_run: bool) {
+pub(crate) fn push_body_indent(
+    spans: &mut Vec<Span<'static>>,
+    has_auto_run: bool,
+    icons: &IconSet,
+) {
     spans.push(Span::raw("    "));
     if has_auto_run {
-        spans.push(Span::raw(AUTO_RUN_PAD));
+        spans.push(Span::raw(auto_run_pad(icons)));
     }
 }
 
@@ -61,8 +65,8 @@ pub(crate) fn push_property_row(
         guides.push(Span::styled("│ ", app.theme.dim));
     }
     let mut head: Vec<Span<'static>> = Vec::new();
-    push_body_indent(&mut head, has_auto_run);
-    if let Some(glyph) = property_glyph(key) {
+    push_body_indent(&mut head, has_auto_run, &app.icons);
+    if let Some(glyph) = property_glyph(key, &app.icons) {
         head.push(Span::raw(format!("{glyph} ")));
     }
     let content = vec![
@@ -94,11 +98,11 @@ pub(crate) enum FoldMarker {
 /// Rust/TS boundary any more than a DTO field can, so the two tables
 /// are edited together. A user's own key (`priority::`) gets no glyph;
 /// interpreting it isn't ours to do.
-pub(crate) fn property_glyph(key: &str) -> Option<&'static str> {
+pub(crate) fn property_glyph(key: &str, icons: &IconSet) -> Option<&'static str> {
     match key.to_ascii_lowercase().as_str() {
-        outl_md::remind::REMIND_KEY => Some("⏰"),
+        outl_md::remind::REMIND_KEY => Some(icons.bell),
         "auto-run" => Some("▶"),
-        "template" => Some("📋"),
+        "template" => Some(icons.clipboard),
         _ => None,
     }
 }
@@ -106,13 +110,22 @@ pub(crate) fn property_glyph(key: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use unicode_width::UnicodeWidthStr;
+    use outl_config::TuiIconStyle;
 
     /// The blank stand-in has to measure what the glyph measures, or
-    /// every row that doesn't draw `⚡` sits a column off the one that
-    /// does. That was the bug, for as long as the pad was a literal.
+    /// every row that doesn't draw the marker sits a column off the
+    /// one that does. That was the bug, for as long as the pad was a
+    /// literal, and it comes back the moment one icon style's glyph
+    /// stops matching the other's width.
     #[test]
     fn the_auto_run_pad_matches_the_glyph() {
-        assert_eq!(AUTO_RUN_PAD.width(), AUTO_RUN_GLYPH.width());
+        for style in [TuiIconStyle::Emoji, TuiIconStyle::NerdFont] {
+            let icons = IconSet::new(style);
+            assert_eq!(
+                auto_run_pad(&icons).width(),
+                icons.bolt.width(),
+                "pad drifted from the glyph in {style:?} mode"
+            );
+        }
     }
 }
