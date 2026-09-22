@@ -23,7 +23,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use boa_engine::{js_string, Context, JsValue, NativeFunction, Source};
+use boa_engine::{js_string, Context, JsObject, JsValue, NativeFunction, Source};
 
 use crate::runtime::{ExecContext, ExecError, ExecOutput, ExitStatus, OutputFormat, Runtime};
 use crate::sandbox::with_timeout;
@@ -168,6 +168,28 @@ fn run_isolated(source: &str, workspace_root: std::path::PathBuf) -> Result<Exec
     })
 }
 
+/// Read a `[a, b]` array property off `obj` as `(a, b)`.
+///
+/// Each element is `None` when the field is absent or not a string, so
+/// a caller picks whether both are required (`prop`/`before`/`after`) or
+/// only the first (`notProp`). Returns `None` only when
+/// the field itself is missing or not an object/array.
+#[cfg(feature = "lang-query")]
+fn js_str_tuple(
+    obj: &JsObject,
+    ctx: &mut Context,
+    name: &str,
+) -> Option<(Option<String>, Option<String>)> {
+    let val = obj.get(js_string!(name), ctx).ok()?;
+    let arr = val.as_object()?;
+    let mut elem = |idx: &str| {
+        arr.get(js_string!(idx), ctx)
+            .ok()
+            .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()))
+    };
+    Some((elem("0"), elem("1")))
+}
+
 /// Convert a JS value (expected: plain object) into [`QueryParams`].
 #[cfg(feature = "lang-query")]
 fn js_value_to_query_params(
@@ -204,37 +226,19 @@ fn js_value_to_query_params(
     {
         params.page = Some(v.to_std_string_escaped());
     }
-    // prop: [key, value] tuple
-    if let Ok(prop_val) = obj.get(js_string!("prop"), ctx) {
-        if let Some(prop_obj) = prop_val.as_object() {
-            let key = prop_obj
-                .get(js_string!("0"), ctx)
-                .ok()
-                .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()));
-            let value = prop_obj
-                .get(js_string!("1"), ctx)
-                .ok()
-                .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()));
-            if let (Some(k), Some(v)) = (key, value) {
-                params.prop = Some((k, v));
-            }
-        }
+    // prop / before / after: [key, value] — both elements required.
+    if let Some((Some(k), Some(v))) = js_str_tuple(&obj, ctx, "prop") {
+        params.prop = Some((k, v));
     }
-    // notProp: [key] or [key, value] tuple
-    if let Ok(prop_val) = obj.get(js_string!("notProp"), ctx) {
-        if let Some(prop_obj) = prop_val.as_object() {
-            let key = prop_obj
-                .get(js_string!("0"), ctx)
-                .ok()
-                .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()));
-            let value = prop_obj
-                .get(js_string!("1"), ctx)
-                .ok()
-                .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()));
-            if let Some(k) = key {
-                params.not_prop = Some((k, value));
-            }
-        }
+    if let Some((Some(k), Some(v))) = js_str_tuple(&obj, ctx, "before") {
+        params.before = Some((k, v));
+    }
+    if let Some((Some(k), Some(v))) = js_str_tuple(&obj, ctx, "after") {
+        params.after = Some((k, v));
+    }
+    // notProp: [key] or [key, value] — second element optional.
+    if let Some((Some(k), v)) = js_str_tuple(&obj, ctx, "notProp") {
+        params.not_prop = Some((k, v));
     }
     if let Some(v) = obj
         .get(js_string!("kind"), ctx)
@@ -287,6 +291,11 @@ fn hits_to_js_array(hits: &[super::query::QueryHit], ctx: &mut Context) -> Resul
     let arr = boa_engine::object::ObjectInitializer::new(ctx).build();
     for (i, hit) in hits.iter().enumerate() {
         let obj = boa_engine::object::ObjectInitializer::new(ctx)
+            .property(
+                js_string!("id"),
+                js_string!(hit.id.as_str()),
+                boa_engine::property::Attribute::all(),
+            )
             .property(
                 js_string!("handle"),
                 js_string!(hit.handle.as_str()),

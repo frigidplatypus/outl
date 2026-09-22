@@ -145,12 +145,16 @@ Both converge on the same engine pipeline.
 ### Public types (re-exported from `outl_exec`)
 
 - `QueryParams` — `{ status, tag, kind, since, text, sort, limit }`, all optional.
-- `QueryHit` — `{ handle, text, status, page }`, the result shape.
+- `QueryHit` — `{ id, handle, text, status, page }`, the result shape.
+  `id` is the block ULID (`NodeId`) a block write tool accepts; `handle`
+  is the display-only `blk-XXXXXX` ref. A hit that carried only the handle
+  would be readable but not actionable — so `id` is load-bearing, pinned by
+  `query_dsl_hits_carry_an_id_a_write_tool_accepts` in `outl-cli`.
 
 ### JS binding
 
 The JS runtime registers a global `outl` object with a `query` method.
-It converts the JS argument to `QueryParams`, calls `run_query_structured`, and returns a JS array of `{ handle, text, status, page }` objects.
+It converts the JS argument to `QueryParams`, calls `run_query_structured`, and returns a JS array of `{ id, handle, text, status, page }` objects.
 
 Full API docs: `docs/query.md` § Plugin SDK API.
 

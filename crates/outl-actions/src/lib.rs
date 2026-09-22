@@ -147,7 +147,7 @@ pub use paste::{
     PasteOutcome,
 };
 pub use person::{search_persons, PERSON_TYPE, TYPE_KEY};
-pub use property::known_keys;
+pub use property::{is_date_like_key, known_keys, KNOWN_DATE_KEYS};
 pub use recover::{restore_truncated_block, scan_truncated_blocks, TruncatedBlock};
 pub use reminders::{
     epoch_ms_to_local_naive, local_naive_to_epoch_ms, next_fire_at, scan_reminders, snooze,

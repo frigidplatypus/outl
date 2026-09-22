@@ -209,6 +209,47 @@ pub fn list() -> Vec<Value> {
                 "required": ["id"]
             }),
         ),
+        // Block properties (the block-level counterpart to the page-prop
+        // tools). A date here (`due`, `deadline`, `scheduled`, …) is what
+        // `outl_query_dsl`'s `before:` / `after:` filters read — use this
+        // to stamp a due date onto a task.
+        tool_def(
+            "outl_block_prop_set",
+            "Set a `key:: value` property on a block (e.g. `key=due`, `value=2026-09-25`). Omit `value` or pass `null` to clear it.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" },
+                    "key": { "type": "string" },
+                    "value": {
+                        "type": ["string", "null"],
+                        "description": "Property value. Omit or pass null to clear/remove the property."
+                    }
+                },
+                "required": ["id", "key"]
+            }),
+        ),
+        tool_def(
+            "outl_block_prop_get",
+            "Read a block property by key.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" },
+                    "key": { "type": "string" }
+                },
+                "required": ["id", "key"]
+            }),
+        ),
+        tool_def(
+            "outl_block_prop_list",
+            "List every property on a block.",
+            json!({
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            }),
+        ),
         // Daily / Journal
         tool_def(
             "outl_daily_today",
@@ -296,6 +337,17 @@ pub fn list() -> Vec<Value> {
                         "items": { "type": "string" }
                     }
                 }
+            }),
+        ),
+        tool_def(
+            "outl_query_dsl",
+            "Run the block-level query DSL over the whole workspace — the engine behind ` ```query ` fences. One directive per line: `status: todo|doing|done`, `prop: key value`, `before: <date-key> <date>` / `after: <date-key> <date>` (dates are ISO or relative like `+7d`/`-2w`; keys are `due`, `deadline`, `scheduled`, …), `sort: <key>`, `limit: N`. Example dsl: `\"status: todo\\nbefore: due +7d\"`.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "dsl": { "type": "string" }
+                },
+                "required": ["dsl"]
             }),
         ),
         // Backlinks / Refs
@@ -413,7 +465,7 @@ pub fn list() -> Vec<Value> {
         // Batch
         tool_def(
             "outl_batch",
-            "Apply write ops in one session (stops on first error, reports `failed_at` + `applied`). Use for multi-step authoring so each op skips a round-trip. `op` is one of: page_create, page_update, page_delete, page_rename, block_append, block_append_tree, block_insert, block_update, block_move, block_delete, block_toggle_todo, daily_append, page_prop_set (its `value` is optional; omit or pass null to clear); each op's `args` mirror the matching `outl_<op>` tool.",
+            "Apply write ops in one session (stops on first error, reports `failed_at` + `applied`). Use for multi-step authoring so each op skips a round-trip. `op` is one of: page_create, page_update, page_delete, page_rename, block_append, block_append_tree, block_insert, block_update, block_move, block_delete, block_toggle_todo, block_prop_set, daily_append, page_prop_set (`block_prop_set` and `page_prop_set` take an optional `value`; omit or pass null to clear); each op's `args` mirror the matching `outl_<op>` tool.",
             json!({
                 "type": "object",
                 "properties": {

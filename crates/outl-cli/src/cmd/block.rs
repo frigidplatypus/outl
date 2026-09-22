@@ -12,9 +12,11 @@ use serde_json::{json, Value};
 
 use outl_actions::{
     append_block, append_forest, append_tree, children_of, create_after, enclosing_page_id,
-    page_meta, project_outline, split_todo, ActionError, BlockTreeSpec, PageMeta,
+    page_meta, project_outline, property::key_rejection, property::normalize_key, set_property,
+    split_todo, ActionError, BlockTreeSpec, PageMeta,
 };
 use outl_core::id::NodeId;
+use outl_core::property::PropValue;
 
 use crate::human::{print_outline_node, todo_prefix};
 use crate::output::{codes, emit, ApiError};
@@ -145,6 +147,59 @@ pub enum BlockCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Read or write a block's own properties (`key:: value` lines the
+    /// `.md` renders beneath the block).
+    ///
+    /// Page-level properties live on the page node and go through
+    /// `outl page prop …`; block-level ones ride `Op::SetProp` on the
+    /// block, the same op a `priority:: high` child line reconciles to.
+    Prop {
+        #[command(subcommand)]
+        action: BlockPropCommand,
+    },
+}
+
+/// `outl block prop …` subcommands.
+#[derive(Subcommand, Debug)]
+pub enum BlockPropCommand {
+    /// Set a block property: `outl block prop set <block> key=value`.
+    Set {
+        /// Block id (ULID string).
+        id: String,
+        /// `key=value`. The value is stored as plain text.
+        assignment: String,
+        /// Force JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove a block property: `outl block prop clear <block> <key>`.
+    Clear {
+        /// Block id.
+        id: String,
+        /// Property key to remove.
+        key: String,
+        /// Force JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Get a block property by key.
+    Get {
+        /// Block id.
+        id: String,
+        /// Property key.
+        key: String,
+        /// Force JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// List every property on a block.
+    List {
+        /// Block id.
+        id: String,
+        /// Force JSON output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Run a `outl block …` invocation.
@@ -217,6 +272,47 @@ pub fn run(cmd: &BlockCommand, path: &Path) -> i32 {
         BlockCommand::History { id, limit, json } => {
             super::history::run_block(path, id, *limit, *json)
         }
+        BlockCommand::Prop { action } => match action {
+            BlockPropCommand::Set {
+                id,
+                assignment,
+                json,
+            } => {
+                let result = ws::open(path).and_then(|mut ctx| set_prop(&mut ctx, id, assignment));
+                emit(*json, result, |v| {
+                    let key = v.get("key").and_then(Value::as_str).unwrap_or("?");
+                    let val = v.get("value").and_then(Value::as_str).unwrap_or("?");
+                    println!("set: {key} = {val}");
+                })
+            }
+            BlockPropCommand::Clear { id, key, json } => {
+                let result = ws::open(path).and_then(|mut ctx| clear_prop(&mut ctx, id, key));
+                emit(*json, result, |v| {
+                    let key = v.get("key").and_then(Value::as_str).unwrap_or("?");
+                    println!("cleared: {key}");
+                })
+            }
+            BlockPropCommand::Get { id, key, json } => {
+                let result = ws::open(path).and_then(|ctx| get_prop(&ctx, id, key));
+                emit(*json, result, |v| {
+                    if let Some(val) = v.get("value") {
+                        println!("{val}");
+                    }
+                })
+            }
+            BlockPropCommand::List { id, json } => {
+                let result = ws::open(path).and_then(|ctx| list_props(&ctx, id));
+                emit(*json, result, |v| {
+                    if let Some(props) = v.get("properties").and_then(Value::as_array) {
+                        for p in props {
+                            let key = p.get("key").and_then(Value::as_str).unwrap_or("?");
+                            let val = p.get("value").and_then(Value::as_str).unwrap_or("?");
+                            println!("{key:20}  {val}");
+                        }
+                    }
+                })
+            }
+        },
     }
 }
 
@@ -528,6 +624,107 @@ pub fn tree(ctx: &WsCtx, id_str: &str) -> Result<Value, ApiError> {
         "todo": todo.map(|t| t.as_str().to_string()),
         "children": serde_json::to_value(&children).map_err(ApiError::internal)?,
     }))
+}
+
+// ---------------------------------------------------------------------------
+// Block property handlers
+// ---------------------------------------------------------------------------
+
+/// Resolve a block id to `(block, enclosing_page)`, erroring when the
+/// id is unknown or the block sits outside any page. The page is the
+/// projection root `commit_with` re-projects after the property op.
+fn resolve_block(ctx: &WsCtx, id_str: &str) -> Result<(NodeId, NodeId), ApiError> {
+    let id = parse_id(id_str)?;
+    ctx.workspace.block_text(id).ok_or_else(|| {
+        ApiError::new(
+            codes::BLOCK_NOT_FOUND,
+            format!("block `{id_str}` not found"),
+        )
+    })?;
+    let page = enclosing_page_id(&ctx.workspace, id).ok_or_else(|| {
+        ApiError::new(
+            codes::BLOCK_NOT_FOUND,
+            format!("block `{id_str}` is not inside a page"),
+        )
+    })?;
+    Ok((id, page))
+}
+
+/// Set a `key=value` property on a block (CLI shape — parses the
+/// `key=value` shorthand).
+pub fn set_prop(ctx: &mut WsCtx, id_str: &str, assignment: &str) -> Result<Value, ApiError> {
+    let (key, value) = assignment.split_once('=').ok_or_else(|| {
+        ApiError::new(
+            codes::INVALID_ARG,
+            format!("expected `key=value`, got `{assignment}`"),
+        )
+    })?;
+    set_prop_kv(ctx, id_str, key.trim(), value.trim())
+}
+
+/// Typed entry point — write `key = value` to `block` and reproject its
+/// page. Mirrors `prop::set_kv`, but the `SetProp` op lands on the block
+/// node (which is how a reconciled `priority:: high` child line is
+/// stored), and the projection runs over the enclosing page.
+pub fn set_prop_kv(
+    ctx: &mut WsCtx,
+    id_str: &str,
+    key: &str,
+    value: &str,
+) -> Result<Value, ApiError> {
+    let key = normalize_key(key);
+    if let Some(reason) = key_rejection(&key) {
+        return Err(ApiError::new(codes::INVALID_ARG, reason));
+    }
+    let (id, page) = resolve_block(ctx, id_str)?;
+    let hlc = ctx.hlc.clone();
+    let owned = value.to_string();
+    ctx.commit_with(page, |ws| {
+        set_property(ws, &hlc, id, &key, Some(PropValue::Text(owned)))
+    })?;
+    Ok(json!({ "id": id.to_string(), "key": key, "value": value }))
+}
+
+/// Clear a block property. The `SetProp { value: None }` op is always
+/// written, even when the key looks unset locally, so a concurrent
+/// remote `set` reconciles by HLC rather than being stranded.
+pub fn clear_prop(ctx: &mut WsCtx, id_str: &str, key: &str) -> Result<Value, ApiError> {
+    let key = normalize_key(key);
+    if let Some(reason) = key_rejection(&key) {
+        return Err(ApiError::new(codes::INVALID_ARG, reason));
+    }
+    let (id, page) = resolve_block(ctx, id_str)?;
+    let hlc = ctx.hlc.clone();
+    ctx.commit_with(page, |ws| set_property(ws, &hlc, id, &key, None))?;
+    Ok(json!({ "id": id.to_string(), "key": key, "value": Value::Null }))
+}
+
+/// Read a single block property. Errors with `PROP_NOT_FOUND` when unset.
+pub fn get_prop(ctx: &WsCtx, id_str: &str, key: &str) -> Result<Value, ApiError> {
+    let (id, _page) = resolve_block(ctx, id_str)?;
+    match ctx.workspace.tree().property(id, key) {
+        Some(value) => Ok(json!({
+            "id": id.to_string(),
+            "key": key,
+            "value": value.flatten(),
+        })),
+        None => Err(ApiError::new(
+            codes::PROP_NOT_FOUND,
+            format!("block `{id_str}` has no property `{key}`"),
+        )),
+    }
+}
+
+/// List every property carried by a block.
+pub fn list_props(ctx: &WsCtx, id_str: &str) -> Result<Value, ApiError> {
+    let (id, _page) = resolve_block(ctx, id_str)?;
+    let props: Vec<Value> = ctx
+        .workspace
+        .tree()
+        .properties_of(id)
+        .map(|(k, v)| json!({ "key": k, "value": v.flatten() }))
+        .collect();
+    Ok(json!({ "id": id.to_string(), "properties": props }))
 }
 
 // ---------------------------------------------------------------------------

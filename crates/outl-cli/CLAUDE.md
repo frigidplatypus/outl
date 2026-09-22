@@ -210,13 +210,15 @@ Each handler returns a `serde_json::Value` so the same code path serves both the
   `cmd/history.rs` renders both — glue only, `outl_actions::timeline` owns what an event is.
   Two things the renderer must not lose: `--limit` caps the listing and never the count (a capped list that reports its own length as the total reads as the whole history), and a `deleted` row always prints the text the deletion took, since that is what someone opens a history to find.
   **No MCP tool, and not one call away from having one.** Both are `run_page(path, …) -> i32` / `run_block(path, …) -> i32`: they open the workspace themselves and print, where MCP dispatch wants `fn(ctx: &WsCtx, …) -> Result<Value, ApiError>` like every other handler in this crate. Wiring them up means extracting the `Value` half first, then registering in `mcp/tools::list` + `run_tool`.
-- `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree|history` (`append-tree` takes `--tree=<JSON|->`)
+- `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree|history` (`append-tree` takes `--tree=<JSON|->`; `block prop set|clear|get|list` writes `Op::SetProp` on the **block** node — the block-level counterpart to `outl page prop`, exposed over MCP as `outl_block_prop_*` and as the `block_prop_set` batch op)
 - `outl daily today|get|append|range`
 - `outl asset add <file> [--page=<slug>] [--daily]` — import a file into `<workspace>/assets/` (content-addressed) and append its markdown link as a new block (daily by default, or a page).
   Glue only: copy + hash + link live in `outl_actions::import_asset`; the block append routes through `outl-actions` like every other mutation.
   CLI + MCP (`outl_asset_add`) share the `cmd::asset::add_asset` handler so they can't drift.
 - `outl search "<query>" [--in=blocks|pages|all] [--limit=N]`
 - `outl query [--tag=…] [--priority=…] [--since=…d] [--kind=…] [--prop key=value …]`
+  The block-level query **DSL** (the engine behind ` ```query ` fences — `status:`/`prop:`/`sort:` plus the `before:`/`after:` date filters) has no CLI subcommand (`outl query --raw` is still reserved); it reaches MCP as `outl_query_dsl`, which forwards the DSL straight to `outl_exec::run_query_dsl_with_index` in the dispatch arm rather than through a `cmd/query.rs` handler.
+  Its block date properties are written by `outl_block_prop_set` (see `block prop`).
 - `outl backlinks page|block|embed`
 - `outl tag list|pages`
 - `outl prop set|get|list`

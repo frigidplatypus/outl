@@ -39,6 +39,10 @@ pub struct QueryParams {
     pub prop: Option<(String, String)>,
     /// Exclude blocks with this property key (any value) or key-value pair.
     pub not_prop: Option<(String, Option<String>)>,
+    /// Property value (as ISO date) is strictly before this date string.
+    pub before: Option<(String, String)>,
+    /// Property value (as ISO date) is strictly after this date string.
+    pub after: Option<(String, String)>,
     /// Filter by hosting page slug.
     pub page: Option<String>,
     /// `"journal"` or `"page"`.
@@ -56,6 +60,8 @@ pub struct QueryParams {
 /// One query result — structured, typed, no markdown.
 #[derive(Debug, Clone)]
 pub struct QueryHit {
+    /// Block ULID (`NodeId`) — the id every block write tool accepts.
+    pub id: String,
     /// Block ref handle (`blk-XXXXXX`).
     pub handle: String,
     /// Slug of the hosting page.
@@ -112,6 +118,7 @@ fn run_against(query: &dsl::Query, index: &WorkspaceIndex) -> Vec<QueryHit> {
     }
     hits.into_iter()
         .map(|h| QueryHit {
+            id: h.id,
             handle: h.handle,
             page: h.page_slug,
             status: h.status.map(|s| s.as_str().to_string()),
@@ -147,6 +154,18 @@ fn build_query_from_params(p: &QueryParams) -> Result<dsl::Query, String> {
     if let Some((k, v)) = &p.not_prop {
         filters.push(dsl::Filter::NotProp(k.clone(), v.clone()));
     }
+    if let Some((k, date_str)) = &p.before {
+        let today = chrono::Local::now().date_naive();
+        let date = dsl::parse_date_threshold_value(date_str, today)
+            .ok_or_else(|| format!("before: invalid date '{date_str}'"))?;
+        filters.push(dsl::Filter::Before(k.clone(), date));
+    }
+    if let Some((k, date_str)) = &p.after {
+        let today = chrono::Local::now().date_naive();
+        let date = dsl::parse_date_threshold_value(date_str, today)
+            .ok_or_else(|| format!("after: invalid date '{date_str}'"))?;
+        filters.push(dsl::Filter::After(k.clone(), date));
+    }
     if let Some(slug) = &p.page {
         filters.push(dsl::Filter::Page(slug.clone()));
     }
@@ -169,7 +188,8 @@ fn build_query_from_params(p: &QueryParams) -> Result<dsl::Query, String> {
             "page" => dsl::SortKey::Page,
             "status" => dsl::SortKey::Status,
             "text" => dsl::SortKey::Text,
-            other => return Err(format!("invalid sort key '{other}' (use page|status|text)")),
+            "" => return Err("sort: empty key".into()),
+            other => dsl::SortKey::Prop(other.to_string()),
         });
     }
     Ok(dsl::Query {
@@ -243,6 +263,12 @@ impl Runtime for QueryRuntime {
 pub(crate) mod dsl {
     use std::fmt;
 
+    use chrono::{Duration, NaiveDate};
+
+    /// The single accepted date format for property values and query
+    /// thresholds: a bare ISO-8601 calendar date.
+    pub(crate) const ISO_DATE_FMT: &str = "%Y-%m-%d";
+
     /// Parsed query.
     #[derive(Debug, Default)]
     pub struct Query {
@@ -261,6 +287,10 @@ pub(crate) mod dsl {
         Prop(String, String),
         /// Exclude blocks with this property key (any value) or key-value pair.
         NotProp(String, Option<String>),
+        /// Property value (as ISO date) is strictly before the threshold.
+        Before(String, NaiveDate),
+        /// Property value (as ISO date) is strictly after the threshold.
+        After(String, NaiveDate),
         /// Filter by hosting page slug.
         Page(String),
         Kind(KindFilter),
@@ -282,11 +312,13 @@ pub(crate) mod dsl {
         Page,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum SortKey {
         Page,
         Status,
         Text,
+        /// Sort by a property's ISO date value (ascending).
+        Prop(String),
     }
 
     #[derive(Debug)]
@@ -315,15 +347,12 @@ pub(crate) mod dsl {
                 continue;
             }
 
-            // `prop` and `not-prop` take the rest of the line as their
-            // value (which itself contains a key-value pair), so they
-            // need special handling before the generic split_kv.
-            // Word-boundary check: `prop` must be followed by `:`,
-            // space, or end-of-line — otherwise `property: foo`
-            // silently becomes `prop erty: foo`.
-            if line == "prop" || line.starts_with("prop ") || line.starts_with("prop:") {
-                let rest = line[4..].trim();
-                let rest = rest.strip_prefix(':').map(|s| s.trim()).unwrap_or(rest);
+            // `prop`, `not-prop`, `before` and `after` take the rest of the
+            // line as their value (which itself names a property, plus its
+            // value for `prop`), so they are matched before the generic
+            // split_kv. `strip_directive` also enforces the word boundary,
+            // so `property: foo` must not match the `prop` key.
+            if let Some(rest) = strip_directive(line, "prop") {
                 if rest.is_empty() {
                     return Err(ParseError {
                         line: i + 1,
@@ -334,10 +363,7 @@ pub(crate) mod dsl {
                 filters.push(Filter::Prop(pk, pv));
                 continue;
             }
-            if line == "not-prop" || line.starts_with("not-prop ") || line.starts_with("not-prop:")
-            {
-                let rest = line[8..].trim();
-                let rest = rest.strip_prefix(':').map(|s| s.trim()).unwrap_or(rest);
+            if let Some(rest) = strip_directive(line, "not-prop") {
                 if rest.is_empty() {
                     return Err(ParseError {
                         line: i + 1,
@@ -346,6 +372,28 @@ pub(crate) mod dsl {
                 }
                 let (pk, pv) = parse_prop_optional_value(rest, i)?;
                 filters.push(Filter::NotProp(pk, pv));
+                continue;
+            }
+            if let Some(rest) = strip_directive(line, "before") {
+                if rest.is_empty() {
+                    return Err(ParseError {
+                        line: i + 1,
+                        msg: "before requires 'key date' (e.g. 'due +7d')".into(),
+                    });
+                }
+                let (pk, date) = parse_prop_date(rest, i)?;
+                filters.push(Filter::Before(pk, date));
+                continue;
+            }
+            if let Some(rest) = strip_directive(line, "after") {
+                if rest.is_empty() {
+                    return Err(ParseError {
+                        line: i + 1,
+                        msg: "after requires 'key date' (e.g. 'due +7d')".into(),
+                    });
+                }
+                let (pk, date) = parse_prop_date(rest, i)?;
+                filters.push(Filter::After(pk, date));
                 continue;
             }
 
@@ -383,6 +431,25 @@ pub(crate) mod dsl {
             sort,
             limit,
         })
+    }
+
+    /// If `line` is the directive `key`, return its payload.
+    ///
+    /// `key` must be the whole line or be followed by a space or a colon —
+    /// the word boundary that stops `property: foo` or `properties: foo`
+    /// from matching `prop`. The payload has surrounding
+    /// whitespace trimmed and one optional leading colon removed, so
+    /// `before: due +7d`, `before due +7d` and `before: due: +7d` all yield
+    /// `"due +7d"` / `"due: +7d"`. Returns `None` when the line is not this
+    /// directive; an empty payload is `Some("")`, left for the caller to
+    /// reject with its own message.
+    fn strip_directive<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+        let rest = line.strip_prefix(key)?;
+        if !rest.is_empty() && !rest.starts_with(' ') && !rest.starts_with(':') {
+            return None;
+        }
+        let rest = rest.trim_start().strip_prefix(':').unwrap_or(rest);
+        Some(rest.trim())
     }
 
     fn split_kv(line: &str, line_idx: usize) -> Result<(&str, &str), ParseError> {
@@ -445,10 +512,16 @@ pub(crate) mod dsl {
             "page" => Ok(SortKey::Page),
             "status" => Ok(SortKey::Status),
             "text" => Ok(SortKey::Text),
-            _ => Err(ParseError {
+            "" => Err(ParseError {
                 line: line_idx + 1,
-                msg: format!("sort: must be 'page', 'status', or 'text', got '{v}'"),
+                msg: "sort: empty key".into(),
             }),
+            // Any other key sorts by that property's ISO date value. This is
+            // deliberate: `sort: due` MUST parse, so the old "unknown key"
+            // error is gone — and with it the accidental typo guard. A key that
+            // no block carries (or a misspelled `pag`) sorts every hit `None`
+            // and so leaves the order untouched, per docs/query.md.
+            other => Ok(SortKey::Prop(other.to_string())),
         }
     }
 
@@ -531,6 +604,85 @@ pub(crate) mod dsl {
         } else {
             // Just a key, no value — exclude any block with that property
             Ok((trimmed.to_string(), None))
+        }
+    }
+
+    /// Parse `key date` from a `before`/`after` directive value.
+    /// Accepts ISO dates (`2025-07-01`) and relative offsets (`+7d`, `-2w`,
+    /// `+1m`, `today`, `tomorrow`, `yesterday`).
+    fn parse_prop_date(v: &str, line_idx: usize) -> Result<(String, NaiveDate), ParseError> {
+        let (key, date_str) = if let Some((k, val)) = v.split_once(':') {
+            (k.trim(), val.trim())
+        } else if let Some((k, val)) = v.split_once(' ') {
+            (k.trim(), val.trim())
+        } else {
+            return Err(ParseError {
+                line: line_idx + 1,
+                msg: format!("before/after requires 'key date', got '{v}'"),
+            });
+        };
+        if key.is_empty() || date_str.is_empty() {
+            return Err(ParseError {
+                line: line_idx + 1,
+                msg: format!("before/after requires non-empty key and date, got '{v}'"),
+            });
+        }
+        let today = chrono::Local::now().date_naive();
+        let date = parse_date_threshold_value(date_str, today).ok_or_else(|| ParseError {
+            line: line_idx + 1,
+            msg: format!(
+                "invalid date '{date_str}' (use ISO 2025-07-01, +7d, -2w, +1m, today, tomorrow, yesterday)"
+            ),
+        })?;
+        Ok((key.to_string(), date))
+    }
+
+    /// Parse a date threshold value: ISO, relative offsets, or keywords.
+    pub(crate) fn parse_date_threshold_value(s: &str, today: NaiveDate) -> Option<NaiveDate> {
+        let s = s.trim();
+        match s {
+            "today" => return Some(today),
+            "tomorrow" => return today.checked_add_signed(Duration::days(1)),
+            "yesterday" => return today.checked_sub_signed(Duration::days(1)),
+            _ => {}
+        }
+        if let Ok(d) = NaiveDate::parse_from_str(s, ISO_DATE_FMT) {
+            return Some(d);
+        }
+        parse_relative_offset(s, today)
+    }
+
+    fn parse_relative_offset(s: &str, today: NaiveDate) -> Option<NaiveDate> {
+        let (sign, rest) = if let Some(rest) = s.strip_prefix('+') {
+            (1i64, rest)
+        } else if let Some(rest) = s.strip_prefix('-') {
+            (-1i64, rest)
+        } else {
+            return None;
+        };
+        let last = rest.chars().last()?;
+        if !"dwm".contains(last) {
+            return None;
+        }
+        let num_str = &rest[..rest.len() - last.len_utf8()];
+        let n: i64 = num_str.parse().ok()?;
+        let signed = sign.checked_mul(n)?;
+        // Every branch is checked: a huge offset (`+999999999999d`) overflows
+        // the time span and a merely-large one (`+3000000d`) overflows the
+        // supported date range. Both are user-typed, so they must fall through
+        // to a parse error rather than panic the auto-run render path.
+        match last {
+            'd' => Duration::try_days(signed).and_then(|d| today.checked_add_signed(d)),
+            'w' => Duration::try_weeks(signed).and_then(|d| today.checked_add_signed(d)),
+            'm' => {
+                let months = chrono::Months::new(u32::try_from(signed.unsigned_abs()).ok()?);
+                if signed >= 0 {
+                    today.checked_add_months(months)
+                } else {
+                    today.checked_sub_months(months)
+                }
+            }
+            _ => None,
         }
     }
 
@@ -641,12 +793,113 @@ pub(crate) mod dsl {
             let q = parse("tag: ops\nnot-tag: western").unwrap();
             assert_eq!(q.filters.len(), 2);
         }
+
+        #[test]
+        fn parses_before_iso_date() {
+            let q = parse("before: due 2025-07-01").unwrap();
+            assert_eq!(q.filters.len(), 1);
+            let expected = NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
+            assert!(matches!(&q.filters[0], Filter::Before(k, d) if k == "due" && *d == expected));
+        }
+
+        #[test]
+        fn parses_after_iso_date() {
+            let q = parse("after: deadline 2025-08-15").unwrap();
+            assert_eq!(q.filters.len(), 1);
+            let expected = NaiveDate::from_ymd_opt(2025, 8, 15).unwrap();
+            assert!(
+                matches!(&q.filters[0], Filter::After(k, d) if k == "deadline" && *d == expected)
+            );
+        }
+
+        #[test]
+        fn parses_before_relative_offset_no_colon() {
+            let q = parse("before due +7d").unwrap();
+            assert_eq!(q.filters.len(), 1);
+            assert!(matches!(&q.filters[0], Filter::Before(k, _) if k == "due"));
+        }
+
+        #[test]
+        fn parses_after_today() {
+            let q = parse("after: scheduled tomorrow").unwrap();
+            assert_eq!(q.filters.len(), 1);
+            assert!(matches!(&q.filters[0], Filter::After(k, _) if k == "scheduled"));
+        }
+
+        #[test]
+        fn before_requires_date() {
+            assert!(parse("before: due notadate").is_err());
+        }
+
+        #[test]
+        fn before_requires_key_and_date() {
+            assert!(parse("before: ").is_err());
+        }
+
+        #[test]
+        fn before_still_accepts_the_inner_colon_form() {
+            // `before: due: +7d` (colon between key and date) still parses —
+            // docs lead with the space form, the colon alias stays tolerated.
+            let q = parse("before: due: +7d").unwrap();
+            assert_eq!(q.filters.len(), 1);
+            assert!(matches!(&q.filters[0], Filter::Before(k, _) if k == "due"));
+        }
+
+        #[test]
+        fn old_prop_before_key_is_a_clear_unknown_key_error() {
+            // The renamed directive must surface as an unknown key, not
+            // silently misparse as a `prop` with key "before".
+            let err = parse("prop-before: due +7d").unwrap_err();
+            assert!(err.msg.contains("unknown key"), "got: {}", err.msg);
+        }
+
+        #[test]
+        fn parses_sort_by_property() {
+            let q = parse("sort: due").unwrap();
+            assert_eq!(q.sort.len(), 1);
+            assert!(matches!(&q.sort[0], SortKey::Prop(k) if k == "due"));
+        }
+
+        #[test]
+        fn parses_sort_mixed_keywords_and_property() {
+            let q = parse("sort: page, due").unwrap();
+            assert_eq!(q.sort.len(), 2);
+            assert!(matches!(q.sort[0], SortKey::Page));
+            assert!(matches!(&q.sort[1], SortKey::Prop(k) if k == "due"));
+        }
+
+        #[test]
+        fn huge_relative_offset_errors_instead_of_panicking() {
+            // Two distinct overflow paths, both must fall through to a parse
+            // error rather than panic the auto-run render path:
+            //   +999999999999d  overflows the time span (Duration::try_days)
+            //   +100000000d     overflows the NaiveDate range (~year 275000)
+            assert!(parse("before: due +999999999999d").is_err());
+            assert!(parse("before: due +100000000d").is_err());
+            assert!(parse("before: due +999999999999w").is_err());
+            // A merely-large offset still parses (chrono NaiveDate reaches
+            // year 262143, so ~year 10220 is representable).
+            assert!(parse("before: due +3000000d").is_ok());
+        }
+
+        #[test]
+        fn huge_month_offset_errors_not_truncates() {
+            // `u32::try_from` guards the Months::new cast: a count beyond
+            // u32::MAX must error, not silently wrap to a small month count.
+            assert!(parse("before: due +4294967296m").is_err());
+        }
+
+        #[test]
+        fn moderate_relative_offset_still_parses() {
+            let q = parse("before: due +3650d").unwrap();
+            assert!(matches!(&q.filters[0], Filter::Before(k, _) if k == "due"));
+        }
     }
 }
 
 /// Execution engine — filter + collect matching blocks.
 pub(crate) mod engine {
-    use super::dsl::{Filter, KindFilter, Query, SortKey, StatusFilter};
+    use super::dsl::{Filter, KindFilter, Query, SortKey, StatusFilter, ISO_DATE_FMT};
     use chrono::{Duration, NaiveDate};
     use outl_md::block_index::BlockEntry;
     use outl_md::index::WorkspaceIndex;
@@ -678,6 +931,10 @@ pub(crate) mod engine {
 
     /// One query hit — the data we need to render an embed.
     pub struct Hit {
+        /// Block ULID (`NodeId`) — the id a caller feeds back to a write
+        /// tool. The ref `handle` is display-only; a query hit is only
+        /// actionable if it carries the real id.
+        pub id: String,
         /// Block ref handle (`blk-XXXXXX`) for embed rendering.
         pub handle: String,
         /// Slug of the page hosting the block.
@@ -686,6 +943,8 @@ pub(crate) mod engine {
         pub status: Option<Status>,
         /// Block text with the task prefix stripped.
         pub text: String,
+        /// Block properties (key, value) for property-based sorting.
+        pub properties: Vec<(String, String)>,
     }
 
     /// Run `query` against `index`, returning all matching blocks.
@@ -705,10 +964,12 @@ pub(crate) mod engine {
                 }
 
                 Some(Hit {
+                    id: entry.id.to_string(),
                     handle: entry.ref_handle.clone(),
                     page_slug: entry.source_slug.clone(),
                     status,
                     text: body.to_string(),
+                    properties: entry.properties.clone(),
                 })
             })
             .collect()
@@ -728,6 +989,23 @@ pub(crate) mod engine {
                     rank(a.status).cmp(&rank(b.status))
                 }),
                 SortKey::Text => hits.sort_by(|a, b| a.text.cmp(&b.text)),
+                SortKey::Prop(prop_key) => {
+                    let key_fold = prop_key.to_lowercase();
+                    let extract = |h: &Hit| -> Option<chrono::NaiveDate> {
+                        h.properties
+                            .iter()
+                            .find(|(k, _)| k.to_lowercase() == key_fold)
+                            .and_then(|(_, v)| {
+                                chrono::NaiveDate::parse_from_str(v.trim(), ISO_DATE_FMT).ok()
+                            })
+                    };
+                    hits.sort_by(|a, b| match (extract(a), extract(b)) {
+                        (Some(x), Some(y)) => x.cmp(&y),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => std::cmp::Ordering::Equal,
+                    });
+                }
             }
         }
     }
@@ -779,6 +1057,24 @@ pub(crate) mod engine {
                         .iter()
                         .any(|(k, _)| k.to_lowercase() == key_fold)
                 }
+            }
+            Filter::Before(key, threshold) => {
+                let key_fold = key.to_lowercase();
+                entry.properties.iter().any(|(k, v)| {
+                    k.to_lowercase() == key_fold
+                        && chrono::NaiveDate::parse_from_str(v.trim(), ISO_DATE_FMT)
+                            .map(|d| d < *threshold)
+                            .unwrap_or(false)
+                })
+            }
+            Filter::After(key, threshold) => {
+                let key_fold = key.to_lowercase();
+                entry.properties.iter().any(|(k, v)| {
+                    k.to_lowercase() == key_fold
+                        && chrono::NaiveDate::parse_from_str(v.trim(), ISO_DATE_FMT)
+                            .map(|d| d > *threshold)
+                            .unwrap_or(false)
+                })
             }
             Filter::Page(slug) => entry.source_slug == *slug,
             Filter::Kind(kf) => match kf {
@@ -1047,6 +1343,153 @@ pub(crate) mod engine {
             let not_tag_filter = Filter::NotTag("western".into());
             assert!(matches(&tag_filter, &entry, None, None, &today));
             assert!(!matches(&not_tag_filter, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn before_matches_date_before_threshold() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let threshold = chrono::NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
+            let entry = make_entry("TODO fix bug", "notes", vec![("due", "2025-06-15")]);
+            let filter = Filter::Before("due".into(), threshold);
+            assert!(matches(&filter, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn before_excludes_date_after_threshold() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let threshold = chrono::NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
+            let entry = make_entry("TODO fix bug", "notes", vec![("due", "2025-08-01")]);
+            let filter = Filter::Before("due".into(), threshold);
+            assert!(!matches(&filter, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn after_matches_date_after_threshold() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let threshold = chrono::NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
+            let entry = make_entry("TODO plan trip", "notes", vec![("due", "2025-08-15")]);
+            let filter = Filter::After("due".into(), threshold);
+            assert!(matches(&filter, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn after_excludes_date_before_threshold() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let threshold = chrono::NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
+            let entry = make_entry("TODO plan trip", "notes", vec![("due", "2025-06-01")]);
+            let filter = Filter::After("due".into(), threshold);
+            assert!(!matches(&filter, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn before_excludes_non_date_values() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let threshold = chrono::NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
+            let entry = make_entry("TODO task", "notes", vec![("due", "high")]);
+            let filter = Filter::Before("due".into(), threshold);
+            assert!(!matches(&filter, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn before_excludes_missing_property() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let threshold = chrono::NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
+            let entry = make_entry("TODO task", "notes", vec![("priority", "high")]);
+            let filter = Filter::Before("due".into(), threshold);
+            assert!(!matches(&filter, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn before_is_case_insensitive_on_key() {
+            let today = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+            let threshold = chrono::NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
+            let entry = make_entry("TODO task", "notes", vec![("Due", "2025-06-01")]);
+            let filter = Filter::Before("due".into(), threshold);
+            assert!(matches(&filter, &entry, None, None, &today));
+        }
+
+        #[test]
+        fn sort_by_date_property_ascending() {
+            let mut hits = vec![
+                Hit {
+                    id: "01TEST0000000000000000000".into(),
+                    handle: "blk-c".into(),
+                    page_slug: "notes".into(),
+                    status: None,
+                    text: "third".into(),
+                    properties: vec![("due".into(), "2025-09-01".into())],
+                },
+                Hit {
+                    id: "01TEST0000000000000000000".into(),
+                    handle: "blk-a".into(),
+                    page_slug: "notes".into(),
+                    status: None,
+                    text: "first".into(),
+                    properties: vec![("due".into(), "2025-07-01".into())],
+                },
+                Hit {
+                    id: "01TEST0000000000000000000".into(),
+                    handle: "blk-b".into(),
+                    page_slug: "notes".into(),
+                    status: None,
+                    text: "second".into(),
+                    properties: vec![("due".into(), "2025-08-01".into())],
+                },
+            ];
+            sort_hits(&mut hits, &[SortKey::Prop("due".into())]);
+            assert_eq!(hits[0].handle, "blk-a");
+            assert_eq!(hits[1].handle, "blk-b");
+            assert_eq!(hits[2].handle, "blk-c");
+        }
+
+        #[test]
+        fn sort_by_date_property_missing_sorts_last() {
+            let mut hits = vec![
+                Hit {
+                    id: "01TEST0000000000000000000".into(),
+                    handle: "blk-no-due".into(),
+                    page_slug: "notes".into(),
+                    status: None,
+                    text: "no date".into(),
+                    properties: vec![],
+                },
+                Hit {
+                    id: "01TEST0000000000000000000".into(),
+                    handle: "blk-early".into(),
+                    page_slug: "notes".into(),
+                    status: None,
+                    text: "early".into(),
+                    properties: vec![("due".into(), "2025-07-01".into())],
+                },
+            ];
+            sort_hits(&mut hits, &[SortKey::Prop("due".into())]);
+            assert_eq!(hits[0].handle, "blk-early");
+            assert_eq!(hits[1].handle, "blk-no-due");
+        }
+
+        #[test]
+        fn sort_by_date_property_non_date_sorts_last() {
+            let mut hits = vec![
+                Hit {
+                    id: "01TEST0000000000000000000".into(),
+                    handle: "blk-non-date".into(),
+                    page_slug: "notes".into(),
+                    status: None,
+                    text: "high priority".into(),
+                    properties: vec![("due".into(), "high".into())],
+                },
+                Hit {
+                    id: "01TEST0000000000000000000".into(),
+                    handle: "blk-dated".into(),
+                    page_slug: "notes".into(),
+                    status: None,
+                    text: "dated".into(),
+                    properties: vec![("due".into(), "2025-07-01".into())],
+                },
+            ];
+            sort_hits(&mut hits, &[SortKey::Prop("due".into())]);
+            assert_eq!(hits[0].handle, "blk-dated");
+            assert_eq!(hits[1].handle, "blk-non-date");
         }
     }
 }

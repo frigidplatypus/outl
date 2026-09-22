@@ -5,6 +5,7 @@
 //! through stdin, and asserts the JSON-RPC responses. This is the
 //! ground truth — if Claude Desktop / Cursor break, this would too.
 
+use serde_json::json;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -600,4 +601,315 @@ fn frozen_page_update_returns_structured_refusal_not_a_generic_error() {
         after.contains("only ever on disk"),
         "a refused write must never delete the unlogged content: {after:?}"
     );
+}
+
+/// `outl_block_prop_set` is the block-node counterpart of
+/// `outl_page_prop_set` and shares its clear contract: an omitted or
+/// null `value` removes the property, a present non-string must be
+/// rejected rather than silently clearing it. Driving the real server
+/// covers the dispatch branch, not just the `cmd/block.rs` handlers that
+/// `tests/block_prop.rs` pins through the CLI.
+#[test]
+fn block_prop_set_over_mcp_clears_and_rejects_non_string() {
+    let ws = init_workspace();
+    let mut client = McpClient::spawn(ws.path());
+
+    let _ = initialize(&mut client);
+
+    let create = call_tool(
+        &mut client,
+        2,
+        "outl_page_create",
+        json!({ "slug": "tasks" }),
+    );
+    assert_eq!(create["result"]["isError"], false);
+
+    let appended = call_tool(
+        &mut client,
+        3,
+        "outl_block_append",
+        json!({ "page": "tasks", "text": "TODO Fix the hyperdrive" }),
+    );
+    let id = success_data(&appended["result"])["id"]
+        .as_str()
+        .expect("append returns the new block id")
+        .to_string();
+
+    let set = call_tool(
+        &mut client,
+        4,
+        "outl_block_prop_set",
+        json!({ "id": id, "key": "due", "value": "2026-01-05" }),
+    );
+    assert_eq!(success_data(&set["result"])["value"], "2026-01-05");
+
+    let get = call_tool(
+        &mut client,
+        5,
+        "outl_block_prop_get",
+        json!({ "id": id, "key": "due" }),
+    );
+    assert_eq!(success_data(&get["result"])["value"], "2026-01-05");
+
+    // A null value clears it.
+    let clear_null = call_tool(
+        &mut client,
+        6,
+        "outl_block_prop_set",
+        json!({ "id": id, "key": "due", "value": null }),
+    );
+    assert_eq!(success_data(&clear_null["result"])["value"], Value::Null);
+
+    // Re-set, then clear by omitting the value entirely.
+    let reset = call_tool(
+        &mut client,
+        7,
+        "outl_block_prop_set",
+        json!({ "id": id, "key": "due", "value": "2026-01-05" }),
+    );
+    assert_eq!(success_data(&reset["result"])["value"], "2026-01-05");
+
+    let clear_omit = call_tool(
+        &mut client,
+        8,
+        "outl_block_prop_set",
+        json!({ "id": id, "key": "due" }),
+    );
+    assert_eq!(success_data(&clear_omit["result"])["value"], Value::Null);
+
+    let get = call_tool(
+        &mut client,
+        9,
+        "outl_block_prop_get",
+        json!({ "id": id, "key": "due" }),
+    );
+    assert_eq!(get["result"]["isError"], true);
+    assert_eq!(
+        get["result"]["structuredContent"]["error"]["code"],
+        "PROP_NOT_FOUND"
+    );
+
+    // A non-string value is rejected, not silently cleared.
+    let bad = call_tool(
+        &mut client,
+        10,
+        "outl_block_prop_set",
+        json!({ "id": id, "key": "due", "value": 42 }),
+    );
+    assert_eq!(bad["result"]["isError"], true);
+    assert_eq!(
+        bad["result"]["structuredContent"]["error"]["code"],
+        "INVALID_ARG"
+    );
+}
+
+/// The date filters (`before:` / `after:`) are only as good as the
+/// `due::` date already on the block, so this drives the whole loop an
+/// agent runs over MCP: stamp a date with `outl_block_prop_set` (and, to
+/// cover the batch op, with `outl_batch`), read it back through
+/// `outl_query_dsl`, then clear it and watch the row drop out.
+///
+/// Absolute ISO thresholds are used rather than `+7d` relative sugar so
+/// the assertion does not depend on the machine clock. After any write the
+/// cached index is invalidated (`MUTATING`), which is what lets a
+/// follow-up `outl_query_dsl` in the same session see the new date.
+#[test]
+fn date_filter_over_mcp_reads_block_prop_set_and_batch() {
+    let ws = init_workspace();
+    let mut client = McpClient::spawn(ws.path());
+
+    let _ = initialize(&mut client);
+    let _ = call_tool(
+        &mut client,
+        2,
+        "outl_page_create",
+        json!({ "slug": "tasks" }),
+    );
+
+    let soon = call_tool(
+        &mut client,
+        3,
+        "outl_block_append",
+        json!({ "page": "tasks", "text": "TODO Ship the release" }),
+    );
+    let soon_id = success_data(&soon["result"])["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let later = call_tool(
+        &mut client,
+        4,
+        "outl_block_append",
+        json!({ "page": "tasks", "text": "TODO Write the memo" }),
+    );
+    let later_id = success_data(&later["result"])["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // One date via the dedicated tool, the other via the batch op.
+    let _ = call_tool(
+        &mut client,
+        5,
+        "outl_block_prop_set",
+        json!({ "id": soon_id, "key": "due", "value": "2026-01-05" }),
+    );
+    let batch = call_tool(
+        &mut client,
+        6,
+        "outl_batch",
+        json!({
+            "ops": [
+                { "op": "block_prop_set",
+                  "args": { "id": later_id, "key": "due", "value": "2026-12-25" } }
+            ]
+        }),
+    );
+    assert_eq!(
+        success_data(&batch["result"])["results"][0]["op"],
+        "block_prop_set"
+    );
+
+    // Only the 2026-01-05 task is due before the threshold.
+    let hits = |client: &mut McpClient, id: i64, dsl: &str| -> Vec<Value> {
+        let r = call_tool(client, id, "outl_query_dsl", json!({ "dsl": dsl }));
+        success_data(&r["result"])["hits"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+    };
+
+    let due_soon = hits(&mut client, 7, "status: todo\nbefore: due 2026-06-01");
+    assert_eq!(
+        due_soon.len(),
+        1,
+        "only the January task qualifies: {due_soon:?}"
+    );
+    assert_eq!(due_soon[0]["page"], "tasks");
+    assert_eq!(due_soon[0]["text"], "Ship the release");
+
+    let due_later = hits(&mut client, 8, "status: todo\nafter: due 2026-06-01");
+    assert_eq!(
+        due_later.len(),
+        1,
+        "only the December task qualifies: {due_later:?}"
+    );
+    assert_eq!(due_later[0]["text"], "Write the memo");
+
+    // Clearing the soon date drops it from the date query (index refreshed
+    // in-session), proving the write path and the read path agree.
+    let _ = call_tool(
+        &mut client,
+        9,
+        "outl_block_prop_set",
+        json!({ "id": soon_id, "key": "due", "value": null }),
+    );
+    let cleared = hits(&mut client, 10, "status: todo\nbefore: due 2026-06-01");
+    assert!(
+        cleared.is_empty(),
+        "clearing the date must remove the row from the date filter: {cleared:?}"
+    );
+}
+
+/// A date query that finds a block is only useful to an agent if the row
+/// carries an id the agent can act on. The ref handle (`blk-XXXXXX`) is
+/// display-only — every block write tool is ULID-only — so a hit that
+/// returned *only* the handle could be read but never written back (the
+/// gap this pins closed). This asserts the writable `id` is present and
+/// round-trips into `outl_block_prop_set`, and that the `block` handle is
+/// *not* accepted, so removing the `id` field fails here rather than
+/// shipping an agent that can find a task by date but not act on it.
+#[test]
+fn query_dsl_hits_carry_an_id_a_write_tool_accepts() {
+    let ws = init_workspace();
+    let mut client = McpClient::spawn(ws.path());
+
+    let _ = initialize(&mut client);
+    let _ = call_tool(
+        &mut client,
+        2,
+        "outl_page_create",
+        json!({ "slug": "tasks" }),
+    );
+
+    let appended = call_tool(
+        &mut client,
+        3,
+        "outl_block_append",
+        json!({ "page": "tasks", "text": "TODO Ship the release" }),
+    );
+    let id = success_data(&appended["result"])["id"]
+        .as_str()
+        .expect("append returns the new block id")
+        .to_string();
+
+    let _ = call_tool(
+        &mut client,
+        4,
+        "outl_block_prop_set",
+        json!({ "id": id, "key": "due", "value": "2026-01-05" }),
+    );
+
+    let r = call_tool(
+        &mut client,
+        5,
+        "outl_query_dsl",
+        json!({ "dsl": "status: todo\nbefore: due 2026-06-01" }),
+    );
+    let hit = success_data(&r["result"])["hits"][0].clone();
+
+    // The hit carries the ULID a write tool accepts — the same id append
+    // handed back, and the handle is a separate, display-only field.
+    assert_eq!(hit["id"], id, "hit must carry the actionable ULID");
+    let handle = hit["block"].as_str().expect("hit carries a ref handle");
+    assert!(
+        handle.starts_with("blk-"),
+        "handle is display-only: {handle}"
+    );
+
+    // The id round-trips straight into the write tool — the agent loop.
+    let rewrite = call_tool(
+        &mut client,
+        6,
+        "outl_block_prop_set",
+        json!({ "id": hit["id"], "key": "due", "value": "2026-02-02" }),
+    );
+    assert_eq!(
+        success_data(&rewrite["result"])["value"],
+        "2026-02-02",
+        "a query id must be accepted by outl_block_prop_set"
+    );
+
+    // ...and the handle alone is *not*, which is why the id is load-bearing.
+    let from_handle = call_tool(
+        &mut client,
+        7,
+        "outl_block_prop_set",
+        json!({ "id": handle, "key": "due", "value": "2026-03-03" }),
+    );
+    assert_eq!(from_handle["result"]["isError"], true);
+    assert_eq!(
+        from_handle["result"]["structuredContent"]["error"]["code"],
+        "INVALID_BLOCK_ID"
+    );
+}
+
+/// `initialize` handshake shared by the newer tests.
+fn initialize(client: &mut McpClient) -> Value {
+    client.call(json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": { "protocolVersion": "2024-11-05", "capabilities": {} }
+    }))
+}
+
+/// Build and send a `tools/call`, returning the raw JSON-RPC response.
+fn call_tool(client: &mut McpClient, id: i64, name: &str, arguments: Value) -> Value {
+    client.call(json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": { "name": name, "arguments": arguments }
+    }))
 }

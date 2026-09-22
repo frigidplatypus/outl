@@ -157,6 +157,20 @@ pub fn page_properties(
     out
 }
 
+/// Property keys whose values are conventionally ISO dates (`YYYY-MM-DD`).
+///
+/// Powers UI affordances (calendar picker hints, date-format hints in the
+/// property editor) and query autocomplete. The query engine does NOT use
+/// this list — the user explicitly names the key in a `before`/
+/// `after` directive, so the engine applies date semantics to whatever
+/// key is named.
+pub const KNOWN_DATE_KEYS: &[&str] = &["due", "deadline", "scheduled", "completed", "started"];
+
+/// Whether a property key is conventionally a date-valued key.
+pub fn is_date_like_key(key: &str) -> bool {
+    KNOWN_DATE_KEYS.iter().any(|k| k.eq_ignore_ascii_case(key))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,5 +384,16 @@ mod tests {
             0,
             "delete must hit the stored key"
         );
+    }
+
+    #[test]
+    fn is_date_like_key_matches_known_keys_case_insensitively() {
+        assert!(is_date_like_key("due"));
+        assert!(is_date_like_key("Due"));
+        assert!(is_date_like_key("DUE"));
+        assert!(is_date_like_key("deadline"));
+        assert!(is_date_like_key("scheduled"));
+        assert!(!is_date_like_key("priority"));
+        assert!(!is_date_like_key(""));
     }
 }

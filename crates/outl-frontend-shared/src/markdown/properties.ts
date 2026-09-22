@@ -27,6 +27,12 @@ export interface PropertyChip {
 }
 
 /**
+ * Property keys whose values are conventionally ISO dates.
+ * Mirrors `outl_actions::property::KNOWN_DATE_KEYS` — edit together.
+ */
+export const DATE_KEYS = ["due", "deadline", "scheduled", "completed", "started"] as const;
+
+/**
  * Keys outl gives a glyph to. Everything else renders as a plain
  * `key: value` chip — a user's own `priority:: high` is theirs, not
  * ours to interpret.
@@ -35,6 +41,7 @@ const KNOWN_PROPERTIES: Record<string, string> = {
   [REMIND_KEY]: "⏰",
   "auto-run": "▶",
   template: "📋",
+  ...Object.fromEntries(DATE_KEYS.map((k) => [k, "📅"])),
 };
 
 /**

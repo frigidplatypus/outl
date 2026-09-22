@@ -272,6 +272,22 @@ fn apply_op(ctx: &mut WsCtx, op: &str, args: &Value) -> Result<Value, ApiError> 
             let id = require_str(args, "id")?;
             block_cmd::toggle_todo(ctx, id)
         }
+        "block_prop_set" => {
+            let id = require_str(args, "id")?;
+            let key = require_str(args, "key")?;
+            // Same contract as `page_prop_set`: omitted or null `value`
+            // clears; a present string (including "") sets; other types
+            // error so a mistyped value never silently deletes.
+            match args.get("value") {
+                None | Some(Value::Null) => block_cmd::clear_prop(ctx, id, key),
+                Some(v) => {
+                    let value = v.as_str().ok_or_else(|| {
+                        ApiError::new(codes::INVALID_ARG, "`value` must be a string")
+                    })?;
+                    block_cmd::set_prop_kv(ctx, id, key, value)
+                }
+            }
+        }
         "daily_append" => {
             let text = require_str(args, "text")?;
             let date = opt_str(args, "date");

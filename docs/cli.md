@@ -145,12 +145,22 @@ The flag exists so external clients (the Raycast extension's "New Page") can ask
 | `outl block delete <blk> [--confirm]`                          | `outl_block_delete`     |
 | `outl block toggle-todo <blk>`                                 | `outl_block_toggle_todo`|
 | `outl block tree <blk> [--json]`                               | `outl_block_tree`       |
+| `outl block prop set <blk> key=value [--json]`                 | `outl_block_prop_set`   |
+| `outl block prop clear <blk> <key> [--json]`                   | `outl_block_prop_set` (`value: null`) |
+| `outl block prop get <blk> <key> [--json]`                     | `outl_block_prop_get`   |
+| `outl block prop list <blk> [--json]`                          | `outl_block_prop_list`  |
 | `outl block history <blk> [--limit=N] [--json]`                | —                       |
 
 `block move` is the one user-visible name for `Op::Move`.
 Cycle detection still applies: a move that would create a cycle returns `{ "code": "CYCLE_REJECTED" }` and the op still goes into the log (see [docs/crdt.md](crdt.md)).
 `block toggle-todo` walks `None → TODO → DOING → DONE → None`, same as `outl_actions::cycle_todo`.
 One call is one step, so reaching `DONE` from an unmarked block takes three.
+
+`block prop set` writes `Op::SetProp` on the **block** node — the same op a reconciled `priority:: high` child line becomes, and what the `query` engine's `prop` / `before` / `after` filters read.
+This is the block-level counterpart to `outl page prop …`, which targets the page node; the `.md` renders a block property as a `key:: value` line beneath the block.
+`clear` always emits `SetProp { value: None }` even when the key looks unset locally, so a concurrent remote `set` settles by HLC rather than being stranded.
+Over MCP there is no separate clear tool — `outl_block_prop_set` clears when `value` is omitted or `null`, exactly like `outl_page_prop_set`.
+`block_prop_set` is also a `batch` op, so an agent can append a task and stamp its `due::` date in one session.
 
 `block append-tree` writes a root block plus its recursive children in one op-log session.
 `--tree` accepts the JSON shape `{"text": "...", "children": [{"text": "...", "children": [...]}]}`, or `--tree -` to read the JSON from stdin.
@@ -196,7 +206,12 @@ Only the link enters the op log; the asset's bytes are a plain blob replicated a
 Practical consequence: a line that exists in a `.md` but in no op is not found.
 That happens when a file was edited outside outl and no reconcile has run yet, or when the page is in the state `outl doctor` reports as ahead of the log — `outl reconcile --ahead-of-log` is what turns that content into ops.
 In exchange, a block the log holds stays findable even while its sidecar is stale, which the previous disk-walking implementation could not promise: it dropped every block after the first one whose hash disagreed.
-The `--raw='…'` flag is reserved for the not-yet-implemented query DSL and currently rejects with `INVALID_ARG` — when the DSL lands it folds into the same `outl_query` tool, not a new one.
+
+`outl_query` above is page-oriented (tag, property, journal date range).
+The **block-level query DSL** — the engine behind ` ```query ` fences, with `status:`, `prop:`, `sort:` and the `before:` / `after:` date filters over a block's `due::` / `deadline::` / … — is reached over MCP as a separate tool, `outl_query_dsl` (`{ "dsl": "status: todo\nbefore: due +7d" }`).
+It has no CLI subcommand of its own and takes one directive per line; full syntax lives in [docs/query.md](query.md).
+The block date properties those filters read are written with `outl block prop set` / `outl_block_prop_set`.
+On the CLI the `--raw='…'` flag on `outl query` is still reserved and returns `INVALID_ARG`; surfacing the DSL from the CLI is open work, tracked separately.
 
 ### Backlinks / Refs
 
@@ -612,7 +627,7 @@ Shipping today:
 - `outl init`, `outl serve`, `outl doctor`, `outl reconcile`, `outl recover`, `outl import logseq|obsidian|roam`, `outl theme`.
 - `outl` (no subcommand) opens the TUI.
 - `outl page get|create|update|delete|list|rename|render` (`create` accepts `--content` to seed the outline in one call)
-- `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree`
+- `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree|history|prop`
 - `outl daily today|get|append|range`
 - `outl search "<query>" [--in=blocks|pages|all]`
 - `outl query [--tag] [--priority] [--since=Nd] [--kind] [--prop k=v]`
@@ -627,7 +642,8 @@ Shipping today:
 
 Still ahead:
 
-- Richer `outl query --raw='…'` DSL (today returns `INVALID_ARG`).
+- Surface the query DSL on the CLI (`outl query --raw`).
+  The DSL itself already ships — it powers ` ```query ` fences and runs over MCP as `outl_query_dsl` — only the CLI `--raw` flag is unwired (returns `INVALID_ARG`).
 - Per-page block-level property surface beyond the well-known keys the `prop list` probe enumerates.
 
 The order of landing matched the order of unlocking real workflows (scripts → LLM agents in Claude Code → Claude Desktop → blog publishing pipeline).

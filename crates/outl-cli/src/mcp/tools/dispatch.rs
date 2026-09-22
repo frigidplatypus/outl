@@ -49,6 +49,8 @@ use crate::cmd::{
     prop as prop_cmd, query as query_cmd, search as search_cmd, tag as tag_cmd,
     template as tpl_cmd, workspace_info as wi_cmd,
 };
+use outl_exec::run_query_dsl_with_index;
+
 use crate::mcp::protocol::JsonRpcError;
 use crate::mcp::ServerCtx;
 use crate::output::ApiError;
@@ -80,6 +82,7 @@ const MUTATING: &[&str] = &[
     "outl_block_move",
     "outl_block_delete",
     "outl_block_toggle_todo",
+    "outl_block_prop_set",
     "outl_daily_today",
     "outl_daily_get",
     "outl_daily_append",
@@ -252,6 +255,40 @@ fn run_tool(name: &str, args: &Value, ctx: &Arc<ServerCtx>) -> Result<Value, Api
             let id = require_str(args, "id")?.to_string();
             ctx.with_workspace(|wc| block_cmd::tree(wc, &id))
         }
+        // Block properties — the block-level counterpart to the page-prop
+        // tools. A `due::`/`deadline::` value here is what the query DSL's
+        // `before:` / `after:` date filters read, so this is how an agent
+        // stamps a date onto a task it just created.
+        "outl_block_prop_set" => {
+            let id = require_str(args, "id")?.to_string();
+            let key = require_str(args, "key")?.to_string();
+            // Same clear/contract as `outl_page_prop_set`: omitted or null
+            // clears, a present string (incl "") sets, any other type errors.
+            match args.get("value") {
+                None | Some(Value::Null) => {
+                    ctx.with_workspace(|wc| block_cmd::clear_prop(wc, &id, &key))
+                }
+                Some(v) => {
+                    let value = v.as_str().ok_or_else(|| {
+                        ApiError::new(
+                            crate::output::codes::INVALID_ARG,
+                            "`value` must be a string",
+                        )
+                    })?;
+                    let value = value.to_string();
+                    ctx.with_workspace(|wc| block_cmd::set_prop_kv(wc, &id, &key, &value))
+                }
+            }
+        }
+        "outl_block_prop_get" => {
+            let id = require_str(args, "id")?.to_string();
+            let key = require_str(args, "key")?.to_string();
+            ctx.with_workspace(|wc| block_cmd::get_prop(wc, &id, &key))
+        }
+        "outl_block_prop_list" => {
+            let id = require_str(args, "id")?.to_string();
+            ctx.with_workspace(|wc| block_cmd::list_props(wc, &id))
+        }
 
         // --- daily ---
         "outl_daily_today" => ctx.with_workspace(daily_cmd::today_handler),
@@ -328,6 +365,34 @@ fn run_tool(name: &str, args: &Value, ctx: &Arc<ServerCtx>) -> Result<Value, Api
                 json: true,
             };
             ctx.with_workspace(|wc| query_cmd::handler(wc, &q))
+        }
+        // The block-level query DSL — the same engine ` ```query ` fences
+        // run (one owner: `outl_exec`). Unlike the flag-based `outl_query`
+        // (pages + journal date range), this filters blocks and reads
+        // block properties: `status:`/`prop:` plus the `before:`/`after:`
+        // date filters over `due::`/`deadline::`/… and `sort:`/`limit:`.
+        // Runs against the cached index, so it sees every block write the
+        // `MUTATING` list has already invalidated for.
+        "outl_query_dsl" => {
+            let dsl = require_str(args, "dsl")?.to_string();
+            ctx.with_index(|idx| match run_query_dsl_with_index(&dsl, idx) {
+                Ok(hits) => Ok(json!({
+                    "hits": hits
+                        .iter()
+                        .map(|h| json!({
+                            "id": h.id,
+                            "block": h.handle,
+                            "page": h.page,
+                            "status": h.status,
+                            "text": h.text,
+                        }))
+                        .collect::<Vec<_>>(),
+                })),
+                Err(e) => Err(ApiError::new(
+                    crate::output::codes::INVALID_ARG,
+                    format!("invalid query: {e}"),
+                )),
+            })
         }
 
         // --- backlinks / refs ---

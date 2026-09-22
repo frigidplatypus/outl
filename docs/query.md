@@ -43,11 +43,13 @@ Blank lines and `#`-prefixed comments are ignored.
 | `not-tag` | `not-tag: western` | Block text does **not** contain `#western` (partial match, same as `tag`) |
 | `prop` | `prop priority: high` | Block has property `priority` with value `high` (case-insensitive). Also accepts `prop priority high` (space instead of colon) |
 | `not-prop` | `not-prop: status` | Block does **not** have property `status` (any value). Also accepts `not-prop: status: done` to exclude a specific key-value pair |
+| `before` | `before: due +7d` | Property `due` is a date strictly before the threshold. Value may be an ISO date (`2025-12-01`), `today`, `tomorrow`, `yesterday`, or a relative offset (`+7d`, `-2w`, `+1m`). Also accepts `before: due: +7d` (colon between key and date) |
+| `after` | `after: deadline today` | Property `deadline` is a date strictly after the threshold. Same value grammar as `before` |
 | `page` | `page: inbox` | Block lives on page with slug `inbox` |
 | `kind` | `kind: journal` | Hosting page kind: `journal` or `page` |
 | `since` | `since: 7d` | Journal within N days. Units: `d` (days), `w` (weeks), `m` (months) |
 | `text` | `text: deploy` | Substring in block text (case-insensitive) |
-| `sort` | `sort: page, status` | Sort criteria, applied left-to-right. Keys: `page`, `status`, `text` |
+| `sort` | `sort: page, due` | Sort criteria, applied left-to-right. Keys: `page`, `status`, `text`, or any property key (sorts by that property's date value; blocks without a parseable date sort last) |
 | `limit` | `limit: 50` | Maximum number of results |
 
 ## Examples
@@ -151,6 +153,29 @@ Blank lines and `#`-prefixed comments are ignored.
   ```
 ````
 
+### Tasks due within the next week
+
+````markdown
+- ```query
+  status: open
+  after: due yesterday
+  before: due +7d
+  sort: due
+  ```
+````
+
+### Overdue tasks
+
+````markdown
+- ```query
+  status: todo
+  before: due today
+  sort: due
+  ```
+````
+
+`sort: due` orders by the `due` property's date ascending; a block without a parseable `due` sorts last.
+
 ## How results render
 
 The query runtime returns `OutputFormat::Embeds`, which tells the orchestrator to render each result as a child bullet with an embed reference instead of dumping stdout text.
@@ -215,6 +240,28 @@ Planned filters (not yet implemented):
 
 New filters are `enum Filter` variants in `crates/outl-exec/src/runtimes/query.rs` — one match arm per filter, no parser change needed beyond recognizing the key.
 
+## Date properties
+
+Date filtering treats a property value as an **ISO-8601 calendar date** (`YYYY-MM-DD`).
+No property is *declared* as a date anywhere; whether `due:: 2025-12-01` is a date is decided at query time, per value, so the `.md` stays 100% clean and no schema lands in the sidecar.
+The engine uses only strict ISO parsing — relative words (`today`, `tomorrow`, `+7d`) are sugar for the query's *threshold*, never for a stored property value.
+
+Outl keeps a small convention list of keys that are *typically* dates (`due`, `deadline`, `scheduled`, `completed`, `started`) in `outl_actions::property::KNOWN_DATE_KEYS`, mirrored in `@outl/shared` as `DATE_KEYS`.
+This list exists only so clients can offer a calendar affordance (a 📅 chip glyph); the query engine deliberately ignores it — a date range filter matches on **any** key the user names, as long as that block's value parses.
+
+## Reaching the DSL from an agent (MCP)
+
+The same engine runs for an MCP client (an AI assistant driving `outl mcp serve`) as a read-only tool, `outl_query_dsl`, taking `{ "dsl": "…" }` — the identical one-directive-per-line string you would put in a ` ```query ` fence.
+The CLI has no subcommand for the DSL yet (`outl query --raw` is still reserved).
+
+A filter over `due::` / `deadline::` is only as good as the date already on the block, and those block properties are written through the block-property tools: `outl_block_prop_set` (`{ "id": "<ULID>", "key": "due", "value": "2026-09-25" }`) or the CLI `outl block prop set <id> due=2026-09-25`.
+An agent can create a task and stamp its date in one `outl_batch` call (`block_append` then `block_prop_set`), then read it back with `outl_query_dsl`.
+After any write the cached index is invalidated, so a follow-up `outl_query_dsl` in the same session sees the new date.
+
+Each `outl_query_dsl` hit carries the block's **ULID** in `id` (alongside the display-only `block` handle) — and it is that `id` a write tool accepts, never the `blk-…` handle.
+So a query that *finds* a task by date hands the agent the exact id to *act* on it: feed `hits[i].id` straight back into `outl_block_prop_set`.
+Pinned by `query_dsl_hits_carry_an_id_a_write_tool_accepts`.
+
 ## Plugin SDK API (`outl.query`)
 
 The query engine is also available as a **structured API** inside JS code blocks and plugins.
@@ -244,11 +291,13 @@ for (const t of tasks) {
 | `notTag` | `string` | Block does **not** contain `#tag` |
 | `prop` | `[string, string]` | Block has property key=value (case-insensitive) |
 | `notProp` | `[string, string?]` | Block does not have property key (or key=value if second element given) |
+| `before` | `[string, string]` | Property key is a date strictly before threshold (`"2025-12-01"`, `"today"`, `"+7d"`) |
+| `after` | `[string, string]` | Property key is a date strictly after threshold (same grammar) |
 | `page` | `string` | Block lives on page with this slug |
 | `kind` | `"journal"` \| `"page"` | Hosting page kind |
 | `since` | `string` | Duration: `"7d"`, `"2w"`, `"3m"` |
 | `text` | `string` | Substring search (case-insensitive) |
-| `sort` | `string` | Sort key: `"page"`, `"status"`, `"text"` |
+| `sort` | `string` | Sort key: `"page"`, `"status"`, `"text"`, or any property key (date-ascending; unparseable sorts last) |
 | `limit` | `number` | Max results |
 
 All fields are optional — `outl.query({})` returns every block.
@@ -259,7 +308,8 @@ Each hit is an object:
 
 ```ts
 interface QueryHit {
-  handle: string;   // "blk-XXXXXX"
+  id: string;       // block ULID — the id a block write tool accepts
+  handle: string;   // "blk-XXXXXX" (display-only; not accepted by write tools)
   text: string;     // block text, task prefix stripped
   status: string | null;  // "todo", "doing", "done", or null (not a task)
   page: string;     // hosting page slug
