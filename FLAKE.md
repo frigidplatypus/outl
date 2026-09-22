@@ -24,6 +24,21 @@ environment.systemPackages = [ inputs.outl.packages.${system}.outl ];
 The default outputs (`outl`, `outl-desktop`, `default`) build the pinned `upstream` input, so they are stock outl no matter which branch this flake is read from.
 The `-dev` outputs (`outl-dev`, `outl-desktop-dev`) build *this branch's tree* — reach for them only when the input points at the `dev` ref and you want local changes.
 
+## Binary cache
+
+The flake advertises the shared outl Cachix cache in its `nixConfig`:
+
+```
+extra-substituters          = https://outl.cachix.org
+extra-trusted-public-keys   = outl.cachix.org-1:xHVg/Xb+czttv9YGNHVlyi2YDZu/XAPQK1o2OUgjuqg=
+```
+
+Nix only *applies* a flake's `nixConfig` if you let it — otherwise it is silently ignored.
+Either set `accept-flake-config = true` in your `nix.conf`, or add the substituter and key to `nix.conf` yourself.
+Without one of those you will still get a working build; it just compiles from source instead of downloading a cached one.
+
+The cache holds whatever has been pushed to it — it is populated as releases are published, so a freshly bumped `upstream` revision may not have a prebuilt binary yet and will fall back to a local build.
+
 ## Home-manager module
 
 ```nix
