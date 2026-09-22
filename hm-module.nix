@@ -98,18 +98,34 @@ in
             preset = lib.mkOption {
               type = lib.types.enum themePresets;
               default = "outl-light";
-              description = ''
+              description = lib.mdDoc ''
                 Theme palette preset — the light side of the light/dark pair.
                 Names match outl_theme::PRESETS.
+
+                Two caveats on where this lands:
+
+                - This module writes the **global** `~/.config/outl/config.toml`,
+                  which is outl's *lowest* theme precedence. A per-workspace
+                  `<root>/.outl/config.toml` `[theme] preset` and the `--theme`
+                  flag both override it wholesale. For this setting to take
+                  effect in a workspace, that workspace's `.outl/config.toml`
+                  must carry **no** `[theme]` section.
+                - The TUI always renders the **dark** side (`presetDark`) under
+                  `mode = "auto"` or `"dark"` — a terminal cannot read OS
+                  appearance. So this option alone does not theme the TUI; set
+                  `presetDark` (or `mode = "light"`) to do that.
               '';
             };
 
             presetDark = lib.mkOption {
               type = lib.types.nullOr (lib.types.enum themePresets);
               default = "outl";
-              description = ''
-                Dark side of the pair. `null` falls back to `preset`
-                (the pre-RFC-0022 single-preset behaviour).
+              description = lib.mdDoc ''
+                Dark side of the pair — the preset the TUI actually renders.
+                `null` falls back to `preset` (the pre-RFC-0022 single-preset
+                behaviour). Leave at the `"outl"` default only if you want the
+                brand dark theme in the terminal; to theme the TUI set this, not
+                `preset`.
               '';
             };
 
@@ -120,7 +136,12 @@ in
                 "auto"
               ];
               default = "auto";
-              description = "Which side of the pair to render. The TUI cannot read OS appearance and treats \"auto\" as dark.";
+              description = lib.mdDoc ''
+                Which side of the pair to render. The TUI cannot read OS
+                appearance and treats `"auto"` as **dark** (renders
+                `presetDark`), so `"auto"` is a desktop setting as far as the
+                terminal is concerned.
+              '';
             };
           };
 
@@ -262,7 +283,25 @@ in
 
   config = lib.mkIf cfg.enable (
     let
-      configData =
+      # Footgun guard (docs in FLAKE.md → "Theme precedence").
+      #
+      # The TUI renders `presetDark` under `mode = auto|dark`, so a user who
+      # customises `preset` but leaves `presetDark` at its default sees the
+      # brand `outl` theme in the terminal and their `preset` silently ignored.
+      # Detect that exact shape at eval and warn (non-fatal — a `presetDark`
+      # assertion would be wrong, since a custom light-side preset with the
+      # brand dark theme is a legitimate choice). Silencing: set `presetDark`
+      # explicitly, even back to `"outl"`.
+      tc = cfg.settings.theme;
+      themeShadowed =
+        tc.mode != "light"
+        && tc.presetDark == "outl"
+        && tc.preset != "outl-light";
+      themeShadowedMsg = ''
+        programs.outl.settings.theme.preset = "${tc.preset}" does not theme the TUI: with mode = "${tc.mode}" the terminal renders the dark side, `presetDark`, which is still the default "outl". Set programs.outl.settings.theme.presetDark = "${tc.preset}" to theme the terminal, or set mode = "light" to render `preset` everywhere. Set presetDark explicitly (even back to "outl") to silence this warning.
+      '';
+
+      configData = lib.warnIf themeShadowed themeShadowedMsg (
         let
           s = cfg.settings;
         in
@@ -325,7 +364,7 @@ in
             enabled = s.backup.enabled;
             interval_minutes = s.backup.intervalMinutes;
           };
-        }) s.extraConfig;
+        }) s.extraConfig);
 
       configFile = tomlFormat.generate "outl-config" configData;
     in

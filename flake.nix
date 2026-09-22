@@ -165,6 +165,7 @@
               nativeBuildInputs = with pkgs; [
                 bun
                 nodejs
+                patchelf
               ];
 
               # Fixed-output derivation: update hash when the frontend source
@@ -178,6 +179,13 @@
                 export HOME=$TMPDIR
                 cd crates/outl-desktop
                 bun install --frozen-lockfile
+                # The package-manager shims under node_modules/.bin carry an
+                # `#!/usr/bin/env node` shebang, and the Nix sandbox has no
+                # /usr/bin/env, so `bun run build` (-> .bin/vite) dies with
+                # "bad interpreter". Rewriting them to the store node fixes
+                # it; installPhase only copies dist/, so the output hash is
+                # unaffected.
+                patchShebangs --build node_modules/.bin
                 bun run build
               '';
 
