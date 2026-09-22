@@ -12,6 +12,7 @@ let
 
   themePresets = [
     "outl"
+    "outl-light"
     "default-dark"
     "light"
     "logseq-light"
@@ -32,7 +33,7 @@ in
       defaultText = lib.literalExpression "outl flake's upstream outl package";
       description = ''
         The outl package to use. The flake default builds the upstream release;
-        set it to flake.packages.\${system}.outl-dev to install a fork / dev
+        set it to flake.packages.''${system}.outl-dev to install a fork / dev
         branch build (when the flake input points at that ref).
       '';
     };
@@ -43,7 +44,7 @@ in
       defaultText = lib.literalExpression "outl flake's upstream outl-desktop package";
       description = ''
         The outl-desktop package to use. The flake default builds the upstream
-        release; set it to flake.packages.\${system}.outl-desktop-dev for a
+        release; set it to flake.packages.''${system}.outl-desktop-dev for a
         fork / dev branch build.
       '';
     };
@@ -96,8 +97,30 @@ in
           theme = {
             preset = lib.mkOption {
               type = lib.types.enum themePresets;
+              default = "outl-light";
+              description = ''
+                Theme palette preset — the light side of the light/dark pair.
+                Names match outl_theme::PRESETS.
+              '';
+            };
+
+            presetDark = lib.mkOption {
+              type = lib.types.nullOr (lib.types.enum themePresets);
               default = "outl";
-              description = "Theme palette preset.";
+              description = ''
+                Dark side of the pair. `null` falls back to `preset`
+                (the pre-RFC-0022 single-preset behaviour).
+              '';
+            };
+
+            mode = lib.mkOption {
+              type = lib.types.enum [
+                "light"
+                "dark"
+                "auto"
+              ];
+              default = "auto";
+              description = "Which side of the pair to render. The TUI cannot read OS appearance and treats \"auto\" as dark.";
             };
           };
 
@@ -243,13 +266,17 @@ in
         let
           s = cfg.settings;
         in
-        {
+        lib.recursiveUpdate ({
           workspace = lib.filterAttrs (_: v: v != null) {
             last = s.workspace.last;
           };
 
           theme = {
             preset = s.theme.preset;
+            mode = s.theme.mode;
+          }
+          // lib.filterAttrs (_: v: v != null) {
+            preset_dark = s.theme.presetDark;
           };
 
           editor = {
@@ -298,8 +325,7 @@ in
             enabled = s.backup.enabled;
             interval_minutes = s.backup.intervalMinutes;
           };
-        }
-        // s.extraConfig;
+        }) s.extraConfig;
 
       configFile = tomlFormat.generate "outl-config" configData;
     in
