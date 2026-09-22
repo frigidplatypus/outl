@@ -117,7 +117,9 @@ A few of the keys:
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
-| `theme.preset` | enum | `"outl"` | One of `outl`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`, `gruvbox`. |
+| `theme.preset` | enum | `"outl-light"` | Light side of the pair. One of `outl`, `outl-light`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`, `gruvbox`. |
+| `theme.presetDark` | enum \| null | `null` | Dark side — the preset the TUI renders under `mode = "auto"`/`"dark"`. `null` follows `preset`; the terminal is themed by a lone `theme.preset`. |
+| `theme.mode` | enum | `"auto"` | `"light"`, `"dark"`, or `"auto"`. A terminal reads `auto` as **dark**, so `"auto"` themes it by the dark side. |
 | `editor.vimMode` | bool | `true` | Vim-style modal bindings (desktop). |
 | `sync.transport` | enum | `"iroh"` | `"iroh"` (P2P QUIC) or `"file"` (iCloud / shared FS). |
 | `reminders.quietHours` | str? | `null` | e.g. `"22:00-07:00"`. |

@@ -50,8 +50,7 @@ homeConfigurations.me = {
 
   programs.outl = {
     enable = true;
-    settings.theme.preset = "dracula";     # light side; see "Theme precedence"
-    settings.theme.presetDark = "dracula"; # the TUI renders this side
+    settings.theme.preset = "dracula";  # themes the terminal AND the desktop
     settings.editor.vimMode = true;
     services.sync = { enable = true; workspace = "~/notes"; };
   };
@@ -64,20 +63,20 @@ See `hm-module.nix` for the exact list; each option carries a `description` that
 
 ### Theme precedence
 
-The theme is the one setting whose effect is easy to misread, because outl resolves it through **two layers this module does not control**:
+The theme is the one setting whose effect is easy to misread, because outl stores a **light/dark pair** and resolves it through layers this module does not fully control.
 
-1. **Global vs. workspace.**
+1. **Light/dark pair vs. the terminal.**
+   `preset` is the light side; `presetDark` is the dark side.
+   A terminal cannot read OS appearance, so the TUI renders the **dark** side whenever `mode` is `"auto"` (the default) or `"dark"`.
+   This module makes `presetDark` default to *following* `preset`, so a single `settings.theme.preset = "x"` themes the terminal and the desktop together.
+   Set `presetDark` explicitly only when you want the two sides to differ — for example a custom light side with the brand `"outl"` dark theme.
+   When you customise neither, the module keeps outl's brand pair `outl-light` / `outl`, so the terminal defaults to the brand dark theme rather than to the light preset.
+
+2. **Global vs. workspace (less common).**
    This module writes the **global** `~/.config/outl/config.toml`, which is outl's *lowest* theme precedence.
    Precedence is first-hit-wins: `--theme <preset>` → a per-workspace `<root>/.outl/config.toml` `[theme] preset` → the global file → the built-in default.
-   So if a workspace's own `.outl/config.toml` carries a `[theme] preset` (it survives ordinary config rewrites), **that wins and the home-manager value is ignored** for that workspace — the classic "I set `preset` in Nix but the terminal still shows a different theme" case.
-   To let home-manager own a workspace's theme, that workspace's `.outl/config.toml` must have **no `[theme]` section**.
-
-2. **Light/dark pair vs. the terminal.**
-   `preset` is the **light** side; `presetDark` is the **dark** side.
-   A terminal cannot read OS appearance, so the TUI renders the **dark** side whenever `mode` is `"auto"` (the default) or `"dark"`.
-   A lone `settings.theme.preset = "x"` therefore themes the desktop's light side only — the TUI keeps rendering `presetDark` (default `"outl"`).
-   To theme the TUI, set `presetDark = "x"` (or `mode = "light"`).
-   The module emits an eval-time warning when it sees `preset` customised while `presetDark` is still the untouched default, precisely because that combination silently does nothing on the terminal.
+   A default `outl init` workspace has **no** `[theme]` section, so home-manager's global value applies everywhere.
+   Only a workspace whose `.outl/config.toml` you have hand-added a `[theme] preset` to **overrides** home-manager for that workspace — the "I set `preset` in Nix but this one folder still shows another theme" case.
 
 ## Platforms
 
