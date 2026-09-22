@@ -50,7 +50,8 @@ homeConfigurations.me = {
 
   programs.outl = {
     enable = true;
-    settings.theme.preset = "dracula";     # mirrors outl config.toml
+    settings.theme.preset = "dracula";     # light side; see "Theme precedence"
+    settings.theme.presetDark = "dracula"; # the TUI renders this side
     settings.editor.vimMode = true;
     services.sync = { enable = true; workspace = "~/notes"; };
   };
@@ -60,6 +61,23 @@ homeConfigurations.me = {
 `programs.outl.settings.*` mirrors the upstream `config.toml` schema — one option per field.
 See `hm-module.nix` for the exact list; each option carries a `description` that home-manager renders as documentation (`programs.outl.services.sync` runs `outl serve` as a systemd user service that holds this device's iroh endpoint; `installDesktop = true` also installs the Tauri GUI).
 `programs.outl.extraConfig` is a deep-merged escape hatch for any field the module has not modelled yet — write its keys in `snake_case`, matching `config.toml`.
+
+### Theme precedence
+
+The theme is the one setting whose effect is easy to misread, because outl resolves it through **two layers this module does not control**:
+
+1. **Global vs. workspace.**
+   This module writes the **global** `~/.config/outl/config.toml`, which is outl's *lowest* theme precedence.
+   Precedence is first-hit-wins: `--theme <preset>` → a per-workspace `<root>/.outl/config.toml` `[theme] preset` → the global file → the built-in default.
+   So if a workspace's own `.outl/config.toml` carries a `[theme] preset` (it survives ordinary config rewrites), **that wins and the home-manager value is ignored** for that workspace — the classic "I set `preset` in Nix but the terminal still shows a different theme" case.
+   To let home-manager own a workspace's theme, that workspace's `.outl/config.toml` must have **no `[theme]` section**.
+
+2. **Light/dark pair vs. the terminal.**
+   `preset` is the **light** side; `presetDark` is the **dark** side.
+   A terminal cannot read OS appearance, so the TUI renders the **dark** side whenever `mode` is `"auto"` (the default) or `"dark"`.
+   A lone `settings.theme.preset = "x"` therefore themes the desktop's light side only — the TUI keeps rendering `presetDark` (default `"outl"`).
+   To theme the TUI, set `presetDark = "x"` (or `mode = "light"`).
+   The module emits an eval-time warning when it sees `preset` customised while `presetDark` is still the untouched default, precisely because that combination silently does nothing on the terminal.
 
 ## Platforms
 
