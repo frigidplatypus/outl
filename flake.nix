@@ -196,10 +196,9 @@
               # Plain `cargo build` (not the tauri CLI) leaves Tauri in dev mode,
               # so the webview would load localhost:1421. The webview must be
               # pointed at the embedded `frontendDist` instead, which means
-              # enabling `tauri`'s `custom-protocol` feature.
-              #   - the fork exposes this as an opt-in `production` feature;
-              #   - upstream has no such feature, so the release build enables
-              #     `tauri/custom-protocol` directly.
+              # enabling `tauri`'s `custom-protocol` feature. We name it directly
+              # (not the fork's `production` alias) so the same flake evaluates on
+              # an upstream tree, which has no `[features]` section of its own.
               cargoBuildFlags = [
                 "--features"
                 (builtins.concatStringsSep "," features)
@@ -292,7 +291,7 @@
             cargoLockFile = ./Cargo.lock;
             rust = devToolchain;
             frontend = desktopFrontendDev;
-            features = [ "production" ];
+            features = [ "tauri/custom-protocol" ];
           };
         in
         {
