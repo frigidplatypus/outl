@@ -37,6 +37,7 @@ Nix only *applies* a flake's `nixConfig` if you let it — otherwise it is silen
 Either set `accept-flake-config = true` in your `nix.conf`, or add the substituter and key to `nix.conf` yourself.
 Without one of those you will still get a working build; it just compiles from source instead of downloading a cached one.
 
+Prebuilt binaries are published to this cache by `.github/workflows/nix-build.yml` on every push to `main` (and via the `push` recipe in the `justfile`).
 The cache holds whatever has been pushed to it — it is populated as releases are published, so a freshly bumped `upstream` revision may not have a prebuilt binary yet and will fall back to a local build.
 
 ## Home-manager module
