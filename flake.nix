@@ -1,5 +1,16 @@
+# Nix flake for outl — consumed directly as a flake input. Full guide: FLAKE.md.
+#
+#   inputs.outl.url = "github:frigidplatypus/outl";
+#   nix run github:frigidplatypus/outl        # -> .#outl (stock upstream CLI/TUI/MCP)
+#
+# Packages (Linux x86_64 / aarch64):  outl, outl-desktop (stock upstream via the
+# pinned `upstream` input) and outl-dev, outl-desktop-dev (this branch's tree).
+# Home-manager: outl.homeManagerModules.default (see hm-module.nix).
+#
+# The default outputs always build the pinned `upstream` input, so they are stock
+# outl regardless of which branch of this repo the flake is read from.
 {
-  description = "outl - local-first outliner with CRDT sync";
+  description = "outl - local-first outliner with CRDT sync (Nix flake + home-manager module for the upstream release)";
 
   nixConfig = {
     extra-substituters = [
