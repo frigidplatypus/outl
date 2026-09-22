@@ -112,20 +112,27 @@ in
                   must carry **no** `[theme]` section.
                 - The TUI always renders the **dark** side (`presetDark`) under
                   `mode = "auto"` or `"dark"` — a terminal cannot read OS
-                  appearance. So this option alone does not theme the TUI; set
-                  `presetDark` (or `mode = "light"`) to do that.
+                  appearance. Since `presetDark` defaults to following
+                  `preset`, setting this option alone *does* theme the terminal.
+                  Set `presetDark` explicitly only when you want the desktop's
+                  light and dark sides to differ.
               '';
             };
 
             presetDark = lib.mkOption {
               type = lib.types.nullOr (lib.types.enum themePresets);
-              default = "outl";
+              default = null;
+              defaultText = lib.literalExpression "null  # follows preset";
               description = lib.mdDoc ''
-                Dark side of the pair — the preset the TUI actually renders.
-                `null` falls back to `preset` (the pre-RFC-0022 single-preset
-                behaviour). Leave at the `"outl"` default only if you want the
-                brand dark theme in the terminal; to theme the TUI set this, not
-                `preset`.
+                Dark side of the pair — the preset the TUI actually renders
+                under `mode = "auto"` or `"dark"`. `null` (the default) makes
+                it follow `preset`, so a single `theme.preset` themes both the
+                terminal and the desktop. Set it explicitly only to make the
+                light and dark sides differ (for example a custom `preset` with
+                the brand `"outl"` dark theme). When nothing is customised the
+                module emits the brand pair `outl-light` / `outl`, so the
+                terminal keeps the brand dark theme rather than defaulting to
+                the light preset.
               '';
             };
 
@@ -283,25 +290,23 @@ in
 
   config = lib.mkIf cfg.enable (
     let
-      # Footgun guard (docs in FLAKE.md → "Theme precedence").
-      #
-      # The TUI renders `presetDark` under `mode = auto|dark`, so a user who
-      # customises `preset` but leaves `presetDark` at its default sees the
-      # brand `outl` theme in the terminal and their `preset` silently ignored.
-      # Detect that exact shape at eval and warn (non-fatal — a `presetDark`
-      # assertion would be wrong, since a custom light-side preset with the
-      # brand dark theme is a legitimate choice). Silencing: set `presetDark`
-      # explicitly, even back to `"outl"`.
+      # The dark side of the theme pair follows the light side unless the user
+      # overrides `presetDark`, so a single `theme.preset` themes both the
+      # terminal (which renders the dark side under mode auto|dark) and the
+      # desktop. When neither is customised we keep the brand pair
+      # `outl-light` / `outl`: a `[theme]` section carrying only `preset` would
+      # otherwise make `dark()` resolve to the light preset and render the
+      # terminal in light mode. Docs: FLAKE.md → "Theme precedence".
       tc = cfg.settings.theme;
-      themeShadowed =
-        tc.mode != "light"
-        && tc.presetDark == "outl"
-        && tc.preset != "outl-light";
-      themeShadowedMsg = ''
-        programs.outl.settings.theme.preset = "${tc.preset}" does not theme the TUI: with mode = "${tc.mode}" the terminal renders the dark side, `presetDark`, which is still the default "outl". Set programs.outl.settings.theme.presetDark = "${tc.preset}" to theme the terminal, or set mode = "light" to render `preset` everywhere. Set presetDark explicitly (even back to "outl") to silence this warning.
-      '';
+      presetDarkValue =
+        if tc.presetDark != null then
+          tc.presetDark
+        else if tc.preset != "outl-light" then
+          tc.preset
+        else
+          "outl";
 
-      configData = lib.warnIf themeShadowed themeShadowedMsg (
+      configData =
         let
           s = cfg.settings;
         in
@@ -313,9 +318,7 @@ in
           theme = {
             preset = s.theme.preset;
             mode = s.theme.mode;
-          }
-          // lib.filterAttrs (_: v: v != null) {
-            preset_dark = s.theme.presetDark;
+            preset_dark = presetDarkValue;
           };
 
           editor = {
@@ -364,7 +367,7 @@ in
             enabled = s.backup.enabled;
             interval_minutes = s.backup.intervalMinutes;
           };
-        }) s.extraConfig);
+        }) s.extraConfig;
 
       configFile = tomlFormat.generate "outl-config" configData;
     in
