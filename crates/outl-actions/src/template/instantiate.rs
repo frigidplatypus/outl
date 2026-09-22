@@ -12,12 +12,15 @@ use outl_core::id::NodeId;
 use outl_core::property::PropValue;
 use outl_core::workspace::Workspace;
 
-use crate::block::append_block;
+use crate::block::{append_block, create_after};
 use crate::error::ActionError;
 use crate::page::{read_text_prop, set_property, KIND_KEY, SLUG_KEY};
 use crate::template::list::find_template_by_name;
 use crate::template::vars::{substitute_vars, VarContext};
-use crate::template::{FROM_TEMPLATE_KEY, PARAMS_KEY, TEMPLATE_KEY};
+use crate::template::{
+    is_page_or_root, resolve_anchor, TemplateAnchor, FROM_TEMPLATE_KEY, INSERT_KEY, PARAMS_KEY,
+    TEMPLATE_KEY,
+};
 use crate::tree::children_of;
 
 /// Recursion cap for structural instantiation. A template's block subtree is a
@@ -80,40 +83,110 @@ pub(crate) fn instantiate_template_traced(
 
     let ctx = VarContext::new(page_slug, page_date);
 
+    // Where the template's root blocks land. `insert:: after` on the
+    // template page stamps them as siblings of the invoked block, at
+    // its own level, rather than nesting them under it (issue #321).
+    // A page or the tree root has no ordinary-block siblings, so the
+    // `after` request degrades to nesting there rather than fabricating
+    // an ownerless block.
+    let anchor_after = matches!(
+        resolve_anchor(workspace, template_page),
+        TemplateAnchor::After
+    ) && !is_page_or_root(workspace, target_block);
+
     // Instantiating a template is one user-visible action that deep-copies
-    // a whole subtree (append_block + property ops per node). Batch it so
-    // the clone flushes once per destination instead of per op. The
-    // recursion runs off `begin_batch` so the depth counter is pushed once.
+    // a whole subtree (append_block/create_after + property ops per node).
+    // Batch it so the clone flushes once per destination instead of per op.
+    // The recursion runs off `begin_batch` so the depth counter is pushed once.
     let mut batch = workspace.begin_batch();
-    let new_ids = clone_children_recursive(
-        &mut batch,
-        hlc,
-        template_page,
-        target_block,
-        &ctx,
-        &template_slug,
-        true,
+    let template_children = children_of(&batch, template_page);
+    let mut new_ids = Vec::with_capacity(template_children.len());
+    let mut prev = target_block; // anchor for the `after` sibling chain
+
+    let clone_ctx = CloneCtx {
+        vars: &ctx,
+        template_slug: &template_slug,
         trace,
-        0,
-    )?;
+    };
+
+    for (template_id, _) in template_children {
+        let raw_text = batch.block_text(template_id).unwrap_or_default();
+        let substituted = substitute_vars(&raw_text, &ctx);
+
+        let new_id = if anchor_after {
+            create_after(&mut batch, hlc, prev, Some(&substituted))?
+        } else {
+            append_block(&mut batch, hlc, Some(target_block), Some(&substituted))?
+        };
+
+        finish_clone(&mut batch, hlc, template_id, new_id, true, &clone_ctx, 0)?;
+
+        prev = new_id;
+        new_ids.push(new_id);
+    }
+
     batch.commit()?;
     Ok(new_ids)
 }
 
+/// Per-invocation context threaded through every clone in one
+/// template instantiation: the variable context for substitution, the
+/// template's own slug for the `from-template` trace, and whether
+/// tracing is on. Bundled so the clone helpers stay under clippy's
+/// argument limit instead of carrying an `allow`.
+struct CloneCtx<'a> {
+    vars: &'a VarContext,
+    template_slug: &'a str,
+    trace: bool,
+}
+
+/// Finish cloning one template block that has just been created as
+/// `new_id`: copy its properties (substituted), stamp `from-template`
+/// on root clones when tracing, and recurse its template children as
+/// last children of the clone.
+///
+/// The creation step itself lives in the callers: root blocks go
+/// through either `append_block` (nest under the target) or
+/// `create_after` (sibling chain); descendants always nest under their
+/// cloned parent. Everything after creation is identical, so it lives
+/// here once.
+fn finish_clone(
+    workspace: &mut Workspace,
+    hlc: &HlcGenerator,
+    template_id: NodeId,
+    new_id: NodeId,
+    is_root_level: bool,
+    ctx: &CloneCtx,
+    depth: usize,
+) -> Result<(), ActionError> {
+    copy_block_properties(workspace, hlc, template_id, new_id, ctx.vars)?;
+
+    if is_root_level && ctx.trace {
+        set_property(
+            workspace,
+            hlc,
+            new_id,
+            FROM_TEMPLATE_KEY,
+            Some(PropValue::Text(ctx.template_slug.to_string())),
+        )?;
+    }
+
+    clone_children_recursive(workspace, hlc, template_id, new_id, ctx, depth + 1)?;
+
+    Ok(())
+}
+
 /// Recursively clone the children of `template_parent` under
 /// `target_parent`, applying var substitution and copying
-/// properties. When `is_root_level && trace`, each top-level child
-/// gets the `from-template::` traceability property.
-#[allow(clippy::too_many_arguments)]
+/// properties. Descendant clones always nest under their cloned
+/// parent (only root blocks honour the template's `insert::` anchor),
+/// so every clone here is stamped as a non-root level.
 fn clone_children_recursive(
     workspace: &mut Workspace,
     hlc: &HlcGenerator,
     template_parent: NodeId,
     target_parent: NodeId,
-    ctx: &VarContext,
-    template_slug: &str,
-    is_root_level: bool,
-    trace: bool,
+    ctx: &CloneCtx,
     depth: usize,
 ) -> Result<Vec<NodeId>, ActionError> {
     if depth > MAX_TEMPLATE_DEPTH {
@@ -126,33 +199,11 @@ fn clone_children_recursive(
 
     for (template_id, _) in template_children {
         let raw_text = workspace.block_text(template_id).unwrap_or_default();
-        let substituted = substitute_vars(&raw_text, ctx);
+        let substituted = substitute_vars(&raw_text, ctx.vars);
 
         let new_id = append_block(workspace, hlc, Some(target_parent), Some(&substituted))?;
 
-        copy_block_properties(workspace, hlc, template_id, new_id, ctx)?;
-
-        if is_root_level && trace {
-            set_property(
-                workspace,
-                hlc,
-                new_id,
-                FROM_TEMPLATE_KEY,
-                Some(PropValue::Text(template_slug.to_string())),
-            )?;
-        }
-
-        clone_children_recursive(
-            workspace,
-            hlc,
-            template_id,
-            new_id,
-            ctx,
-            template_slug,
-            false,
-            trace,
-            depth + 1,
-        )?;
+        finish_clone(workspace, hlc, template_id, new_id, false, ctx, depth)?;
 
         new_ids.push(new_id);
     }
@@ -180,7 +231,13 @@ fn copy_block_properties(
     let props_to_copy: Vec<(String, PropValue)> = workspace
         .tree()
         .properties_of(source)
-        .filter(|(k, _)| *k != SLUG_KEY && *k != KIND_KEY && *k != TEMPLATE_KEY && *k != PARAMS_KEY)
+        .filter(|(k, _)| {
+            *k != SLUG_KEY
+                && *k != KIND_KEY
+                && *k != TEMPLATE_KEY
+                && *k != PARAMS_KEY
+                && *k != INSERT_KEY
+        })
         .filter_map(|(k, v)| match v {
             PropValue::Text(s) => Some((k.to_string(), PropValue::Text(substitute_vars(s, ctx)))),
             PropValue::PageRef(_) | PropValue::Tag(_) => Some((k.to_string(), v.clone())),
