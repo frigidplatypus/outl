@@ -65,6 +65,13 @@ const INTERNAL_KEYS = new Set(["id", "from-template", "collapsed"]);
  * page-identity keys (`page-slug`, `page-kind`) are *not* internal in
  * this sense — they are structural and owned by
  * `outl_actions::tree::is_page_model_key` on the Rust side.
+ *
+ * The TUI keeps no copy of this list: it asks
+ * `outl_actions::property::is_internal_key` (the Rust mirror) in its
+ * outline row and `g p` editor, so all three clients hide the same keys.
+ * The set lives in two languages because a `Set` cannot cross the
+ * Rust/TS boundary; `is_internal_key` pins the Rust side and this file's
+ * test pins the TS side, so adding a key to one without the other fails.
  */
 export function isInternalKey(key: string): boolean {
   return INTERNAL_KEYS.has(key.toLowerCase());
