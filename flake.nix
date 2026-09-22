@@ -271,10 +271,12 @@
             pname = "outl-desktop-frontend";
             version = upstreamVersion;
             src = upstreamSrc;
-            # Upstream's frontend currently builds byte-identically to the dev
-            # tree. When the upstream frontend diverges, rebuild and replace
-            # this with the `got: sha256-...` value from the FOD mismatch error.
-            outputHash = "sha256-omoPnNTZnfCP0Ed+xHjubjDdTPelt0ppZFs8XCWFq+E=";
+            # Stock frontend hash. Kept separate from the dev tree's hash
+            # below: the dev tree carries frontend changes that upstream has
+            # not taken yet, so the two `bun run build` outputs differ. When
+            # either side moves, rebuild and copy the `got: sha256-...` value
+            # from the FOD mismatch error into the matching hash here.
+            outputHash = "sha256-oi6tiLpbxGeyjAQ4D5vBkLrzx3cDRisYMbRRYey9RgU=";
           };
 
           outl-desktop = mkOutlDesktop {
@@ -300,7 +302,7 @@
             pname = "outl-desktop-frontend";
             inherit version;
             src = projectSrc;
-            outputHash = "sha256-omoPnNTZnfCP0Ed+xHjubjDdTPelt0ppZFs8XCWFq+E=";
+            outputHash = "sha256-bH3dyEP82lURXw9O/AtKiXtYzF/3VMyhTjwrN1fKIxQ=";
           };
 
           outl-desktop-dev = mkOutlDesktop {
