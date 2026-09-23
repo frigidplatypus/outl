@@ -68,7 +68,8 @@
 
           # Development toolchain + source (the checked-out tree).
           devToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-          version = "0.12.0";
+          version =
+            (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version or "0.12.0";
           projectSrc = pkgs.lib.cleanSourceWith {
             src = self;
             filter =
@@ -127,13 +128,11 @@
                 pkg-config
               ];
 
-              buildInputs = with pkgs; [
-                glib
-                gtk3
-                webkitgtk_4_1
-                dbus
-                openssl_3
-              ];
+              # The CLI and TUI are terminal apps with no system-library
+              # dependency: sync uses rustls (never openssl/native-tls) and the
+              # TUI is not Tauri, so the GTK/WebKit closure the desktop needs is
+              # irrelevant here.
+              buildInputs = [ ];
 
               cargoBuildFlags = [
                 "-p"
@@ -149,6 +148,7 @@
                 homepage = "https://outl.app";
                 license = licenses.mit;
                 mainProgram = "outl";
+                platforms = platforms.linux;
               };
             };
 
@@ -165,7 +165,6 @@
               nativeBuildInputs = with pkgs; [
                 bun
                 nodejs
-                patchelf
               ];
 
               # Fixed-output derivation: update hash when the frontend source
@@ -323,6 +322,12 @@
               outl-dev
               outl-desktop-dev
               ;
+            # The frontend fixed-output derivations, exposed so CI can build
+            # just the JS bundle (a few seconds) to validate its `outputHash`
+            # before advancing main, instead of paying for the full desktop
+            # Rust build to discover a stale hash.
+            outl-desktop-frontend = desktopFrontendUpstream;
+            outl-desktop-frontend-dev = desktopFrontendDev;
             default = outl;
           };
 
@@ -340,7 +345,7 @@
             ];
           };
 
-          formatter = pkgs.nixfmt-rfc-style;
+          formatter = pkgs.nixfmt;
         }
       )
     // {

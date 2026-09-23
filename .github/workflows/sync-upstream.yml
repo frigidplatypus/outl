@@ -56,12 +56,28 @@ jobs:
           fi
 
           # Move the stock output to the freshly merged upstream revision.
-          nix flake update upstream
+          # Pin the override to the rev we just merged, NOT `main`: `nix flake
+          # update` would otherwise resolve the input to upstream's *current*
+          # tip, which may have moved since the fetch above, locking a rev newer
+          # than the tree actually merged.
+          UP=$(git rev-parse upstream/main)
+          nix flake update upstream --override-input upstream "github:outlmd/outl/$UP"
 
           if ! git diff --quiet -- flake.lock; then
             git add flake.lock
             git commit -m "chore(nix): bump upstream flake.lock to $(git rev-parse --short upstream/main)"
           fi
+
+      # Gate the push on the fixed-output hashes. After an upstream frontend
+      # change the frontend `outputHash` in flake.nix can go stale; if we pushed
+      # first, every consumer would get a broken flake until a human fixed the
+      # hash. The frontend FODs are cheap (a JS bundle) and architecture-
+      # independent, so building them here is representative of both runners and
+      # catches the fragile part long before the full Rust desktop build.
+      - name: Validate overlay builds before advancing main
+        run: |
+          set -euo pipefail
+          nix build .#outl-desktop-frontend .#outl-desktop-frontend-dev --print-build-logs
 
       - name: Push main
         id: push
