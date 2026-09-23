@@ -178,13 +178,14 @@
                 export HOME=$TMPDIR
                 cd crates/outl-desktop
                 bun install --frozen-lockfile
-                # The package-manager shims under node_modules/.bin carry an
-                # `#!/usr/bin/env node` shebang, and the Nix sandbox has no
-                # /usr/bin/env, so `bun run build` (-> .bin/vite) dies with
-                # "bad interpreter". Rewriting them to the store node fixes
-                # it; installPhase only copies dist/, so the output hash is
-                # unaffected.
-                patchShebangs --build node_modules/.bin
+                # The package-manager shims under node_modules/.bin are symlinks
+                # to scripts that carry a `#!/usr/bin/env node` shebang, and the
+                # Nix sandbox has no /usr/bin/env, so `bun run build` (-> .bin/vite)
+                # dies with "bad interpreter". patchShebangs will not follow the
+                # .bin symlinks, so point it at the whole tree to rewrite the
+                # real scripts under node_modules/<pkg>/bin. installPhase only
+                # copies dist/, so the output hash is unaffected.
+                patchShebangs --build node_modules
                 bun run build
               '';
 
