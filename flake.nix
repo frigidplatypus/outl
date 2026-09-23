@@ -178,13 +178,25 @@
                 export HOME=$TMPDIR
                 cd crates/outl-desktop
                 bun install --frozen-lockfile
-                # The package-manager shims under node_modules/.bin are symlinks
-                # to scripts that carry a `#!/usr/bin/env node` shebang, and the
-                # Nix sandbox has no /usr/bin/env, so `bun run build` (-> .bin/vite)
-                # dies with "bad interpreter". patchShebangs will not follow the
-                # .bin symlinks, so point it at the whole tree to rewrite the
-                # real scripts under node_modules/<pkg>/bin. installPhase only
+                # `bun run build` execs node_modules/.bin/vite, whose shebang is
+                # `#!/usr/bin/env node` and the Nix sandbox has no /usr/bin/env,
+                # so it dies with "bad interpreter". bun materialises .bin entries
+                # as symlinks whose targets may live in its global cache OUTSIDE
+                # node_modules (what the GitHub runners hit; a warm local cache
+                # links inside the tree, which is why the same derivation builds
+                # locally yet fails in CI). patchShebangs skips symlinks and, when
+                # the target is out of tree, never reaches it. Resolve each .bin
+                # symlink to its real file and patch THAT in place -- its path is
+                # preserved, so the script's own relative imports (vite resolves
+                # ../dist via the symlink's realpath) still work. installPhase only
                 # copies dist/, so the output hash is unaffected.
+                for f in node_modules/.bin/*; do
+                  if [ -L "$f" ]; then
+                    t="$(readlink -f "$f")"
+                    [ -w "$t" ] || chmod u+w "$t"
+                    patchShebangs "$t"
+                  fi
+                done
                 patchShebangs --build node_modules
                 bun run build
               '';
