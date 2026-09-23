@@ -30,7 +30,7 @@ in
     package = lib.mkOption {
       type = lib.types.package;
       default = flake.packages.${pkgs.system}.outl;
-      defaultText = lib.literalExpression "outl flake's upstream outl package";
+      defaultText = lib.literalMD "the upstream `outl` package from this flake";
       description = ''
         The outl package to use. The flake default builds the upstream release;
         set it to flake.packages.''${system}.outl-dev to install a fork / dev
@@ -41,7 +41,7 @@ in
     desktopPackage = lib.mkOption {
       type = lib.types.package;
       default = flake.packages.${pkgs.system}.outl-desktop;
-      defaultText = lib.literalExpression "outl flake's upstream outl-desktop package";
+      defaultText = lib.literalMD "the upstream `outl-desktop` package from this flake";
       description = ''
         The outl-desktop package to use. The flake default builds the upstream
         release; set it to flake.packages.''${system}.outl-desktop-dev for a

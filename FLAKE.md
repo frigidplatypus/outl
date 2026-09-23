@@ -88,7 +88,8 @@ The theme is the one setting whose effect is easy to misread, because outl store
 
 - **Bump the release:** `nix flake lock --update-input upstream`, then verify the build.
 - **Frontend FOD hash:** after a large upstream frontend change the desktop `outputHash` in `flake.nix` may not match.
-  Rebuild `.#outl-desktop`, copy the `got: sha256-…` from the FOD mismatch error into both `outputHash` values, and rebuild.
+  Rebuild the side that moved — `.#outl-desktop-frontend` (stock) or `.#outl-desktop-frontend-dev` (dev tree) — copy the `got: sha256-…` from the FOD mismatch error into **that side's** `outputHash`, and rebuild.
+  The stock and dev hashes are deliberately different (the dev tree carries frontend changes upstream has not taken yet); pasting one into both re-creates the divergence.
 - **Branch model:** `main` is upstream plus this nix overlay.
-  Merging `upstream/main` into it stays conflict-free forever, because the overlay only ever adds `flake.nix`, `flake.lock`, `hm-module.nix`, and `FLAKE.md` — filenames upstream does not use.
+  Merging `upstream/main` into it stays conflict-free forever, because the overlay only ever adds files upstream does not have: `flake.nix`, `flake.lock`, `hm-module.nix`, `FLAKE.md`, `docs/nix.md`, and the `.github/workflows/*.yml`.
   `dev` carries the fork's own changes and is where the `-dev` outputs build from.
