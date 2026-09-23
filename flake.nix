@@ -217,6 +217,36 @@
               frontend,
               features,
             }:
+            let
+              # Plain `cargo build` skips Tauri's bundler, which is what
+              # normally emits the .desktop entry + hicolor icons. Author them
+              # here instead, reading name / id / MIME types straight from
+              # tauri.conf.json so they track upstream without a second copy.
+              tauriConf = builtins.fromJSON (
+                builtins.readFile (src + "/crates/outl-desktop/src-tauri/tauri.conf.json")
+              );
+              desktopId = tauriConf.identifier;
+              iconsDir = "${src}/crates/outl-desktop/src-tauri/icons";
+              mimeTypes =
+                builtins.concatStringsSep ";" (map (a: a.mimeType) (tauriConf.bundle.fileAssociations or [ ]))
+                + ";";
+              desktopEntry = ''
+                [Desktop Entry]
+                Type=Application
+                Version=1.0
+                Name=${tauriConf.productName}
+                GenericName=Outliner
+                Comment=Local-first outliner with CRDT sync
+                Exec=@outbin@ %u
+                Icon=${desktopId}
+                Terminal=false
+                StartupNotify=true
+                Categories=Utility;TextEditor;
+                Keywords=outline;notes;journal;markdown;outliner;
+                StartupWMClass=${pname}
+                MimeType=${mimeTypes}
+              '';
+            in
             pkgs.rustPlatform.buildRustPackage {
               inherit pname version src;
 
@@ -253,6 +283,21 @@
               '';
 
               postInstall = ''
+                # Desktop entry + icons into the standard XDG paths, so NixOS /
+                # home-manager pick them up for the launcher and the .md/.txt
+                # "Open With" menu automatically.
+                mkdir -p $out/share/applications
+                sed "s|@outbin@|$out/bin/${pname}|" \
+                  ${pkgs.writeText "${desktopId}.desktop" desktopEntry} \
+                  > $out/share/applications/${desktopId}.desktop
+
+                install -Dm644 ${iconsDir}/32x32.png     $out/share/icons/hicolor/32x32/apps/${desktopId}.png
+                install -Dm644 ${iconsDir}/128x128.png    $out/share/icons/hicolor/128x128/apps/${desktopId}.png
+                install -Dm644 ${iconsDir}/128x128@2x.png $out/share/icons/hicolor/256x256/apps/${desktopId}.png
+                install -Dm644 ${iconsDir}/icon.svg       $out/share/icons/hicolor/scalable/apps/${desktopId}.svg
+
+                desktop-file-validate $out/share/applications/${desktopId}.desktop
+
                 wrapProgram $out/bin/outl-desktop \
                   --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_PATH" \
                   --prefix GI_TYPELIB_PATH : "$GI_TYPELIB_PATH" \
