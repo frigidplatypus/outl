@@ -19,6 +19,27 @@ Bypassing this crate is how schema drift starts.
 The desktop's `settings.rs` is the canonical adapter pattern: a flat wire-format struct for the frontend, converted via `From` impls in and out of `outl_config::Config`.
 If a new client needs a different shape on the wire, do the same — adapt, don't fork the reader.
 
+## The `managed` directive — a no-op save
+
+`Config` has one field that is **not** a user preference: the top-level `managed` bool.
+When it is set (or `OUTL_CONFIG_MANAGED` is in the environment), [`save`] returns `Ok(())` **without writing the file**.
+That is what lets Nix/home-manager own `config.toml` end to end: the file stays a symlink into the Nix store, and no client detaches it by persisting `workspace.last`, the theme toggle, or the backlinks direction.
+
+Three rules to keep it working:
+
+1. **`managed` is the first field of `Config`.**
+   `toml::to_string_pretty` emits scalar fields before tables, so `managed` lands before `[workspace]`.
+   As any later field it would re-serialize *after* a table and re-parse as `[workspace].managed`, silently dropping the directive.
+   `managed_is_the_first_key_in_serialised_toml` pins this.
+2. **The gate reads the on-disk verdict via [`managed`], never the passed `&Config`.**
+   The desktop reconstructs a fresh `Config` from its flat DTO (which does not carry the flag), and the file the package manager owns is the only authority on whether it is owned.
+   So `managed()` = `OUTL_CONFIG_MANAGED` ∪ `load().managed`, checked inside `save` before touching disk.
+3. **`save_to` stays ungated.**
+   It is the explicit-path primitive (tests, and any future non-default path); only the default-path `save` honours the directive.
+
+`[workspace] last` freezing under a managed config is the accepted cost — the desktop can no longer store the last-opened workspace.
+`docs/nix.md` → "Declarative config" tells the user to pin it declaratively.
+
 ## Path layout
 
 ```
@@ -48,6 +69,8 @@ An actor id must **differ** per device, and `config.toml` is a file users copy b
 ## Schema
 
 ```toml
+managed = false                   # top-level: owned by Nix/home-manager → save() is a no-op (default false)
+
 [workspace]
 last = "/Users/me/iCloud/outl"   # absolute path; optional
 
@@ -119,7 +142,7 @@ The engine is `outl_actions::backup`; this section only carries the preference.
 | File present, malformed TOML | Returns `Config::default()` **+ `tracing::warn!`**. Never panics. |
 | Unknown field | Ignored. Older binary survives a newer config. |
 | Partial section (e.g. only `[theme]` populated) | Other sections fall back to their per-section `Default`. |
-| `save()` | Atomic write (`config.toml.tmp` → rename). Creates `~/.config/outl/` if missing. A crash mid-write never leaves a truncated config. |
+| `save()` | Atomic write (`config.toml.tmp` → rename). Creates `~/.config/outl/` if missing. A crash mid-write never leaves a truncated config. **A no-op when [`managed`] is set** — see "The `managed` directive" above. |
 
 The forgiving read path is **load-bearing for UX**: a user editing TOML by hand mid-typo doesn't lose every preference; they just see defaults until the next save fixes the file.
 Do not make load fail-fast — fail-fast belongs in the workspace itself, not in user preferences.

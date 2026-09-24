@@ -120,6 +120,7 @@ A few of the keys:
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
+| `managed` | bool | `true` | Emits the top-level `managed = true` directive so no client rewrites `config.toml`. See [Declarative config](#declarative-config). |
 | `theme.preset` | enum | `"outl-light"` | Light side of the pair. One of `outl`, `outl-light`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`, `gruvbox`. |
 | `theme.presetDark` | enum \| null | `null` | Dark side — the preset the TUI renders under `mode = "auto"`/`"dark"`. `null` follows `preset`; the terminal is themed by a lone `theme.preset`. |
 | `theme.mode` | enum | `"auto"` | `"light"`, `"dark"`, or `"auto"`. A terminal reads `auto` as **dark**, so `"auto"` themes it by the dark side. |
@@ -130,6 +131,31 @@ A few of the keys:
 | `extraConfig` | attrs | `{}` | Merged last, for keys the module does not model yet. |
 
 The full key list is in the module source ([`hm-module.nix`](../hm-module.nix)); the meaning of each key is in [Configuration](config.md).
+
+### Declarative config
+
+`programs.outl` writes `config.toml` as a **symlink** into the Nix store.
+That only survives if nothing replaces the file — and outl's clients write their settings by **atomic rename**, which detaches the symlink and leaves a plain regular file.
+The next `home-manager switch` then refuses to overwrite its own managed target.
+
+So the module sets `managed = true` in the generated file by default, and outl treats that as "do not rewrite":
+
+- Every client (`outl`, `outl-desktop`, `outl-tui`, mobile) skips its config write, so the symlink stays a symlink across switches.
+- The **desktop Settings modal disables Save** and points you at `programs.outl.settings`; the theme picker still previews live.
+- Because the modal can no longer persist it, **`workspace.last` freezes** unless you pin it. Pin it declaratively to keep the desktop reopening your workspace:
+
+  ```nix
+  programs.outl.settings.workspace.last = "/home/you/outl";
+  ```
+
+  (Omit it and the desktop just opens the workspace picker on launch — every reader falls through cleanly.)
+
+To go back to app-managed settings (the client persists its own state again), set `programs.outl.settings.managed = false`.
+A client write will then detach the symlink again, so also set `xdg.configFile."outl/config.toml".force = true` to let home-manager reclaim it on the next switch.
+
+> **Migrating a machine that already hit the conflict.**
+> If you were using this module before the `managed` default, your `~/.config/outl/config.toml` is already a stray regular file and the switch is failing with *"file exists and cannot be overridden"*.
+> The module already sets `force = true` on that target, so a `home-manager switch` now takes it back over; from then on the `managed` directive keeps it a symlink. (Drop the stray file by hand first only if you'd edited it.)
 
 ## Which do I use?
 
