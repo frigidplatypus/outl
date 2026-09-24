@@ -292,7 +292,12 @@
                 install -Dm644 "$SRC/icons/32x32.png"     "$out/share/icons/hicolor/32x32/apps/$ID.png"
                 install -Dm644 "$SRC/icons/128x128.png"    "$out/share/icons/hicolor/128x128/apps/$ID.png"
                 install -Dm644 "$SRC/icons/128x128@2x.png" "$out/share/icons/hicolor/256x256/apps/$ID.png"
-                install -Dm644 "$SRC/icons/icon.svg"       "$out/share/icons/hicolor/scalable/apps/$ID.svg"
+                # Deliberately no `hicolor/scalable/apps/$ID.svg`. Tauri ships a
+                # placeholder `icon.svg` (a `>_` terminal glyph), and scalable-
+                # first icon lookups (rofi drun, GTK) load it ahead of the brand
+                # PNGs — so shipping it made the launcher show a generic
+                # terminal. Omit it and the lookup falls through to the brand
+                # PNG sizes installed above.
 
                 wrapProgram $out/bin/outl-desktop \
                   --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_PATH" \
