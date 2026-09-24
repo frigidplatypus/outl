@@ -78,6 +78,7 @@ The Nix option names are `camelCase`; the generated `config.toml` keys are `snak
 See `hm-module.nix` for the exact list — each option carries a `description` that home-manager renders as documentation, and the full key table is in [`docs/nix.md`](docs/nix.md).
 `installDesktop = true` also installs the Tauri GUI, its `.desktop` entry and its icons into `~/.local/share`.
 `settings.extraConfig` is a deep-merged escape hatch for any field the module has not modelled yet — write its keys in `snake_case`, matching `config.toml`.
+For example, set `settings.extraConfig.tui.icons = "nerd-font"` to use Nerd Font glyphs in the TUI instead of the default emoji icons.
 
 ### Theme precedence
 
