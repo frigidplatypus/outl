@@ -28,7 +28,7 @@ name: Desktop
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev, experimental]
     paths:
       - "crates/outl-desktop/**"
       - "crates/outl-frontend-shared/**"
@@ -49,7 +49,7 @@ on:
       - "bun.lock"
       - ".github/workflows/desktop.yml"
   pull_request:
-    branches: [main]
+    branches: [main, dev, experimental]
     paths:
       - "crates/outl-desktop/**"
       - "crates/outl-frontend-shared/**"

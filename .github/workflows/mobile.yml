@@ -7,7 +7,7 @@ name: Mobile
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev, experimental]
     paths:
       - "crates/outl-mobile/**"
       - "crates/outl-actions/**"
@@ -27,7 +27,7 @@ on:
       - "Cargo.lock"
       - ".github/workflows/mobile.yml"
   pull_request:
-    branches: [main]
+    branches: [main, dev, experimental]
     paths:
       - "crates/outl-mobile/**"
       - "crates/outl-actions/**"

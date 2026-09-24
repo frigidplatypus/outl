@@ -7,7 +7,7 @@ name: CI
 # so dependency changes always trigger the full check.
 on:
   push:
-    branches: [main]
+    branches: [main, dev, experimental]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
@@ -21,7 +21,7 @@ on:
       - '.github/workflows/release.yml'
       - '.github/workflows/testflight.yml'
   pull_request:
-    branches: [main]
+    branches: [main, dev, experimental]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'

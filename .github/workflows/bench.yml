@@ -16,12 +16,12 @@ name: bench
 # index.html locally).
 on:
   push:
-    branches: [main]
+    branches: [main, dev, experimental]
     paths:
       - 'crates/outl-md/**'
       - '.github/workflows/bench.yml'
   pull_request:
-    branches: [main]
+    branches: [main, dev, experimental]
     paths:
       - 'crates/outl-md/**'
       - '.github/workflows/bench.yml'
