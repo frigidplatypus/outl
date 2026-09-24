@@ -20,6 +20,7 @@ function block(
     id,
     text: id,
     todo: null,
+    header_level: null,
     tokens: [],
     collapsed: opts.collapsed ?? false,
     properties: [],
