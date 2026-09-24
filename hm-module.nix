@@ -426,10 +426,12 @@ in
         in
         {
           "applications/${id}.desktop".source = "${share}/applications/${id}.desktop";
+          # Brand PNG sizes only — no `hicolor/scalable`, mirroring the package
+          # (Tauri's `icon.svg` is a placeholder glyph, so `mkOutlDesktop` ships
+          # no scalable entry; linking one here would dangle and shadow the PNGs).
           "icons/hicolor/32x32/apps/${id}.png".source = "${share}/icons/hicolor/32x32/apps/${id}.png";
           "icons/hicolor/128x128/apps/${id}.png".source = "${share}/icons/hicolor/128x128/apps/${id}.png";
           "icons/hicolor/256x256/apps/${id}.png".source = "${share}/icons/hicolor/256x256/apps/${id}.png";
-          "icons/hicolor/scalable/apps/${id}.svg".source = "${share}/icons/hicolor/scalable/apps/${id}.svg";
         }
       );
 
