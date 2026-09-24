@@ -384,6 +384,36 @@ in
 
       xdg.configFile."outl/config.toml".source = configFile;
 
+      # Desktop integration for the Tauri GUI, gated on `installDesktop`.
+      #
+      # `mkOutlDesktop` (flake.nix) already emits a validated freedesktop entry
+      # and hicolor icons into the package's `$out/share`, and home-manager
+      # deep-links `/share` into the profile. That is enough for a full
+      # desktop session, but a bare Wayland launcher (e.g. `rofi -show drun`
+      # under a tiling WM) resolves the `.desktop` entry from the profile yet
+      # can miss the *themed* icon it references — the icon lives only in the
+      # store, off every path the launcher actually scans. Drop the entry and
+      # its icons into the user data dir so every launcher finds them. The
+      # sources are symlinks into the package, so it stays the single owner.
+      #
+      # `dataFile` is generated regardless of `xdg.enable`, and `dataHome`
+      # defaults to `~/.local/share`, which is always on `XDG_DATA_DIRS`.
+      xdg.dataFile = lib.optionalAttrs (cfg.installDesktop && pkgs.stdenv.hostPlatform.isLinux) (
+        let
+          # Must match the `$ID`-based names flake.nix writes under
+          # $out/share — `app.outl.desktop` from tauri.conf.json's identifier.
+          id = "app.outl.desktop";
+          share = "${cfg.desktopPackage}/share";
+        in
+        {
+          "applications/${id}.desktop".source = "${share}/applications/${id}.desktop";
+          "icons/hicolor/32x32/apps/${id}.png".source = "${share}/icons/hicolor/32x32/apps/${id}.png";
+          "icons/hicolor/128x128/apps/${id}.png".source = "${share}/icons/hicolor/128x128/apps/${id}.png";
+          "icons/hicolor/256x256/apps/${id}.png".source = "${share}/icons/hicolor/256x256/apps/${id}.png";
+          "icons/hicolor/scalable/apps/${id}.svg".source = "${share}/icons/hicolor/scalable/apps/${id}.svg";
+        }
+      );
+
       # Both combinations below make `outl serve` exit non-zero, which under
       # Restart=on-failure becomes a crash loop — refuse them at eval time.
       # The { assertion, message } shape is what home-manager's check pass
