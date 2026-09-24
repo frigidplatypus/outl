@@ -46,6 +46,7 @@ nix run github:outlmd/outl -- --help
 
 The Tauri 2 app.
 The build compiles the Solid frontend with Bun first, then builds the Rust shell with the `production` feature so the webview embeds the frontend instead of pointing at a dev server.
+The package also emits a freedesktop `.desktop` entry and hicolor icons into its `$out/share`, so a full desktop session picks up the launcher and icon with no extra setup (home-manager extends this to `~/.local/share` for bare Wayland launchers — see the module below).
 
 ```bash
 nix profile add github:outlmd/outl#outl-desktop
@@ -102,6 +103,8 @@ When enabled, the module:
 
 - Writes `~/.config/outl/config.toml` from `programs.outl.settings` (every key is typed; anything not yet modeled goes in `settings.extraConfig`).
 - On Linux, adds `programs.outl.package` to `home.packages` (and `outl-desktop` too, if `installDesktop`).
+- If `installDesktop` (Linux), also installs the freedesktop launcher entry and the hicolor icons into `~/.local/share` (`~/.local/share/applications` and `~/.local/share/icons`), symlinked from the `outl-desktop` package so the app menu, the "Open With" menu and Wayland launchers (e.g. `rofi -show drun` under a tiling WM) show the right entry and icon.
+  The package is the single source — these are symlinks, not a second copy.
 - If `services.sync.enable`, starts a **user** systemd unit `outl-sync` that runs `outl serve --workspace <path>` and restarts on failure.
   `services.sync.watch` and `.sync` toggle the watcher and endpoint halves (`--no-watch` / `--no-sync`); `.rustLog` sets `RUST_LOG`.
   The service runs as *you*, using your own identity (`~/.outl`) and device store (`~/.config/outl`) — pairing is plain `outl peer pair`, and the daemon picks up new peers on its own.
