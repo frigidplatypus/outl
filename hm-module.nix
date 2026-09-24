@@ -105,6 +105,31 @@ in
     settings = lib.mkOption {
       type = lib.types.submodule {
         options = {
+          managed = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = lib.mdDoc ''
+              Whether home-manager owns `~/.config/outl/config.toml` outright.
+
+              When true (the default) the generated config carries `managed =
+              true`, and every client — outl, outl-desktop, outl-tui, mobile —
+              refuses to rewrite the file. The setting is written by Nix, not by
+              the app, so the managed symlink is never detached by a client
+              persisting `workspace.last`, the theme toggle or the backlinks
+              direction. That rewrite is exactly what made a later
+              `home-manager switch` abort with "file exists and cannot be
+              overridden".
+
+              Set to false to let the clients persist their own runtime state
+              again — accepting that a client write then detaches home-manager's
+              symlink, and the next activation only reclaims it if you also set
+              `xdg.configFile."outl/config.toml".force = true`.
+
+              When true, pin `settings.workspace.last` if you want the desktop to
+              reopen your last workspace: the app can no longer store it.
+            '';
+          };
+
           workspace = {
             last = lib.mkOption {
               type = lib.types.nullOr lib.types.str;
@@ -330,6 +355,12 @@ in
           s = cfg.settings;
         in
         lib.recursiveUpdate ({
+          # Top-level directive, not a section: tells every client not to
+          # rewrite the file (see the `managed` option). `pkgs.formats.toml`
+          # emits scalar keys before any `[table]`, so this stays a top-level
+          # key rather than landing inside the first section.
+          managed = s.managed;
+
           workspace = lib.filterAttrs (_: v: v != null) {
             last = s.workspace.last;
           };
@@ -401,7 +432,16 @@ in
         ++ lib.optional cfg.installDesktop cfg.desktopPackage
       );
 
-      xdg.configFile."outl/config.toml".source = configFile;
+      # `force = true` reclaims the target the first time: a workspace running
+      # this module *before* the `managed` directive existed already has a plain
+      # regular file here (a client detached the old symlink when it persisted
+      # `workspace.last`), and without `force` home-manager refuses to overwrite
+      # it. Once `managed = true` is in place no client rewrites the file, so the
+      # symlink survives every switch and `force` never has to act again.
+      xdg.configFile."outl/config.toml" = {
+        source = configFile;
+        force = true;
+      };
 
       # Desktop integration for the Tauri GUI, gated on `installDesktop`.
       #
