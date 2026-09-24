@@ -156,6 +156,7 @@ The generated `config.toml` keys are `snake_case`; the Nix option names are `cam
 | `backup.enabled` | bool | `true` | `[backup] enabled` · automatic git snapshots of the workspace. |
 | `backup.intervalMinutes` | int | `30` | `[backup] interval_minutes` · minimum minutes between automatic snapshots. |
 | `extraConfig` | attrs | `{}` | Deep-merged **last**, for keys the module has not modelled yet. Write its keys in `snake_case`, matching `config.toml`. |
+| `extraConfig.tui.icons` | str | `"emoji"` | TUI icon style: `"emoji"` or `"nerd-font"`. |
 
 Every option carries a `description` home-manager renders as documentation, so `nix-option-lookup`/the generated manpage is authoritative.
 The source is [`hm-module.nix`](../hm-module.nix); the meaning of each key is in [Configuration](config.md).
