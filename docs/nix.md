@@ -66,6 +66,9 @@ nix develop github:outlmd/outl
 [`hm-module.nix`](../hm-module.nix) is exposed as `homeManagerModules.default` under the `programs.outl` namespace.
 Its job is **configuration management**: it renders `~/.config/outl/config.toml` from typed options, and (on Linux) can install the packages and start a per-user background sync.
 
+The whole `programs.outl` surface is a single module block.
+Write your configuration as **one `settings = { … }` attribute set** — every key is a plain option under it — rather than scattering dotted `settings.theme.preset = …` lines across the file:
+
 ```nix
 {
   inputs = {
@@ -74,26 +77,37 @@ Its job is **configuration management**: it renders `~/.config/outl/config.toml`
   };
 
   outputs = { nixpkgs, outl, ... }: {
-    homeConfigurations.you = nixpkgs.legacyPackages.x86_64-linux.home.manager.config {
-      imports = [ outl.homeManagerModules.default ];
+    homeConfigurations.you = nixpkgs.lib.homeManagerConfiguration {
+      pkgs = nixpkgs.legacyPackages.x86_64-linux;
+      modules = [
+        outl.homeManagerModules.default
 
-      programs.outl = {
-        enable = true;
-        installDesktop = true;            # also put outl-desktop on the PATH
+        ({ pkgs, ... }: {
+          programs.outl = {
+            enable = true;
+            installDesktop = true;        # also put outl-desktop on PATH + a launcher
 
-        settings = {
-          theme.preset = "gruvbox";
-          editor.vimMode = true;
-          sync.transport = "iroh";
-          reminders.quietHours = "22:00-07:00";
-        };
+            # One attribute set. `managed = true` is the default and is what
+            # keeps config.toml a symlink home-manager can re-own, so pin
+            # `workspace.last` here — the app can no longer store it itself.
+            settings = {
+              workspace.last = "/home/you/outl";   # absolute path
+              theme.preset = "gruvbox";            # themes the terminal AND desktop
+              editor.vimMode = true;
+              sync.transport = "iroh";
+              reminders.quietHours = "22:00-07:00";
+            };
 
-        # Optional per-user background sync (Linux only):
-        services.sync = {
-          enable = true;
-          workspace = "/home/you/notes";
-        };
-      };
+            # Optional per-user background sync (Linux only). The path is
+            # passed straight to `outl serve` in a systemd ExecStart, which
+            # does NOT expand `~` — give it an absolute path.
+            services.sync = {
+              enable = true;
+              workspace = "/home/you/notes";
+            };
+          };
+        })
+      ];
     };
   };
 }
@@ -116,21 +130,35 @@ When enabled, the module:
 ### Settings
 
 `programs.outl.settings` mirrors [`outl.toml`](config.md).
-A few of the keys:
+Write it as **one attribute set**; each entry below is a key inside it.
+The generated `config.toml` keys are `snake_case`; the Nix option names are `camelCase` — the module maps one to the other.
 
-| Option | Type | Default | Meaning |
+| Option (under `settings`) | Type | Default | Generated key · meaning |
 |---|---|---|---|
-| `managed` | bool | `true` | Emits the top-level `managed = true` directive so no client rewrites `config.toml`. See [Declarative config](#declarative-config). |
-| `theme.preset` | enum | `"outl-light"` | Light side of the pair. One of `outl`, `outl-light`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`, `gruvbox`. |
-| `theme.presetDark` | enum \| null | `null` | Dark side — the preset the TUI renders under `mode = "auto"`/`"dark"`. `null` follows `preset`; the terminal is themed by a lone `theme.preset`. |
-| `theme.mode` | enum | `"auto"` | `"light"`, `"dark"`, or `"auto"`. A terminal reads `auto` as **dark**, so `"auto"` themes it by the dark side. |
-| `editor.vimMode` | bool | `true` | Vim-style modal bindings (desktop). |
-| `sync.transport` | enum | `"iroh"` | `"iroh"` (P2P QUIC) or `"file"` (iCloud / shared FS). |
-| `reminders.quietHours` | str? | `null` | e.g. `"22:00-07:00"`. |
-| `backup.enabled` / `backup.intervalMinutes` | bool / int | `true` / `30` | Automatic git snapshots of the workspace. |
-| `extraConfig` | attrs | `{}` | Merged last, for keys the module does not model yet. |
+| `managed` | bool | `true` | `managed` · top-level directive so no client rewrites `config.toml`. See [Declarative config](#declarative-config). |
+| `workspace.last` | str \| null | `null` | `[workspace] last` · absolute path the desktop reopens on launch. Pin it: `managed` freezes the app's own write. |
+| `theme.preset` | enum | `"outl-light"` | `[theme] preset` · light side of the pair. One of `outl`, `outl-light`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`, `gruvbox`. |
+| `theme.presetDark` | enum \| null | `null` | `[theme] preset_dark` · dark side the TUI renders under `mode = "auto"`/`"dark"`. `null` follows `preset`. |
+| `theme.mode` | enum | `"auto"` | `[theme] mode` · `"light"`, `"dark"` or `"auto"`. A terminal reads `auto` as **dark**. |
+| `editor.vimMode` | bool | `true` | `[editor] vim_mode` · vim-style modal bindings (desktop). |
+| `editor.fontSize` | int | `15` | `[editor] font_size` · outline font size in px (desktop only). |
+| `calendar.timezone` | str \| null | `null` | `[calendar] timezone` · IANA name, e.g. `"Europe/London"`. OS timezone when unset. |
+| `sync.transport` | enum | `"iroh"` | `[sync] transport` · `"iroh"` (P2P QUIC) or `"file"` (iCloud / shared FS). |
+| `sync.relayUrl` | str \| null | `null` | `[sync] relay_url` · custom iroh relay. outl's default when unset. |
+| `display.backlinksOrder` | enum | `"newest"` | `[display] backlinks_order` · `"newest"` or `"oldest"`. |
+| `assets.maxBytes` | int | `104857600` | `[assets] max_bytes` · cap on one uploaded file. `0` = unbounded. |
+| `reminders.enabled` | bool | `true` | `[reminders] enabled` · whether this device delivers reminder notifications. |
+| `reminders.quietHours` | str \| null | `null` | `[reminders] quiet_hours` · defer window, e.g. `"22:00-07:00"`. |
+| `snapshot.enabled` | bool | `true` | `[snapshot] enabled` · materialized-state snapshots for faster boot. |
+| `snapshot.opThreshold` | int | `10000` | `[snapshot] op_threshold` · ops between snapshot writes. |
+| `storage.lruCap` | int | `20000` | `[storage] lru_cap` · max ops held in memory. `0` = unbounded. |
+| `tui.mouseCapture` | bool | `false` | `[tui] mouse_capture` · capture mouse in the TUI (disables terminal text selection). |
+| `backup.enabled` | bool | `true` | `[backup] enabled` · automatic git snapshots of the workspace. |
+| `backup.intervalMinutes` | int | `30` | `[backup] interval_minutes` · minimum minutes between automatic snapshots. |
+| `extraConfig` | attrs | `{}` | Deep-merged **last**, for keys the module has not modelled yet. Write its keys in `snake_case`, matching `config.toml`. |
 
-The full key list is in the module source ([`hm-module.nix`](../hm-module.nix)); the meaning of each key is in [Configuration](config.md).
+Every option carries a `description` home-manager renders as documentation, so `nix-option-lookup`/the generated manpage is authoritative.
+The source is [`hm-module.nix`](../hm-module.nix); the meaning of each key is in [Configuration](config.md).
 
 ### Declarative config
 
@@ -142,16 +170,24 @@ So the module sets `managed = true` in the generated file by default, and outl t
 
 - Every client (`outl`, `outl-desktop`, `outl-tui`, mobile) skips its config write, so the symlink stays a symlink across switches.
 - The **desktop Settings modal disables Save** and points you at `programs.outl.settings`; the theme picker still previews live.
-- Because the modal can no longer persist it, **`workspace.last` freezes** unless you pin it. Pin it declaratively to keep the desktop reopening your workspace:
+- Because the modal can no longer persist it, **`workspace.last` freezes** unless you pin it. Pin it declaratively (inside the same `settings` set) to keep the desktop reopening your workspace:
 
   ```nix
-  programs.outl.settings.workspace.last = "/home/you/outl";
+  programs.outl.settings = {
+    workspace.last = "/home/you/outl";   # absolute path
+  };
   ```
 
   (Omit it and the desktop just opens the workspace picker on launch — every reader falls through cleanly.)
 
-To go back to app-managed settings (the client persists its own state again), set `programs.outl.settings.managed = false`.
-A client write will then detach the symlink again, so also set `xdg.configFile."outl/config.toml".force = true` to let home-manager reclaim it on the next switch.
+To go back to app-managed settings (the client persists its own state again), set `managed = false` in the same set.
+A client write will then detach the symlink again, so also set `xdg.configFile."outl/config.toml".force = true` to let home-manager reclaim it on the next switch:
+
+  ```nix
+  programs.outl.settings = {
+    managed = false;
+  };
+  ```
 
 > **Migrating a machine that already hit the conflict.**
 > If you were using this module before the `managed` default, your `~/.config/outl/config.toml` is already a stray regular file and the switch is failing with *"file exists and cannot be overridden"*.

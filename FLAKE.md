@@ -45,21 +45,39 @@ The cache holds whatever has been pushed to it — it is populated as releases a
 ```nix
 inputs.outl.url = "github:frigidplatypus/outl";
 
-homeConfigurations.me = {
-  modules = [ inputs.outl.homeManagerModules.default ];
+homeConfigurations.me = nixpkgs.lib.homeManagerConfiguration {
+  pkgs = nixpkgs.legacyPackages.x86_64-linux;
+  modules = [
+    inputs.outl.homeManagerModules.default
 
-  programs.outl = {
-    enable = true;
-    settings.theme.preset = "dracula";  # themes the terminal AND the desktop
-    settings.editor.vimMode = true;
-    services.sync = { enable = true; workspace = "~/notes"; };
-  };
+    ({ ... }: {
+      programs.outl = {
+        enable = true;
+        installDesktop = true;   # also install the Tauri GUI + launcher
+
+        # One attribute set, not a `settings.<key>` line per option.
+        settings = {
+          workspace.last = "/home/me/outl";      # absolute — managed freezes the app's write
+          theme.preset = "dracula";              # themes the terminal AND the desktop
+          editor.vimMode = true;
+          sync.transport = "iroh";
+        };
+
+        # runs `outl serve` as a systemd user service holding this device's
+        # iroh endpoint. The path reaches ExecStart verbatim (no `~` expansion),
+        # so it must be absolute.
+        services.sync = { enable = true; workspace = "/home/me/notes"; };
+      };
+    })
+  ];
 };
 ```
 
-`programs.outl.settings.*` mirrors the upstream `config.toml` schema — one option per field.
-See `hm-module.nix` for the exact list; each option carries a `description` that home-manager renders as documentation (`programs.outl.services.sync` runs `outl serve` as a systemd user service that holds this device's iroh endpoint; `installDesktop = true` also installs the Tauri GUI).
-`programs.outl.extraConfig` is a deep-merged escape hatch for any field the module has not modelled yet — write its keys in `snake_case`, matching `config.toml`.
+`programs.outl.settings` mirrors the upstream `config.toml` schema — one option per field, written as a **single `settings = { … }` attribute set**.
+The Nix option names are `camelCase`; the generated `config.toml` keys are `snake_case` (the module maps them).
+See `hm-module.nix` for the exact list — each option carries a `description` that home-manager renders as documentation, and the full key table is in [`docs/nix.md`](docs/nix.md).
+`installDesktop = true` also installs the Tauri GUI, its `.desktop` entry and its icons into `~/.local/share`.
+`settings.extraConfig` is a deep-merged escape hatch for any field the module has not modelled yet — write its keys in `snake_case`, matching `config.toml`.
 
 ### Theme precedence
 
@@ -68,7 +86,7 @@ The theme is the one setting whose effect is easy to misread, because outl store
 1. **Light/dark pair vs. the terminal.**
    `preset` is the light side; `presetDark` is the dark side.
    A terminal cannot read OS appearance, so the TUI renders the **dark** side whenever `mode` is `"auto"` (the default) or `"dark"`.
-   This module makes `presetDark` default to *following* `preset`, so a single `settings.theme.preset = "x"` themes the terminal and the desktop together.
+   This module makes `presetDark` default to *following* `preset`, so a single `theme.preset = "x"` (inside the `settings` set) themes the terminal and the desktop together.
    Set `presetDark` explicitly only when you want the two sides to differ — for example a custom light side with the brand `"outl"` dark theme.
    When you customise neither, the module keeps outl's brand pair `outl-light` / `outl`, so the terminal defaults to the brand dark theme rather than to the light preset.
 
