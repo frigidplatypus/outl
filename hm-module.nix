@@ -45,7 +45,11 @@ in
       description = ''
         The outl-desktop package to use. The flake default builds the upstream
         release; set it to flake.packages.''${system}.outl-desktop-dev for a
-        fork / dev branch build.
+        fork / dev branch build. The freedesktop integration under
+        `installDesktop` expects the outl-desktop layout (a
+        `$out/share/applications/<id>.desktop` entry and matching hicolor icons,
+        where `<id>` is `desktopId`); a substitute that does not emit those
+        paths yields dangling symlinks rather than an error.
       '';
     };
 
@@ -53,6 +57,21 @@ in
       type = lib.types.bool;
       default = false;
       description = "Whether to also install the outl-desktop Tauri application.";
+    };
+
+    desktopId = lib.mkOption {
+      type = lib.types.str;
+      default = "app.outl.desktop";
+      description = ''
+        The freedesktop application id behind the launcher entry and icon that
+        `installDesktop` installs into `~/.local/share`. It must match the `$ID`
+        the `desktopPackage` writes under `$out/share` (its postInstall derives
+        it from `tauri.conf.json`'s `identifier`) — the symlinked `.desktop` and
+        icon basenames are built from this value, so a mismatch silently
+        produces dangling links instead of an icon. The default is the upstream
+        `outl-desktop` identifier; change it only when `desktopPackage` points at
+        a build whose identifier differs.
+      '';
     };
 
     services.sync = {
@@ -400,9 +419,9 @@ in
       # defaults to `~/.local/share`, which is always on `XDG_DATA_DIRS`.
       xdg.dataFile = lib.optionalAttrs (cfg.installDesktop && pkgs.stdenv.hostPlatform.isLinux) (
         let
-          # Must match the `$ID`-based names flake.nix writes under
-          # $out/share — `app.outl.desktop` from tauri.conf.json's identifier.
-          id = "app.outl.desktop";
+          # Basenames the desktopPackage emits under $out/share; keep in sync
+          # via the `desktopId` option rather than a second hardcoded copy.
+          id = cfg.desktopId;
           share = "${cfg.desktopPackage}/share";
         in
         {
