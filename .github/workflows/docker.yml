@@ -30,7 +30,7 @@ name: Docker image
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev, experimental]
     tags: ["v*"]
     # No `paths:` filter. It would apply to tag pushes too, and a `v1.2.3` tag
     # landing on a docs-only commit would then skip the release build — the one
