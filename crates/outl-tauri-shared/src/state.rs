@@ -330,6 +330,13 @@ pub struct TemplateDto {
     /// shadows the rest (resolution picks the first in tree order).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub duplicate: bool,
+    /// `true` when the template carries a code block, i.e. it is a
+    /// **callable** template (runs a ```` ```call: ```` fence) rather than
+    /// a **structural** one (deep-copies its subtree). Lets a picker label
+    /// the kind before the user instantiates it; `false` (structural) is
+    /// the default and serializes away.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub callable: bool,
     /// Declared `insert::` anchor as the template author spelled it
     /// (trimmed + lowercased), absent when the template nests by
     /// default. May carry a misspelling — see `insert_unrecognized`.

@@ -257,6 +257,7 @@ fn template_dto_matches_its_interface() {
         name: "standup".into(),
         slug: "templates/standup".into(),
         duplicate: true,
+        callable: true,
         insert: Some("after".into()),
         insert_unrecognized: true,
     };

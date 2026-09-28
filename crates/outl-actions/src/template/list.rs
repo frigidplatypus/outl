@@ -10,6 +10,7 @@ use outl_core::workspace::Workspace;
 use serde::Serialize;
 
 use crate::page::{read_text_prop, SLUG_KEY};
+use crate::template::call::template_is_callable;
 use crate::template::{parse_param_list, INSERT_KEY, PARAMS_KEY, TEMPLATE_KEY};
 use crate::tree::children_of;
 
@@ -22,10 +23,20 @@ pub struct TemplateEntry {
     pub slug: String,
     /// Stringified page [`NodeId`].
     pub page_id: String,
-    /// Declared parameter names (from `params::`), empty when the
-    /// template is structural-only.
+    /// Declared parameter names (from `params::`); conventionally the
+    /// values a callable template's code block reads. Empty when the
+    /// author declared none — note this is **not** the structural/callable
+    /// discriminator; read [`TemplateEntry::callable`] for that.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub params: Vec<String>,
+    /// `true` when the template page carries a fenced code block, i.e. it
+    /// is a **callable** template (runs a ```` ```call: ```` fence) rather
+    /// than a **structural** one (deep-copies its subtree). Decided by the
+    /// same predicate the invoker uses ([`super::call::resolve_call`]), so
+    /// a picker can label the kind *before* the user instantiates it and
+    /// never disagrees with what actually runs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub callable: bool,
     /// `true` when another page in the workspace shares this
     /// `template:: <name>`. Resolution picks the first in tree order,
     /// so a duplicate silently shadows the rest — surfacing the flag
@@ -104,6 +115,7 @@ pub fn list_templates(workspace: &Workspace) -> Vec<TemplateEntry> {
                 slug,
                 page_id: id.to_string(),
                 params,
+                callable: template_is_callable(workspace, id),
                 duplicate: false,
                 insert,
                 insert_unrecognized,
@@ -134,6 +146,7 @@ pub fn list_templates(workspace: &Workspace) -> Vec<TemplateEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block::append_block;
     use crate::page::set_property;
     use crate::page::{open_or_create as open_or_create_page, PageKind};
     use outl_core::hlc::HlcGenerator;
@@ -337,5 +350,70 @@ mod tests {
                 "`insert:: {name}` misclassified"
             );
         }
+    }
+
+    #[test]
+    fn callable_is_classified_by_a_code_block_not_by_params() {
+        let (mut workspace, hlc) = ws();
+        // Structural: a plain bullet subtree, and *no* code block — even
+        // though it declares params, which the old icon heuristic keyed on.
+        let structural =
+            open_or_create_page(&mut workspace, &hlc, "t-struct", "Struct", PageKind::Page)
+                .unwrap();
+        set_property(
+            &mut workspace,
+            &hlc,
+            structural,
+            TEMPLATE_KEY,
+            Some(PropValue::Text("struct".into())),
+        )
+        .unwrap();
+        set_property(
+            &mut workspace,
+            &hlc,
+            structural,
+            PARAMS_KEY,
+            Some(PropValue::Text("unused".into())),
+        )
+        .unwrap();
+        append_block(
+            &mut workspace,
+            &hlc,
+            Some(structural),
+            Some("a structural step"),
+        )
+        .unwrap();
+
+        // Callable: a code block, and no params:: declared.
+        let callable =
+            open_or_create_page(&mut workspace, &hlc, "t-call", "Call", PageKind::Page).unwrap();
+        set_property(
+            &mut workspace,
+            &hlc,
+            callable,
+            TEMPLATE_KEY,
+            Some(PropValue::Text("call".into())),
+        )
+        .unwrap();
+        append_block(
+            &mut workspace,
+            &hlc,
+            Some(callable),
+            Some("```python\nprint(1 + 1)\n```"),
+        )
+        .unwrap();
+
+        let templates = list_templates(&workspace);
+        let s = templates.iter().find(|t| t.name == "struct").unwrap();
+        assert!(
+            !s.callable,
+            "a subtree with no code block is structural even when params:: is declared"
+        );
+        assert!(!s.params.is_empty(), "params is not the discriminator");
+        let c = templates.iter().find(|t| t.name == "call").unwrap();
+        assert!(
+            c.callable,
+            "a code block under the template page makes it callable"
+        );
     }
 }

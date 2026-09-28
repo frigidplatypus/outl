@@ -48,18 +48,26 @@ export function templateSlashCommands(
   templates: TemplateDto[],
 ): PluginCommand[] {
   return templates.map((t) => {
-    // The `insert::` anchor only shows when it is not the default
-    // (`child` nests silently). A misspelling carries a `⚠` so the author
-    // sees the anchor is ignored, matching the TUI picker + mobile sheet.
-    const anchor = t.insert
-      ? t.insert_unrecognized
-        ? ` ⚠ insert:: ${t.insert} not recognized`
-        : ` → insert ${t.insert}`
-      : "";
+    // Structural vs callable, up front: a structural template is deep-copied
+    // on pick (what `instantiateTemplateAt` runs), a callable one carries a
+    // code block and is *run* via a ```call: fence, so picking it here only
+    // clones that block. The marker is the same `callable` flag the backend
+    // runs on — no parallel classifier in TS. Matches the TUI + mobile badge.
+    const kind = t.callable ? "call" : "clone";
+    // The `insert::` anchor is structural-only — a callable template runs its
+    // code block, so its `insert::` is ignored and showing it would mislead.
+    // It only shows when not the default (`child` nests silently); a
+    // misspelling carries a `⚠` so the author sees it is ignored.
+    const anchor =
+      !t.callable && t.insert
+        ? t.insert_unrecognized
+          ? ` ⚠ insert:: ${t.insert} not recognized`
+          : ` → insert ${t.insert}`
+        : "";
     return {
       plugin_id: NATIVE_TEMPLATE_PLUGIN_ID,
       command_id: t.name,
-      title: `template: ${t.name}${t.duplicate ? " (duplicate name)" : ""}${anchor}`,
+      title: `template: ${t.name} · ${kind}${t.duplicate ? " (duplicate name)" : ""}${anchor}`,
     };
   });
 }

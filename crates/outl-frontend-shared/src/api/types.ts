@@ -679,11 +679,12 @@ export type {
 } from "./plugins";
 
 /**
- * One structural template surfaced by {@link import("./commands").listTemplates}.
+ * One template surfaced by {@link import("./commands").listTemplates}.
  * Mirrors `outl_tauri_shared::state::TemplateDto`. A template is any page
- * with a non-empty `template::` property; its outline is the body
- * deep-copied under a target block by
- * {@link import("./commands").instantiateTemplateAt}.
+ * with a non-empty `template::` property. `callable` says which kind: a
+ * **structural** template's outline is deep-copied under a target block
+ * by {@link import("./commands").instantiateTemplateAt}; a **callable**
+ * one carries a code block and is run instead of cloned.
  */
 export interface TemplateDto {
   /** Invocation name (the page's `template::` property value). */
@@ -696,6 +697,14 @@ export interface TemplateDto {
    * Omitted from the wire (defaults to `false`) when not a duplicate.
    */
   duplicate?: boolean;
+  /**
+   * `true` when the template carries a code block, i.e. it is a
+   * **callable** template (a ```` ```call: ```` fence is run against it)
+   * rather than a **structural** one (its subtree is deep-copied). Lets a
+   * picker label the kind before the user instantiates it; omitted from
+   * the wire (defaults to `false`) when structural.
+   */
+  callable?: boolean;
   /**
    * Declared `insert::` anchor as the template author spelled it
    * (e.g. `after` or `page`); absent when the template nests by

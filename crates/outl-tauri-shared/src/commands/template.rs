@@ -15,10 +15,11 @@ use crate::helpers::{build_page_view, parse_node_id, with_ws, with_ws_mut};
 use crate::host::AppHost;
 use crate::state::{PageView, TemplateDto};
 
-/// List every structural template defined in the workspace, sorted by
-/// invocation name. Wraps `outl_actions::list_templates` — a template is
-/// any page with a non-empty `template::` property, and its outline is
-/// the body deep-copied on instantiation.
+/// List every template defined in the workspace, sorted by invocation
+/// name. Wraps `outl_actions::list_templates` — a template is any page
+/// with a non-empty `template::` property. Each row carries `callable`
+/// so a picker can label the kind (structural subtree-clone vs callable
+/// code block) before the user instantiates it.
 pub fn list_templates<S: AppHost>(state: &S) -> Result<Vec<TemplateDto>, String> {
     with_ws(state, |ws| {
         Ok(action_list_templates(ws)
@@ -27,6 +28,7 @@ pub fn list_templates<S: AppHost>(state: &S) -> Result<Vec<TemplateDto>, String>
                 name: t.name,
                 slug: t.slug,
                 duplicate: t.duplicate,
+                callable: t.callable,
                 insert: t.insert,
                 insert_unrecognized: t.insert_unrecognized,
             })

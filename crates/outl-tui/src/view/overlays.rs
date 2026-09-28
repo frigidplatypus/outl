@@ -613,29 +613,38 @@ pub(crate) fn render_template_picker(
         let Some(tpl) = tp.all.get(data_i) else {
             continue;
         };
-        let icon = if tpl.params.is_empty() {
-            icons::FILE
-        } else {
+        // `callable` (not `params`) is the structural/callable
+        // discriminator — the same predicate `resolve_call` uses, so the
+        // icon, the kind word and what actually runs can never disagree.
+        let icon = if tpl.callable {
             icons::BOLT
+        } else {
+            icons::FILE
         };
+        let kind = if tpl.callable { "call" } else { "clone" };
         let label = format!(" {icon} {:<20} {}", tpl.name, tpl.slug);
         let mut spans = vec![if vis_i == tp.selected {
             Span::styled(label, app.theme.help_title)
         } else {
             Span::raw(label)
         }];
-        // The `insert::` anchor only shows when it is not the default
-        // (`child` nests silently, so annotating it would be noise). A
-        // misspelling carries a `⚠` so the author sees the anchor they
-        // wrote is being ignored — the glyph carries the warning, so it
-        // needs no new palette token (DESIGN.md / invariant 13).
-        if let Some(anchor) = tpl.insert.as_deref() {
-            let note = if tpl.insert_unrecognized {
-                format!("  ⚠ insert:: {anchor} not recognized")
-            } else {
-                format!("  → insert {anchor}")
-            };
-            spans.push(Span::styled(note, app.theme.hint));
+        spans.push(Span::styled(format!("  · {kind}"), app.theme.dim));
+        // The `insert::` anchor is structural-only — a callable template
+        // runs its code block, so its `insert::` is ignored and showing it
+        // would mislead. Only structural rows carry the note. It shows when
+        // the anchor is not the default (`child` nests silently, so
+        // annotating it would be noise), and a misspelling carries a `⚠` so
+        // the author sees it — the glyph carries the warning, so it needs no
+        // new palette token (DESIGN.md / invariant 13).
+        if !tpl.callable {
+            if let Some(anchor) = tpl.insert.as_deref() {
+                let note = if tpl.insert_unrecognized {
+                    format!("  ⚠ insert:: {anchor} not recognized")
+                } else {
+                    format!("  → insert {anchor}")
+                };
+                spans.push(Span::styled(note, app.theme.hint));
+            }
         }
         lines.push(Line::from(spans));
     }

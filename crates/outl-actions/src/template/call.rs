@@ -6,6 +6,7 @@
 //! extract the first code block's language + source, and return it
 //! for execution via `outl-exec`.
 
+use outl_core::id::NodeId;
 use outl_core::property::PropValue;
 use outl_core::workspace::Workspace;
 use serde::Serialize;
@@ -55,11 +56,29 @@ pub fn resolve_call(
         _ => Vec::new(),
     };
 
-    // Walk the template page's subtree looking for the first code
-    // block. Fence parsing is owned by `outl_exec::extract_fence`
-    // (lowercased language, first info-string token) — reused here so
-    // the template resolver and the runtime never drift on what counts
-    // as a fence (see docs/contributing.md → Reuse-first).
+    let (language, source) = first_code_block(workspace, page_id).ok_or_else(|| {
+        ActionError::Exec(format!("template `{template_name}` has no code block"))
+    })?;
+
+    Ok(CallResolution {
+        template_slug,
+        language,
+        source,
+        params,
+    })
+}
+
+/// First fenced code block anywhere in a template page's subtree, as
+/// `(language, source)`, or `None` when it carries none.
+///
+/// The single owner of "does this template page carry a code block, and
+/// what is it". [`resolve_call`] takes the language + source to run;
+/// [`template_is_callable`] takes the yes/no so a picker can classify the
+/// template as callable vs structural **before** the user instantiates it.
+/// One walk, so "what actually executes" and "what the picker calls
+/// callable" cannot drift — the fence test is `outl_exec::extract_fence`,
+/// the same one the runtime uses (docs/contributing.md → Reuse-first).
+pub(crate) fn first_code_block(workspace: &Workspace, page_id: NodeId) -> Option<(String, String)> {
     let mut found: Option<(String, String)> = None;
     walk_subtree(workspace, page_id, |id| {
         if found.is_some() {
@@ -73,17 +92,16 @@ pub fn resolve_call(
         }
         true
     });
+    found
+}
 
-    let (language, source) = found.ok_or_else(|| {
-        ActionError::Exec(format!("template `{template_name}` has no code block"))
-    })?;
-
-    Ok(CallResolution {
-        template_slug,
-        language,
-        source,
-        params,
-    })
+/// `true` when the template page carries a fenced code block, i.e. it is
+/// a **callable** template (running a ```` ```call: ```` fence) rather than
+/// a **structural** one (deep-copying its subtree). This is the same
+/// predicate [`resolve_call`] uses to decide it can run, so the picker's
+/// label and the invocation's behaviour always agree.
+pub(crate) fn template_is_callable(workspace: &Workspace, page_id: NodeId) -> bool {
+    first_code_block(workspace, page_id).is_some()
 }
 
 /// The template name invoked by a ` ```call:<name> ` fence, or `None`
