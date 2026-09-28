@@ -35,7 +35,7 @@ pub const PARAMS_KEY: &str = "params";
 
 /// Property key on a structural template page declaring where its
 /// root blocks land relative to the block the template is invoked on:
-/// `insert:: under` nests them as children (the default), `insert::
+/// `insert:: child` nests them as children (the default), `insert::
 /// after` stamps them as siblings at the invoked block's own level,
 /// `insert:: page` appends them at the end of the enclosing page.
 /// Resolved by `resolve_anchor`; the value lives on the page node so
@@ -69,7 +69,7 @@ pub(crate) fn resolve_anchor(workspace: &Workspace, template_page: NodeId) -> Te
     {
         Some(v) if v == "after" => TemplateAnchor::After,
         Some(v) if v == "page" => TemplateAnchor::Page,
-        Some(v) if !v.is_empty() && v != "under" => {
+        Some(v) if !v.is_empty() && v != "child" => {
             tracing::warn!(
                 value = %v,
                 "unrecognised `insert::` template property; nesting as children"

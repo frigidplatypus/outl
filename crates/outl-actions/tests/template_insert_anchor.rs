@@ -137,16 +137,16 @@ fn insert_after_still_traces_and_substitutes() {
 }
 
 #[test]
-fn insert_under_nests_like_the_default() {
+fn insert_child_nests_like_the_default() {
     let (mut w, hlc) = ws();
-    let tpl = template_with(&mut w, &hlc, "template-under", "under");
+    let tpl = template_with(&mut w, &hlc, "template-child", "child");
     append_block(&mut w, &hlc, Some(tpl), Some("a")).unwrap();
-    set_insert(&mut w, &hlc, tpl, "under");
+    set_insert(&mut w, &hlc, tpl, "child");
 
     let page = open_or_create(&mut w, &hlc, "p", "P", PageKind::Page).unwrap();
     let host = append_block(&mut w, &hlc, Some(page), Some("host")).unwrap();
 
-    instantiate_template(&mut w, &hlc, "under", host, "p", None).unwrap();
+    instantiate_template(&mut w, &hlc, "child", host, "p", None).unwrap();
 
     assert_eq!(texts(&w, host), vec!["a"]);
     assert_eq!(texts(&w, page), vec!["host"]);
