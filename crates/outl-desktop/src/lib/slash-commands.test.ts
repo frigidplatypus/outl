@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { rankSlashCommands } from "./slash-commands";
-import type { PluginCommand } from "@outl/shared/api/types";
+import { rankSlashCommands, templateSlashCommands } from "./slash-commands";
+import type { PluginCommand, TemplateDto } from "@outl/shared/api/types";
 
 const cmd = (command_id: string, title: string): PluginCommand => ({
   plugin_id: `app.outl.examples.${command_id}`,
@@ -45,5 +45,32 @@ describe("rankSlashCommands", () => {
     // Query "e": id "greet" (substring) must outrank a title-only hit.
     const out = rankSlashCommands(ALL, "gree");
     expect(out[0].command_id).toBe("greet");
+  });
+});
+
+const tpl = (name: string, extra: Partial<TemplateDto> = {}): TemplateDto => ({
+  name,
+  slug: `template-${name}`,
+  ...extra,
+});
+
+describe("templateSlashCommands anchor surfacing", () => {
+  it("shows the anchor when it is not the default", () => {
+    const [row] = templateSlashCommands([tpl("meeting", { insert: "after" })]);
+    expect(row.title).toContain("→ insert after");
+  });
+
+  it("warns on an unrecognized anchor the backend is ignoring", () => {
+    const [row] = templateSlashCommands([
+      tpl("meeting", { insert: "sideways", insert_unrecognized: true }),
+    ]);
+    expect(row.title).toContain("⚠ insert:: sideways not recognized");
+  });
+
+  it("stays silent for the `child` default", () => {
+    // `child` / absent nest silently — annotating the default is noise.
+    expect(templateSlashCommands([tpl("meeting")])[0].title).not.toContain(
+      "insert",
+    );
   });
 });
