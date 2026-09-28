@@ -181,6 +181,13 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
         // `open_template_picker`), the desktop's `/template <name>`
         // slash-menu entries (one synthesized per template, so typing
         // `/` lists them), and mobile's `TemplateSheet`.
+        //
+        // The `insert::` anchor (`child` / `after` / `page`) resolves in
+        // `outl-actions::template`, not per client, so instantiating stays
+        // `Full` on all three. Each picker *surfaces* the anchor (and a
+        // misspelling) from the `insert` / `insert_unrecognized` fields the
+        // DTO carries — author-facing metadata, not a per-invocation
+        // capability, so it needs no separate row here.
         Capability::Templates => ClientSupport {
             tui: Full,
             desktop: Full,

@@ -47,11 +47,21 @@ export function assetSlashCommands(): PluginCommand[] {
 export function templateSlashCommands(
   templates: TemplateDto[],
 ): PluginCommand[] {
-  return templates.map((t) => ({
-    plugin_id: NATIVE_TEMPLATE_PLUGIN_ID,
-    command_id: t.name,
-    title: `template: ${t.name}${t.duplicate ? " (duplicate name)" : ""}`,
-  }));
+  return templates.map((t) => {
+    // The `insert::` anchor only shows when it is not the default
+    // (`child` nests silently). A misspelling carries a `⚠` so the author
+    // sees the anchor is ignored, matching the TUI picker + mobile sheet.
+    const anchor = t.insert
+      ? t.insert_unrecognized
+        ? ` ⚠ insert:: ${t.insert} not recognized`
+        : ` → insert ${t.insert}`
+      : "";
+    return {
+      plugin_id: NATIVE_TEMPLATE_PLUGIN_ID,
+      command_id: t.name,
+      title: `template: ${t.name}${t.duplicate ? " (duplicate name)" : ""}${anchor}`,
+    };
+  });
 }
 
 /**

@@ -619,11 +619,25 @@ pub(crate) fn render_template_picker(
             icons::BOLT
         };
         let label = format!(" {icon} {:<20} {}", tpl.name, tpl.slug);
-        if vis_i == tp.selected {
-            lines.push(Line::from(vec![Span::styled(label, app.theme.help_title)]));
+        let mut spans = vec![if vis_i == tp.selected {
+            Span::styled(label, app.theme.help_title)
         } else {
-            lines.push(Line::from(vec![Span::raw(label)]));
+            Span::raw(label)
+        }];
+        // The `insert::` anchor only shows when it is not the default
+        // (`child` nests silently, so annotating it would be noise). A
+        // misspelling carries a `⚠` so the author sees the anchor they
+        // wrote is being ignored — the glyph carries the warning, so it
+        // needs no new palette token (DESIGN.md / invariant 13).
+        if let Some(anchor) = tpl.insert.as_deref() {
+            let note = if tpl.insert_unrecognized {
+                format!("  ⚠ insert:: {anchor} not recognized")
+            } else {
+                format!("  → insert {anchor}")
+            };
+            spans.push(Span::styled(note, app.theme.hint));
         }
+        lines.push(Line::from(spans));
     }
 
     if lines.is_empty() {

@@ -127,6 +127,18 @@ export function TemplateSheet(props: TemplateSheetProps): JSX.Element {
                   <span class="font-mono text-[11px] text-(--color-outl-fg-dim)/70">
                     {template.slug}
                   </span>
+                  <Show when={template.insert}>
+                    {/* The anchor only shows when it is not the default
+                        (`child` nests silently). A misspelling carries a
+                        `⚠` so the author sees the anchor is ignored; the
+                        glyph carries the warning, so it needs no new
+                        palette token. */}
+                    <span class="text-[11px] text-(--color-outl-fg-dim)/70">
+                      {template.insert_unrecognized
+                        ? `⚠ insert:: ${template.insert} not recognized`
+                        : `→ insert ${template.insert}`}
+                    </span>
+                  </Show>
                 </button>
               )}
             </For>
