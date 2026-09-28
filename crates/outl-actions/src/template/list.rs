@@ -33,7 +33,7 @@ pub struct TemplateEntry {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub duplicate: bool,
     /// The declared `insert::` anchor, normalized (trimmed + lowercased),
-    /// or `None` when absent or `under` (the default), which serializes
+    /// or `None` when absent or `child` (the default), which serializes
     /// away via `skip_serializing_if`. May carry a misspelling — see
     /// `insert_unrecognized`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -95,7 +95,7 @@ pub fn list_templates(workspace: &Workspace) -> Vec<TemplateEntry> {
             let raw_insert =
                 read_text_prop(workspace, id, INSERT_KEY).map(|v| v.trim().to_ascii_lowercase());
             let (insert, insert_unrecognized) = match raw_insert.as_deref() {
-                None | Some("") | Some("under") => (None, false),
+                None | Some("") | Some("child") => (None, false),
                 Some("after") | Some("page") => (raw_insert.clone(), false),
                 Some(_) => (raw_insert.clone(), true),
             };
@@ -292,5 +292,50 @@ mod tests {
 
         // Resolution still returns the first in tree order deterministically.
         assert!(find_template_by_name(&workspace, "dup").is_some());
+    }
+
+    #[test]
+    fn insert_anchor_is_classified_for_the_picker() {
+        let (mut workspace, hlc) = ws();
+        let cases = [
+            // (name, insert:: value): expected (insert, insert_unrecognized)
+            ("t-absent", None, (None, false)),
+            ("t-child", Some("child"), (None, false)),
+            ("t-after", Some("after"), (Some("after"), false)),
+            ("t-page", Some("page"), (Some("page"), false)),
+            ("t-typo", Some("sideways"), (Some("sideways"), true)),
+        ];
+        for (name, value, _) in cases {
+            let id = open_or_create_page(&mut workspace, &hlc, name, name, PageKind::Page).unwrap();
+            set_property(
+                &mut workspace,
+                &hlc,
+                id,
+                TEMPLATE_KEY,
+                Some(PropValue::Text(name.into())),
+            )
+            .unwrap();
+            if let Some(v) = value {
+                set_property(
+                    &mut workspace,
+                    &hlc,
+                    id,
+                    INSERT_KEY,
+                    Some(PropValue::Text(v.into())),
+                )
+                .unwrap();
+            }
+        }
+
+        let templates = list_templates(&workspace);
+        for (name, _, expected) in cases {
+            let entry = templates.iter().find(|t| t.name == name).unwrap();
+            let got = (entry.insert.as_deref(), entry.insert_unrecognized);
+            assert_eq!(
+                got,
+                (expected.0, expected.1),
+                "`insert:: {name}` misclassified"
+            );
+        }
     }
 }

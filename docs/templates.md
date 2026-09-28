@@ -127,7 +127,7 @@ inside `## Projects`:
 
 | `insert::` value | Effect |
 |---|---|
-| *(absent)* or `under` | Clone nests as children of the invoked block (the default) |
+| *(absent)* or `child` | Clone nests as children of the invoked block (the default) |
 | `after` | Clone is inserted as siblings, immediately after the invoked block, at its level |
 | `page` | Clone is appended at the end of the enclosing page, regardless of depth |
 
@@ -139,7 +139,7 @@ When `insert:: after` is used on a page-node target (the CLI `outl template appl
 --page X` with no `--block`, or a journal template stamp), it degrades to
 `page` rather than fabricating a root-level orphan invisible to every
 page projection.
-An unrecognised value is logged and treated as `under`.
+An unrecognised value is logged and treated as `child`.
 
 ### TUI
 
