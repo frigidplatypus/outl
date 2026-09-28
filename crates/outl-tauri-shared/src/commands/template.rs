@@ -27,6 +27,8 @@ pub fn list_templates<S: AppHost>(state: &S) -> Result<Vec<TemplateDto>, String>
                 name: t.name,
                 slug: t.slug,
                 duplicate: t.duplicate,
+                insert: t.insert,
+                insert_unrecognized: t.insert_unrecognized,
             })
             .collect())
     })

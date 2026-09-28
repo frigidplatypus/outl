@@ -36,7 +36,8 @@ pub const PARAMS_KEY: &str = "params";
 /// Property key on a structural template page declaring where its
 /// root blocks land relative to the block the template is invoked on:
 /// `insert:: under` nests them as children (the default), `insert::
-/// after` stamps them as siblings at the invoked block's own level.
+/// after` stamps them as siblings at the invoked block's own level,
+/// `insert:: page` appends them at the end of the enclosing page.
 /// Resolved by `resolve_anchor`; the value lives on the page node so
 /// it reaches the op log as an ordinary `Op::SetProp` and never gets
 /// copied onto an instance.
@@ -51,19 +52,23 @@ pub(crate) enum TemplateAnchor {
     /// Place root clones as siblings, immediately after the invoked
     /// block, at its own level.
     After,
+    /// Append root clones at the end of the enclosing page, regardless
+    /// of the invoked block's depth.
+    Page,
 }
 
 /// Read a template page's [`INSERT_KEY`] to decide where its root
 /// clones land. Permissive by design: only the literal `after` opts
-/// into sibling placement, so an absent or empty property (and every
-/// other value) keeps the historical nesting-under behaviour. An
-/// unrecognised non-empty value warns once rather than silently
-/// changing the shape of the insert.
+/// into sibling placement and only `page` opts into page-end placement,
+/// so an absent or empty property (and every other value) keeps the
+/// historical nesting-under behaviour. An unrecognised non-empty value
+/// warns once rather than silently changing the shape of the insert.
 pub(crate) fn resolve_anchor(workspace: &Workspace, template_page: NodeId) -> TemplateAnchor {
     match crate::page::read_text_prop(workspace, template_page, INSERT_KEY)
         .map(|v| v.trim().to_ascii_lowercase())
     {
         Some(v) if v == "after" => TemplateAnchor::After,
+        Some(v) if v == "page" => TemplateAnchor::Page,
         Some(v) if !v.is_empty() && v != "under" => {
             tracing::warn!(
                 value = %v,
@@ -78,8 +83,8 @@ pub(crate) fn resolve_anchor(workspace: &Workspace, template_page: NodeId) -> Te
 /// A node that cannot have meaningful siblings in the page model:
 /// the tree root, or a page node (a page's siblings are other pages,
 /// not ordinary blocks). A template asking for [`TemplateAnchor::After`]
-/// degrades to nesting under such a target rather than fabricating a
-/// block that belongs to no page.
+/// degrades to [`TemplateAnchor::Page`] on such a target rather than
+/// fabricating a block that belongs to no page.
 pub(crate) fn is_page_or_root(workspace: &Workspace, node: NodeId) -> bool {
     node == NodeId::root()
         || workspace
@@ -102,6 +107,23 @@ pub(crate) fn parse_param_list(value: &str) -> Vec<String> {
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty())
         .collect()
+}
+
+/// Resolve the template's declared anchor and apply the page-node
+/// fallback: when the target has no meaningful siblings (a page node or
+/// the tree root), `After` degrades to `Page` rather than writing a root
+/// child invisible to every page projection (issue #321).
+pub(crate) fn effective_anchor(
+    workspace: &Workspace,
+    template_page: NodeId,
+    target_block: NodeId,
+) -> TemplateAnchor {
+    let declared = resolve_anchor(workspace, template_page);
+    if declared == TemplateAnchor::After && is_page_or_root(workspace, target_block) {
+        TemplateAnchor::Page
+    } else {
+        declared
+    }
 }
 
 pub mod call;

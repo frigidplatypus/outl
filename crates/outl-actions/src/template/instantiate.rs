@@ -18,10 +18,10 @@ use crate::page::{read_text_prop, set_property, KIND_KEY, SLUG_KEY};
 use crate::template::list::find_template_by_name;
 use crate::template::vars::{substitute_vars, VarContext};
 use crate::template::{
-    is_page_or_root, resolve_anchor, TemplateAnchor, FROM_TEMPLATE_KEY, INSERT_KEY, PARAMS_KEY,
+    effective_anchor, is_page_or_root, TemplateAnchor, FROM_TEMPLATE_KEY, INSERT_KEY, PARAMS_KEY,
     TEMPLATE_KEY,
 };
-use crate::tree::children_of;
+use crate::tree::{children_of, enclosing_page_id};
 
 /// Recursion cap for structural instantiation. A template's block subtree is a
 /// finite tree (the CRDT forbids cycles), so this only trips on a pathologically
@@ -83,16 +83,24 @@ pub(crate) fn instantiate_template_traced(
 
     let ctx = VarContext::new(page_slug, page_date);
 
-    // Where the template's root blocks land. `insert:: after` on the
-    // template page stamps them as siblings of the invoked block, at
-    // its own level, rather than nesting them under it (issue #321).
-    // A page or the tree root has no ordinary-block siblings, so the
-    // `after` request degrades to nesting there rather than fabricating
-    // an ownerless block.
-    let anchor_after = matches!(
-        resolve_anchor(workspace, template_page),
-        TemplateAnchor::After
-    ) && !is_page_or_root(workspace, target_block);
+    // Where the template's root blocks land. Three values (issue #321):
+    // `child` (default) nests under the target, `after` stamps siblings
+    // at the target's own level, `page` appends at the end of the
+    // enclosing page. When the target is a page node or the tree root,
+    // `after` degrades to `page` — a page's siblings are other pages,
+    // and `create_after(page_node)` would put clones at root with no
+    // page-slug (invisible to every `.md` projection).
+    let anchor = effective_anchor(workspace, template_page, target_block);
+    let page_end = if anchor == TemplateAnchor::Page {
+        if is_page_or_root(workspace, target_block) {
+            target_block
+        } else {
+            enclosing_page_id(workspace, target_block)
+                .ok_or_else(|| ActionError::NotInTree(target_block.to_string()))?
+        }
+    } else {
+        target_block
+    };
 
     // Instantiating a template is one user-visible action that deep-copies
     // a whole subtree (append_block/create_after + property ops per node).
@@ -113,10 +121,14 @@ pub(crate) fn instantiate_template_traced(
         let raw_text = batch.block_text(template_id).unwrap_or_default();
         let substituted = substitute_vars(&raw_text, &ctx);
 
-        let new_id = if anchor_after {
-            create_after(&mut batch, hlc, prev, Some(&substituted))?
-        } else {
-            append_block(&mut batch, hlc, Some(target_block), Some(&substituted))?
+        let new_id = match anchor {
+            TemplateAnchor::After => create_after(&mut batch, hlc, prev, Some(&substituted))?,
+            TemplateAnchor::Page => {
+                append_block(&mut batch, hlc, Some(page_end), Some(&substituted))?
+            }
+            TemplateAnchor::Under => {
+                append_block(&mut batch, hlc, Some(target_block), Some(&substituted))?
+            }
         };
 
         finish_clone(&mut batch, hlc, template_id, new_id, true, &clone_ctx, 0)?;
@@ -560,6 +572,200 @@ mod tests {
         assert!(
             w.tree().property(root_clone, FROM_TEMPLATE_KEY).is_none(),
             "untraced instantiation writes no from-template (journal path)"
+        );
+    }
+
+    #[test]
+    fn insert_after_stamps_sibling_of_target() {
+        let (mut w, hlc) = ws();
+        let tpl = template_with(&mut w, &hlc, "template-sib", "sib");
+        append_block(&mut w, &hlc, Some(tpl), Some("sibling-block")).unwrap();
+        set_property(
+            &mut w,
+            &hlc,
+            tpl,
+            INSERT_KEY,
+            Some(PropValue::Text("after".into())),
+        )
+        .unwrap();
+
+        // Host lives inside a page, the production shape: a real target
+        // always sits under a page node, never bare at the tree root.
+        let page =
+            open_or_create_page(&mut w, &hlc, "host-page", "Host Page", PageKind::Page).unwrap();
+        let host = append_block(&mut w, &hlc, Some(page), Some("host")).unwrap();
+        instantiate_template(&mut w, &hlc, "sib", host, "host-page", None).unwrap();
+
+        let siblings: Vec<String> = children_of(&w, page)
+            .into_iter()
+            .filter_map(|(id, _)| w.block_text(id))
+            .collect();
+        assert!(
+            siblings.contains(&"sibling-block".to_string()),
+            "clone must be a sibling of host, not a child: {siblings:?}"
+        );
+        assert_eq!(
+            children_of(&w, host).len(),
+            0,
+            "clone must NOT be nested under host"
+        );
+    }
+
+    #[test]
+    fn insert_page_appends_at_page_end_regardless_of_depth() {
+        let (mut w, hlc) = ws();
+
+        let tpl = template_with(&mut w, &hlc, "template-meeting", "meeting");
+        append_block(&mut w, &hlc, Some(tpl), Some("Meeting Title")).unwrap();
+        set_property(
+            &mut w,
+            &hlc,
+            tpl,
+            INSERT_KEY,
+            Some(PropValue::Text("page".into())),
+        )
+        .unwrap();
+
+        let page = open_or_create_page(&mut w, &hlc, "2026-07-08", "2026-07-08", PageKind::Journal)
+            .unwrap();
+        let deep = append_block(&mut w, &hlc, Some(page), Some("section")).unwrap();
+        let deeper = append_block(&mut w, &hlc, Some(deep), Some("deep cursor")).unwrap();
+
+        instantiate_template(&mut w, &hlc, "meeting", deeper, "2026-07-08", None).unwrap();
+
+        let page_children: Vec<String> = children_of(&w, page)
+            .into_iter()
+            .filter_map(|(id, _)| w.block_text(id))
+            .collect();
+        assert!(
+            page_children.contains(&"Meeting Title".to_string()),
+            "clone must land at page level, not nested 3 levels deep: {page_children:?}"
+        );
+        assert_eq!(
+            children_of(&w, deeper).len(),
+            0,
+            "clone must NOT be a child of the deep target"
+        );
+    }
+
+    #[test]
+    fn insert_after_on_page_node_target_degrades_to_page_not_root() {
+        let (mut w, hlc) = ws();
+
+        let tpl = template_with(&mut w, &hlc, "template-page-target", "page-target");
+        append_block(&mut w, &hlc, Some(tpl), Some("body")).unwrap();
+        set_property(
+            &mut w,
+            &hlc,
+            tpl,
+            INSERT_KEY,
+            Some(PropValue::Text("after".into())),
+        )
+        .unwrap();
+
+        let page = open_or_create_page(&mut w, &hlc, "target-page", "Target Page", PageKind::Page)
+            .unwrap();
+
+        instantiate_template(&mut w, &hlc, "page-target", page, "target-page", None).unwrap();
+
+        // The clone must be a child of the page, not a root-level orphan.
+        let page_children: Vec<String> = children_of(&w, page)
+            .into_iter()
+            .filter_map(|(id, _)| w.block_text(id))
+            .collect();
+        assert!(
+            page_children.contains(&"body".to_string()),
+            "clone must land as page child when target IS the page: {page_children:?}"
+        );
+
+        // No orphan root children beyond the template page and target page.
+        // Pages are created without text (title is a property), so count by id.
+        let root_child_ids: Vec<NodeId> = children_of(&w, NodeId::root())
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(
+            root_child_ids.len(),
+            2,
+            "no orphan at root: only the template page and target page should be root children"
+        );
+        assert!(
+            root_child_ids.contains(&tpl),
+            "template page is a root child"
+        );
+        assert!(
+            root_child_ids.contains(&page),
+            "target page is a root child"
+        );
+    }
+
+    #[test]
+    fn insert_after_on_journal_template_creates_no_root_children() {
+        let (mut w, hlc) = ws();
+        use crate::page::open_journal;
+
+        let tpl = template_with(&mut w, &hlc, "template-journal", "journal");
+        append_block(&mut w, &hlc, Some(tpl), Some("Morning")).unwrap();
+        append_block(&mut w, &hlc, Some(tpl), Some("Evening")).unwrap();
+        set_property(
+            &mut w,
+            &hlc,
+            tpl,
+            INSERT_KEY,
+            Some(PropValue::Text("after".into())),
+        )
+        .unwrap();
+
+        let date = NaiveDate::from_ymd_opt(2026, 9, 27).unwrap();
+        open_journal(&mut w, &hlc, date).unwrap();
+
+        // The journal page node + the template page = 2 root children.
+        let root_kids = children_of(&w, NodeId::root());
+        assert_eq!(
+            root_kids.len(),
+            2,
+            "open_journal with insert::after must not scatter orphans at root"
+        );
+
+        // The journal's own children hold the template body.
+        let journal = crate::page::find_by_slug(&w, "2026-09-27").expect("journal exists");
+        let journal_children: Vec<String> = children_of(&w, journal)
+            .into_iter()
+            .filter_map(|(id, _)| w.block_text(id))
+            .collect();
+        assert_eq!(
+            journal_children,
+            vec!["Morning", "Evening"],
+            "journal template body lands inside the journal page"
+        );
+    }
+
+    #[test]
+    fn insert_page_when_target_is_page_appends_to_that_page() {
+        let (mut w, hlc) = ws();
+
+        let tpl = template_with(&mut w, &hlc, "template-page-self", "page-self");
+        append_block(&mut w, &hlc, Some(tpl), Some("from-page")).unwrap();
+        set_property(
+            &mut w,
+            &hlc,
+            tpl,
+            INSERT_KEY,
+            Some(PropValue::Text("page".into())),
+        )
+        .unwrap();
+
+        let page = open_or_create_page(&mut w, &hlc, "my-page", "My Page", PageKind::Page).unwrap();
+
+        instantiate_template(&mut w, &hlc, "page-self", page, "my-page", None).unwrap();
+
+        let page_children: Vec<String> = children_of(&w, page)
+            .into_iter()
+            .filter_map(|(id, _)| w.block_text(id))
+            .collect();
+        assert!(
+            page_children.contains(&"from-page".to_string()),
+            "insert::page with page-node target must append to that page: {page_children:?}"
         );
     }
 }

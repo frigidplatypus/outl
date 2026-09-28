@@ -330,6 +330,14 @@ pub struct TemplateDto {
     /// shadows the rest (resolution picks the first in tree order).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub duplicate: bool,
+    /// Declared `insert::` anchor as the template author spelled it
+    /// (trimmed + lowercased), absent when the template nests by
+    /// default. May carry a misspelling — see `insert_unrecognized`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insert: Option<String>,
+    /// `true` when `insert::` carried an unrecognized value.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub insert_unrecognized: bool,
 }
 
 /// Reply for `create_block`. Pairs the refreshed [`PageView`] with the
