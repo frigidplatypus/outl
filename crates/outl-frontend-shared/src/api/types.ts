@@ -696,6 +696,17 @@ export interface TemplateDto {
    * Omitted from the wire (defaults to `false`) when not a duplicate.
    */
   duplicate?: boolean;
+  /**
+   * Declared `insert::` anchor as the template author spelled it
+   * (e.g. `after` or `page`); absent when the template nests by
+   * default. May carry a misspelling — check `insert_unrecognized`.
+   */
+  insert?: string;
+  /**
+   * `true` when `insert::` carried a value that is not a recognized
+   * anchor; the backend falls back to nesting and the picker can warn.
+   */
+  insert_unrecognized?: boolean;
 }
 
 /**

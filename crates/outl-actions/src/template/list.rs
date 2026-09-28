@@ -10,7 +10,7 @@ use outl_core::workspace::Workspace;
 use serde::Serialize;
 
 use crate::page::{read_text_prop, SLUG_KEY};
-use crate::template::{parse_param_list, PARAMS_KEY, TEMPLATE_KEY};
+use crate::template::{parse_param_list, INSERT_KEY, PARAMS_KEY, TEMPLATE_KEY};
 use crate::tree::children_of;
 
 /// A template discovered in the workspace.
@@ -32,6 +32,17 @@ pub struct TemplateEntry {
     /// lets a client (doctor / picker) warn the user.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub duplicate: bool,
+    /// The declared `insert::` anchor, normalized (trimmed + lowercased),
+    /// or `None` when absent or `under` (the default), which serializes
+    /// away via `skip_serializing_if`. May carry a misspelling — see
+    /// `insert_unrecognized`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insert: Option<String>,
+    /// `true` when the `insert::` value was present but not a recognized
+    /// anchor (e.g. `insert:: sideways`). Surfacing this lets a client
+    /// warn that the template author misspelled the anchor.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub insert_unrecognized: bool,
 }
 
 /// Find the page node whose `template::` property matches `name`.
@@ -81,12 +92,21 @@ pub fn list_templates(workspace: &Workspace) -> Vec<TemplateEntry> {
                 Some(PropValue::Text(s)) => parse_param_list(s),
                 _ => Vec::new(),
             };
+            let raw_insert =
+                read_text_prop(workspace, id, INSERT_KEY).map(|v| v.trim().to_ascii_lowercase());
+            let (insert, insert_unrecognized) = match raw_insert.as_deref() {
+                None | Some("") | Some("under") => (None, false),
+                Some("after") | Some("page") => (raw_insert.clone(), false),
+                Some(_) => (raw_insert.clone(), true),
+            };
             Some(TemplateEntry {
                 name,
                 slug,
                 page_id: id.to_string(),
                 params,
                 duplicate: false,
+                insert,
+                insert_unrecognized,
             })
         })
         .collect();

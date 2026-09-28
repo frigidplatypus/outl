@@ -129,14 +129,16 @@ inside `## Projects`:
 |---|---|
 | *(absent)* or `under` | Clone nests as children of the invoked block (the default) |
 | `after` | Clone is inserted as siblings, immediately after the invoked block, at its level |
+| `page` | Clone is appended at the end of the enclosing page, regardless of depth |
 
 The anchor is a **template-page** property — it lives in the op log like
 any other property and is never copied onto the instances it shapes.
 Only the root blocks honour it; a template's nested children always nest
 under their own cloned parent.
-When a template is applied to a whole page (a CLI `outl template apply
---page X` with no `--block`), `after` falls back to appending, since a
-page has no block siblings.
+When `insert:: after` is used on a page-node target (the CLI `outl template apply
+--page X` with no `--block`, or a journal template stamp), it degrades to
+`page` rather than fabricating a root-level orphan invisible to every
+page projection.
 An unrecognised value is logged and treated as `under`.
 
 ### TUI
