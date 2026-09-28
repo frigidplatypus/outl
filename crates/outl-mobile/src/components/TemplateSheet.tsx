@@ -21,15 +21,18 @@ interface TemplateSheetProps {
 }
 
 /**
- * Bottom-sheet picker of the workspace's structural templates, opened
- * from the block long-press menu ("Insert template"). Picking a row
- * deep-copies that template's outline under the long-pressed block via
- * `instantiate_template_at`, then applies the returned page view.
+ * Bottom-sheet picker of the workspace's templates, opened from the block
+ * long-press menu ("Insert template"). Picking a row deep-copies that
+ * template's outline under the long-pressed block via
+ * `instantiateTemplateAt`, then applies the returned page view. Each row is
+ * badged `clone` or `call`: a structural (clone) template is what this action
+ * deep-copies, while a callable (call) template runs via a ```call: fence, so
+ * picking it here just clones its code block.
  *
- * Structural templates are a core feature (reachable from TUI/CLI/MCP);
- * this sheet is the mobile GUI surface so they don't need a plugin.
- * Chrome mirrors `BlockContextMenu` / `PluginSheet` (same drag-dismiss
- * hook, blurred card, safe-area padding).
+ * Templates are a core feature (reachable from TUI/CLI/MCP); this sheet is the
+ * mobile GUI surface so they don't need a plugin. Chrome mirrors
+ * `BlockContextMenu` / `PluginSheet` (same drag-dismiss hook, blurred card,
+ * safe-area padding).
  */
 export function TemplateSheet(props: TemplateSheetProps): JSX.Element {
   const drag = createSheetDrag(() => props.onClose());
@@ -118,6 +121,16 @@ export function TemplateSheet(props: TemplateSheetProps): JSX.Element {
                 >
                   <span class="text-[16px] font-medium text-(--color-outl-fg)">
                     {template.name}
+                    {/* Structural vs callable, up front: a structural
+                        template is deep-copied on pick (the action this
+                        sheet runs); a callable one carries a code block
+                        and is *run* via a ```call: fence, so picking it
+                        here only clones that block. The badge says which,
+                        from the same `callable` flag the backend uses to
+                        run it — no parallel classifier in TS. */}
+                    <span class="ml-1.5 rounded px-1 text-[10px] font-normal uppercase tracking-wide text-(--color-outl-fg-dim)">
+                      {template.callable ? "call" : "clone"}
+                    </span>
                     <Show when={template.duplicate}>
                       <span class="ml-1.5 text-[12px] font-normal text-(--color-outl-fg-dim)">
                         (duplicate name)
@@ -127,7 +140,10 @@ export function TemplateSheet(props: TemplateSheetProps): JSX.Element {
                   <span class="font-mono text-[11px] text-(--color-outl-fg-dim)/70">
                     {template.slug}
                   </span>
-                  <Show when={template.insert}>
+                  {/* The anchor is structural-only — a callable template
+                      runs its code block, so its `insert::` is ignored and
+                      showing it would mislead. */}
+                  <Show when={!template.callable && template.insert}>
                     {/* The anchor only shows when it is not the default
                         (`child` nests silently). A misspelling carries a
                         `⚠` so the author sees the anchor is ignored; the

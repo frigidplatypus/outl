@@ -74,3 +74,25 @@ describe("templateSlashCommands anchor surfacing", () => {
     );
   });
 });
+
+describe("templateSlashCommands kind marker", () => {
+  it("marks a structural template as clone", () => {
+    expect(templateSlashCommands([tpl("meeting")])[0].title).toContain("· clone");
+  });
+
+  it("marks a callable template as call", () => {
+    expect(templateSlashCommands([tpl("report", { callable: true })])[0].title).toContain(
+      "· call",
+    );
+  });
+
+  it("suppresses the anchor for a callable template", () => {
+    // `insert::` is ignored for a callable template (it runs its code block),
+    // so surfacing it here would mislead about what picking does.
+    const title = templateSlashCommands([
+      tpl("report", { callable: true, insert: "after" }),
+    ])[0].title;
+    expect(title).not.toContain("insert");
+  });
+});
+
