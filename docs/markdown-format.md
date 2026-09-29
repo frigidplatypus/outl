@@ -259,6 +259,41 @@ Query blocks auto-run on every page load — no `gx` or `auto-run::` needed.
 
 Full syntax reference, examples, and architecture: [Query code blocks](query.md).
 
+### Pipe tables
+
+A GitHub-flavoured pipe table that sits at the top level (column 0, not under a bullet) is **one block**, not one block per line:
+
+```
+| state | owner |
+|:------|------:|
+| open  | avel  |
+| done  | joao  |
+```
+
+The parser recognises it (a header row, a `|:--|--:|` delimiter row beneath it, then at least one data row — all at column 0) and collapses the whole run into a single block whose `text` is the rows joined by `\n`, exactly the shape a fenced code block already uses.
+No `UnrecognizedBlockMarker` warning is raised: a table is recognised syntax, not a line the grammar failed to place.
+Before this, a nine-row table became nine orphan blocks with nine warnings, and the TUI drew a wall of `!` glyphs where a grid should sit.
+
+**The bytes are stored verbatim; only the render reads them as a grid.**
+`text` holds the pipe rows as typed (trimmed of leading indent, `\|` left as-is), so the block round-trips as a unit and the op log never sees a rewrite of alignment — alignment is derived from the delimiter row at draw time, never written back (invariant 8).
+The collapse is a **fixpoint** because it reuses the continuation path: the first parse (a raw import) reads each row at column 0, the renderer writes the first row after `- ` and the rest one level deeper, and every later parse reassembles those continuation lines into the same trimmed, `\n`-joined text.
+A table glued to a bullet (`- | a | b |`), a table nested under a block, or a prose paragraph whose second line happens to contain a `|` is **not** a table for these purposes — it stays ordinary block text (the second case is recovered permissively, exactly as before), so recognition is conservative and never hijacks a paragraph.
+Cells may be ragged: a short row is padded and a long one truncated to the header's column count, so a malformed-but-recognised table survives rather than being refused and split back into one block per line.
+
+The grid is owned by [`outl_md::table`] (`parse_table_block` → `Table { alignments, header, rows }`); the outline grammar calls it in the depth-0 arm of `parse`, and each client decides whether to draw it.
+
+```
+| client | renders the grid? |
+|--------|-------------------|
+| TUI | ✅ aligned columns, padded and truncated to the pane, `│` rails in the theme's dim colour |
+| desktop / mobile | ❌ the raw `| … |` rows for now — every row is still saved in full |
+```
+
+Per-client coverage is recorded as [`Capability::MarkdownTable`](client-parity.md) (`Full` on the TUI, `Missing` on the two GUI clients until they grow a table renderer).
+See [`outl_md::table`] for the recognition predicate and column model, and [RFC 0329](rfcs/0329-markdown-pipe-tables.md) for the parse/render split.
+
+[`outl_md::table`]: ../crates/outl-md/src/table.rs
+
 ### Block properties
 
 A line in the form `key:: value` *as a child of an outline item* is a block property:
@@ -467,7 +502,7 @@ The `@`-prefixed link text is what makes the rendered reference visually a menti
 
 ### Permissive parsing & warnings
 
-A hand-written or imported `.md` may contain lines that don't fit the dialect — typically a leading `# heading`, a paragraph, an HTML snippet, or a table.
+A hand-written or imported `.md` may contain lines that don't fit the dialect — typically a leading `# heading`, a paragraph, or an HTML snippet.
 The parser is **permissive at every depth, not just the top level**.
 Such a line is preserved verbatim as a recovered block — a sibling at depth 0, a child of the block above it when indented with no open continuation to absorb it — and the recovery is recorded in `ParsedPage.warnings: Vec<ParseWarning>`.
 

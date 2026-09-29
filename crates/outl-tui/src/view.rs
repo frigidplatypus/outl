@@ -22,6 +22,7 @@ mod outline;
 pub(crate) mod overlays;
 mod properties;
 mod sidebar;
+mod table;
 mod toasts;
 mod warnings_banner;
 mod wrap;

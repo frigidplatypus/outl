@@ -116,6 +116,15 @@ mod why {
     pub const DESKTOP_HOSTS_ONLY: &str =
         "The desktop can host a pairing (show the QR / ticket) but has no camera to scan one — \
          to join an existing workspace from a desktop, run `outl peer pair` in a terminal.";
+
+    /// The block's rows are stored and shown either way; only the TUI
+    /// lays them into an aligned grid. The GUI clients print the raw
+    /// `| … |` text until they grow a table renderer, so the nudge
+    /// points at the client that draws the grid rather than implying
+    /// the data is missing.
+    pub const TABLE_GRID_IS_TUI_ONLY: &str =
+        "Tables show as their raw `| … |` rows here for now — the aligned grid is drawn in the \
+         TUI, and every row is still saved in full.";
 }
 
 /// Per-client support for every capability in the catalog.
@@ -272,6 +281,17 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
             desktop: Full,
             mobile: Missing(why::NO_MOBILE_SHARE_TARGET),
         },
+        // The TUI draws an aligned grid (`view/table.rs`, reached from
+        // the pretty-render branch of `emit_block_lines`). Both GUI
+        // clients keep the same stored rows but print them as raw pipe
+        // text — the storage is identical, only the render differs, so
+        // this is `Missing` (a renderer not yet built) and not
+        // `NotApplicable`.
+        Capability::MarkdownTable => ClientSupport {
+            tui: Full,
+            desktop: Missing(why::TABLE_GRID_IS_TUI_ONLY),
+            mobile: Missing(why::TABLE_GRID_IS_TUI_ONLY),
+        },
     }
 }
 
@@ -317,7 +337,7 @@ mod tests {
                 let _ = s.get(client);
             }
         }
-        assert_eq!(Capability::ALL.len(), 10, "Capability::ALL changed size");
+        assert_eq!(Capability::ALL.len(), 11, "Capability::ALL changed size");
     }
 
     #[test]

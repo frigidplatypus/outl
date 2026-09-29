@@ -325,3 +325,80 @@ fn blank_line_terminates_continuation() {
     assert_eq!(p.blocks.len(), 2);
     assert_eq!(p.blocks[1].text, "next");
 }
+
+/// A top-level pipe table collapses into ONE block, not one per line, and
+/// raises no warning. Before `outl-md::table` each of its lines fell to
+/// the verbatim recovery arm: a three-line table was three orphan blocks
+/// with three `UnrecognizedBlockMarker` warnings.
+#[test]
+fn a_top_level_table_collapses_to_one_block_without_warning() {
+    let md = "| a | b |\n|---|---|\n| 1 | 2 |\n";
+    let p = parse(md);
+    assert_eq!(
+        p.blocks.len(),
+        1,
+        "a table is one block, got {:#?}",
+        p.blocks
+    );
+    assert_eq!(p.blocks[0].text, "| a | b |\n|---|---|\n| 1 | 2 |");
+    assert!(
+        p.warnings.is_empty(),
+        "a recognised table must not warn: {:?}",
+        p.warnings
+    );
+}
+
+/// The table absorbs every contiguous column-0 pipe row and stops at the
+/// first line that is not one — here a bullet, which parses normally.
+#[test]
+fn a_table_absorbs_its_rows_and_stops_at_the_next_block() {
+    let md = "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n- a bullet after\n";
+    let p = parse(md);
+    assert_eq!(p.blocks.len(), 2);
+    assert_eq!(
+        p.blocks[0].text,
+        "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"
+    );
+    assert_eq!(p.blocks[1].text, "a bullet after");
+}
+
+/// The collapse is a fixpoint (corpus-gate property 2): the renderer
+/// writes the first row after `- ` and the rest as indented continuation,
+/// and the next parse reassembles the identical text. A document that
+/// changes shape on every save emits an `Op::Edit` per reconcile — worse
+/// than the orphan-block bug the collapse replaced.
+#[test]
+fn a_collapsed_table_is_a_render_fixpoint() {
+    let md = "| a | b |\n|---|---|\n| 1 | 2 |\n";
+    let once = crate::render::render(&parse(md));
+    let twice = crate::render::render(&parse(&once));
+    assert_eq!(once, twice, "render -> parse must be a fixpoint");
+    assert_eq!(
+        parse(&once).blocks[0].text,
+        "| a | b |\n|---|---|\n| 1 | 2 |"
+    );
+}
+
+/// A single paragraph line containing a `|` is NOT a table and must still
+/// take the verbatim recovery path with its warning — the gate is a
+/// delimiter row, not a stray pipe.
+#[test]
+fn a_paragraph_with_a_pipe_is_not_mistaken_for_a_table() {
+    let md = "a sentence with | a pipe in it\n";
+    let p = parse(md);
+    assert_eq!(p.blocks[0].text, "a sentence with | a pipe in it");
+    assert_eq!(p.warnings.len(), 1, "still recovered + warned");
+}
+
+/// Two columns, colons on the delimiter — the alignment lives only in the
+/// delimiter, and the block text keeps it verbatim so it round-trips; the
+/// renderer derives `Align` at draw time, never at storage time.
+#[test]
+fn a_table_stores_its_delimiter_verbatim() {
+    let md = "| left | right |\n|:-----|------:|\n| 1 | 2 |\n";
+    let p = parse(md);
+    assert_eq!(
+        p.blocks[0].text,
+        "| left | right |\n|:-----|------:|\n| 1 | 2 |"
+    );
+}

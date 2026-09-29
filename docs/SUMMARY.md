@@ -100,3 +100,5 @@
   * [0265 — Index sidecar lifecycle: one owner, and a GC](rfcs/0265-index-sidecar-lifecycle.md)
   * [0266 — The most dangerous stale fact is one that was true](rfcs/0266-measure-before-you-believe.md)
   * [0276 — An MCP reply carries its payload once, and an error is the exception](rfcs/0276-mcp-content-only-replies.md)
+  * [0280 — Task query tables: scanning tasks across projects](rfcs/0280-task-query-tables.md)
+  * [0329 — A pipe table is one block, drawn as a grid where the client can](rfcs/0329-markdown-pipe-tables.md)

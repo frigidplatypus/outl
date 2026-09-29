@@ -200,6 +200,11 @@ TUI-specific contracts worth remembering:
   The chrome lives in **`view::inline::render_pretty_block_text_impl`** and is the **only owner** of the bar + checkbox + token rendering pipeline;
   the outline view's `BlockRowKind::Bullet if single_line_pretty` branch delegates to it directly (one owner, every caller wraps).
   The bar composes with the task checkbox (`│ ☐ foo`) and `view::inline::split_block_prefixes` accepts the prefixes in **either order**, so `"> TODO foo"` and `"TODO > foo"` render the same.
+- **A pretty block whose text is a whole pipe table renders as an aligned grid** (`view::table.rs`), reached from the `RenderMode::Pretty` branch of `emit_block_lines` — so the selected/editing block keeps its raw `| … |` source (cursor columns still map 1:1), and only the non-focused pretty view draws the grid.
+  It asks `outl_md::parse_table_block(text)`; a block that isn't a pure table returns `None` and falls through to ordinary inline rendering, so this never hijacks prose.
+  `view::table::emit_table_lines` **builds `Line`s directly and bypasses `push_wrapped`**: a grid has fixed column widths, so per-cell truncation (`…`) beats word wrap, and column widths come from `fit_widths` (equal-share cap, min 1) against `text_width`.
+  Column rails are `│` in `theme.dim`, the header row `theme.heading`, the delimiter row's `:colons` mark alignment; no new colour token (invariant 13).
+  Per-client coverage is `outl_shortcuts::Capability::MarkdownTable` (TUI `Full`, desktop/mobile `Missing`).
 - **Task states draw as `☐` (TODO), `◐` (DOING), `☑` (DONE).**
   DOING shares `theme.todo_open`'s colour rather than claiming a third palette entry — it is unfinished work and the glyph already says which kind.
   Only DONE dims and strikes the body.
@@ -331,6 +336,7 @@ src/
 │   ├── inline.rs        # span-level markdown (highlight + pretty)
 │   ├── outline.rs       # outline rendering (render_outline, render_block, …)
 │   ├── wrap.rs          # width-aware word wrap of styled spans (push_wrapped)
+│   ├── table.rs         # pretty pipe table → aligned grid (emit_table_lines; bypasses push_wrapped)
 │   ├── overlays.rs      # every modal popup
 │   ├── properties.rs    # the `g p` property editor popup
 │   ├── toasts.rs        # bottom-right transient toast stack

@@ -85,6 +85,15 @@ pub enum Capability {
     /// client, so any of them can import a path it is given. What
     /// differs is whether the platform ever hands one over.
     OpenExternalFile,
+    /// Seeing a pipe table (`| a | b |` with its `|:--|--:|` rule) drawn
+    /// as an aligned grid, columns padded and truncated to the pane.
+    ///
+    /// Every client *keeps* the table's content — the block stores its
+    /// rows verbatim — but only the TUI turns those rows into a grid;
+    /// the GUI clients show the raw pipe text until they grow a table
+    /// renderer. This tracks the **render**, not the storage, which is
+    /// identical everywhere (RFC 0329).
+    MarkdownTable,
 }
 
 impl Capability {
@@ -107,6 +116,7 @@ impl Capability {
         Capability::NestedPages,
         Capability::ToolbarOrderLock,
         Capability::OpenExternalFile,
+        Capability::MarkdownTable,
     ];
 }
 
@@ -118,7 +128,7 @@ mod tests {
     /// what makes forgetting impossible: it will not compile once a
     /// new variant exists until this function's `match` grows an arm
     /// for it too.
-    const EXPECTED_10: usize = 10;
+    const EXPECTED_11: usize = 11;
 
     fn name(cap: Capability) -> &'static str {
         match cap {
@@ -132,6 +142,7 @@ mod tests {
             Capability::NestedPages => "NestedPages",
             Capability::ToolbarOrderLock => "ToolbarOrderLock",
             Capability::OpenExternalFile => "OpenExternalFile",
+            Capability::MarkdownTable => "MarkdownTable",
         }
     }
 
@@ -148,9 +159,9 @@ mod tests {
         );
         assert_eq!(
             names.len(),
-            EXPECTED_10,
-            "Capability::ALL has {} entries but the enum has {EXPECTED_10} variants \
-             — add the new variant to Capability::ALL (and bump EXPECTED_10)",
+            EXPECTED_11,
+            "Capability::ALL has {} entries but the enum has {EXPECTED_11} variants \
+             — add the new variant to Capability::ALL (and bump EXPECTED_11)",
             names.len(),
         );
     }

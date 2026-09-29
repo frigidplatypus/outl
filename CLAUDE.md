@@ -260,6 +260,10 @@ outl/
 ├── LICENSE                    # MIT
 ├── Cargo.toml                 # workspace
 ├── rust-toolchain.toml
+├── flake.nix                  # Nix packages, devShell, formatter, HM module export
+├── flake.lock                 # pinned Nix inputs; commit lock updates
+├── hm-module.nix              # home-manager `programs.outl` module
+├── FLAKE.md                   # short Nix / home-manager guide
 ├── .claude/                   # agents, commands, hooks, settings
 ├── .github/workflows/
 ├── docs/                      # user + contributor reference (see docs/SUMMARY.md)
@@ -282,6 +286,67 @@ outl/
 
 Full `docs/` index lives at [`docs/SUMMARY.md`](docs/SUMMARY.md).
 Per-crate context lives in `crates/<name>/CLAUDE.md` — read it before editing that crate.
+
+## Nix development and packaging
+
+Nix is a first-class development and packaging path for this repository.
+The canonical detailed guide is [`docs/nix.md`](docs/nix.md); [`FLAKE.md`](FLAKE.md) is the short flake / home-manager guide.
+Do not infer the Nix surface from an upstream checkout: this repository carries the overlay files `flake.nix`, `flake.lock`, `hm-module.nix`, `FLAKE.md` and `docs/nix.md`.
+
+### Development shell
+
+Use the flake devshell for a reproducible local toolchain:
+
+```bash
+nix develop
+```
+
+`devShells.default` provides the Rust toolchain selected by `rust-toolchain.toml`, `cargo-tauri`, Bun, Node.js and `just`, with the local CLI/TUI and desktop package dependencies in its environment.
+It is the supported Nix development shell; `/check` remains the required correctness gate and must still run both the Rust and Bun/TypeScript halves.
+
+Useful commands after entering the shell:
+
+```bash
+just build          # incremental CLI + TUI build
+just build-desktop  # native Tauri desktop build
+just nix-build      # hermetic .#outl + .#outl-desktop package build
+nix fmt             # format Nix files through the flake formatter
+nix flake check --no-build
+```
+
+The tracked `devenv.*` files are auxiliary and are not the source of truth for the repository's Nix package/devshell contract.
+Keep the flake devshell, `docs/nix.md` and this section aligned if that contract changes.
+
+### Flake outputs
+
+The flake builds Linux packages for `x86_64-linux` and `aarch64-linux` only.
+There is no Nix-built macOS package; the home-manager module still manages macOS configuration, while the binary must come from another installation path.
+
+There are two package families:
+
+- `.#outl`, `.#outl-desktop` and `.#default` build the pinned `upstream` input and are stock release outputs.
+- `.#outl-dev` and `.#outl-desktop-dev` build the checked-out branch, including local changes.
+
+On `dev` or `experimental`, use `nix develop` / `nix build .#outl-dev` when validating the branch itself.
+The upstream source repository at `github:outlmd/outl` does not provide this Nix layer.
+For a remote overlay branch, pin the fork ref explicitly, for example `nix develop github:frigidplatypus/outl/dev` or `nix develop github:frigidplatypus/outl/experimental`.
+Do not use a stock `.#outl` build to validate changes in the fork branch.
+
+The flake advertises the outl Cachix substituter, but Nix only uses it when `accept-flake-config = true` or the substituter and public key are configured explicitly.
+A cache miss is a source build, not a correctness failure.
+
+### Home-manager and maintenance
+
+`homeManagerModules.default` exports `programs.outl` from `hm-module.nix`.
+It owns the generated `~/.config/outl/config.toml`, optionally installs the Linux packages and desktop launcher, and can run `outl serve` as a user systemd sync service.
+Use one `programs.outl.settings = { ... };` attribute set, not scattered dotted assignments.
+The module defaults `managed = true`; do not hand-edit or let a client rewrite its generated config symlink.
+Pin `workspace.last` declaratively when a managed desktop should reopen a fixed workspace.
+Use `loginctl enable-linger <user>` for a dedicated always-on user service.
+
+Update the pinned upstream input with `nix flake lock --update-input upstream` and commit `flake.lock`.
+When frontend sources change, rebuild the affected fixed-output frontend (`.#outl-desktop-frontend` or `.#outl-desktop-frontend-dev`) and update only that side's `outputHash` from the reported `got: sha256-...` value.
+Never copy the stock and dev frontend hashes between each other.
 
 ## Shared logic: `outl-actions`
 
