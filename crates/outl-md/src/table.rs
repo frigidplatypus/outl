@@ -44,6 +44,19 @@
 //! into one block per line, which is the loss this module exists to
 //! prevent. Cells may be ragged; [`parse_table_block`] pads short rows and
 //! truncates long ones to the header's column count.
+//!
+//! ## Mid-block and nested tables (render time)
+//!
+//! [`table_run_len`] is a second, indent-agnostic recognizer for renderers.
+//! The parser only collapses a *standalone* column-0 table into its own
+//! node; a table that sits *inside* another block — under a parent bullet,
+//! or between prose lines — arrives as that block's continuation text, so
+//! its rows are already unindented. A renderer walks the block's lines,
+//! asks [`table_run_len`] where each table run starts and how long it is,
+//! and draws that run with [`parse_table_block`], leaving the surrounding
+//! lines as ordinary prose. Recognition stays one owner: the collapse and
+//! the render-time run share [`is_table_row`] / [`is_delimiter_row`] and the
+//! same header-plus-delimiter-plus-data triad.
 
 use crate::parse::OutlineNode;
 
@@ -82,7 +95,7 @@ fn leading_indent(line: &str) -> usize {
 }
 
 /// A row of a pipe table: non-empty once trimmed, and carrying a `|`.
-pub(crate) fn is_table_row(line: &str) -> bool {
+pub fn is_table_row(line: &str) -> bool {
     let t = line.trim();
     !t.is_empty() && t.contains('|')
 }
@@ -101,7 +114,7 @@ fn is_delimiter_cell(cell: &str) -> bool {
 /// with a `|` somewhere in the line. The check is strict on cells: once a
 /// leading and trailing pipe are stripped, every remaining cell must be a
 /// delimiter cell, so a header row (`|a|b|`) never reads as a delimiter.
-pub(crate) fn is_delimiter_row(line: &str) -> bool {
+pub fn is_delimiter_row(line: &str) -> bool {
     let t = line.trim();
     if !t.contains('|') {
         return false;
@@ -202,6 +215,41 @@ pub(crate) fn consume_table_block(lines: &[&str], i: &mut usize) -> Option<Strin
         .join("\n");
     *i = end;
     Some(text)
+}
+
+/// Length of the pipe table starting at `lines[start]`, or `None` if no
+/// table starts there.
+///
+/// A table starts at `start` when `lines[start]` is a header row (a row
+/// that is not a delimiter), `lines[start + 1]` is a delimiter row, and at
+/// least one data row follows; the run absorbs every immediately following
+/// row that is itself a table row. Unlike `looks_like_table_start` this
+/// reads no column-0 assumption — the caller has already trimmed the
+/// block's stored text, so the rows arrive unindented regardless of the
+/// depth the table sits at. The TUI uses it to find a table run *inside* a
+/// block (mid-prose, or nested under a bullet) where the whole block is not
+/// a pure table and [`parse_table_block`] would refuse it.
+///
+/// The run is the same triad-gated shape [`parse_table_block`] expects, so
+/// `&lines[start..start + len]` joined by `\n` always parses.
+pub fn table_run_len(lines: &[&str], start: usize) -> Option<usize> {
+    let header = *lines.get(start)?;
+    if !is_table_row(header) || is_delimiter_row(header) {
+        return None;
+    }
+    let delim = *lines.get(start + 1)?;
+    if !is_delimiter_row(delim) {
+        return None;
+    }
+    let mut end = start + 2;
+    while lines.get(end).is_some_and(|line| is_table_row(line)) {
+        end += 1;
+    }
+    // Header + delimiter is not yet a table: it needs one data row.
+    if end < start + 3 {
+        return None;
+    }
+    Some(end - start)
 }
 
 /// Recover the column grid from a block's stored `text`.
@@ -364,5 +412,48 @@ mod tests {
             "prose is not a table"
         );
         assert_eq!(j, 0, "a rejected line is left for the caller");
+    }
+
+    #[test]
+    fn run_len_spans_a_whole_table_and_stops_at_prose() {
+        let lines = ["intro", "| a | b |", "|---|---|", "| 1 | 2 |", "outro"];
+        assert_eq!(
+            table_run_len(&lines, 0),
+            None,
+            "prose does not open a table"
+        );
+        assert_eq!(
+            table_run_len(&lines, 1),
+            Some(3),
+            "header + delimiter + one data row"
+        );
+        assert_eq!(table_run_len(&lines, 4), None, "trailing prose");
+    }
+
+    #[test]
+    fn run_len_absorbs_consecutive_data_rows() {
+        let lines = ["| a |", "|---|", "| 1 |", "| 2 |", "| 3 |"];
+        assert_eq!(table_run_len(&lines, 0), Some(5));
+    }
+
+    #[test]
+    fn run_len_needs_a_data_row_after_the_delimiter() {
+        // Header + delimiter alone is not a table.
+        assert_eq!(table_run_len(&["| a |", "|---|"], 0), None);
+    }
+
+    #[test]
+    fn run_len_is_indent_agnostic() {
+        // A nested table's lines are already stored unindented (the
+        // continuation path trims each row), so depth never shows here.
+        let lines = ["parent", "| a |", "|---|", "| 1 |"];
+        assert_eq!(table_run_len(&lines, 1), Some(3));
+    }
+
+    #[test]
+    fn run_len_rejects_a_pipe_in_prose() {
+        // A paragraph line that merely carries a `|` is not a table header
+        // unless a delimiter row follows it — the triad gate.
+        assert_eq!(table_run_len(&["a | b", "c | d", "e"], 0), None);
     }
 }

@@ -311,6 +311,20 @@ in
               default = false;
               description = "Capture mouse events in TUI (disables terminal text selection).";
             };
+
+            tableStyle = lib.mkOption {
+              type = lib.types.enum [
+                "open"
+                "box"
+              ];
+              default = "open";
+              description = ''
+                How the TUI frames a standalone pipe table. "open" is the
+                header + rule + rows grid with no frame; "box" wraps it in a
+                top border, side walls and a bottom border. A table nested
+                inside prose always uses the open style.
+              '';
+            };
           };
 
           backup = {
@@ -426,6 +440,7 @@ in
           tui = {
             icons = s.tui.icons;
             mouse_capture = s.tui.mouseCapture;
+            table_style = s.tui.tableStyle;
           };
 
           backup = {

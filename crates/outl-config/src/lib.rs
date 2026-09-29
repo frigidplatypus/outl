@@ -74,7 +74,7 @@ pub use schema::{
     AssetsCfg, BacklinksOrder, BackupCfg, CalendarCfg, Config, DisplayCfg, EditorCfg, RemindersCfg,
     SnapshotCfg, StorageCfg, SyncConfig, SyncTransportKind, ThemeCfg, ThemeMode, WorkspaceCfg,
 };
-pub use tui::{TuiCfg, TuiIconStyle};
+pub use tui::{TableStyle, TuiCfg, TuiIconStyle};
 
 use std::fs;
 use std::path::{Path, PathBuf};

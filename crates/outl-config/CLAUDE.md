@@ -93,6 +93,7 @@ relay_url = ""                    # optional; empty = outl's default relay (use1
 [tui]
 icons = "emoji"                  # "emoji" (default) | "nerd-font"
 mouse_capture = false             # opt-in: enables mouse wheel + click + drag-to-copy in the TUI
+table_style = "open"              # "open" (default, no frame) | "box" (full border around a standalone table)
 
 [display]
 backlinks_order = "newest"        # "newest" (default) | "oldest" — direction of the backlinks list
@@ -119,6 +120,7 @@ It exists for environments where the OS clock lies about the zone — containers
 `SyncConfig::relay_url()` treats an empty string as `None`, which the iroh transport resolves to outl's default relay (`use1-1.relay.avelino.outl.iroh.link`; see [`docs/relay.md`](../../docs/relay.md)).
 `TuiCfg::mouse_capture` (default `false`) is read by the TUI at boot in `runtime.rs` to decide whether to call `EnableMouseCapture` and listen for `Event::Mouse`; the desktop ignores this section entirely.
 `TuiCfg::icons` (default `emoji`) is read by the TUI at boot in `runtime.rs`; `nerd-font` is an explicit opt-in for terminals with a Nerd Font installed.
+`TuiCfg::table_style` is a [`TableStyle`] enum (`Open` | `Box`, serde `lowercase`, default `Open`). It decides how the TUI frames a **standalone** pipe table in the pretty view: `Open` is the header + rule + rows grid with no enclosing frame, `Box` wraps it in a top border, side walls and a bottom border. A mid-prose / nested table always uses the open style regardless of this flag. Read once at boot in `runtime.rs` (mirrors `mouse_capture`'s wiring — stored as a `bool` on `App`, no runtime toggle, never an `Op`); the desktop ignores the section.
 `DisplayCfg::backlinks_order` is a [`BacklinksOrder`] enum (`Newest` | `Oldest`, serde `lowercase`, default `Newest`) — a pure display preference, same "never converges between devices" policy as `theme.preset` (root `CLAUDE.md` invariant #7).
 `ThemeCfg` (RFC 0022) models a light/dark preset *pair*, not a single preset.
 `preset` is the light side, `preset_dark: Option<String>` is the dark side, and `mode` is a [`ThemeMode`] enum (`Light` | `Dark` | `Auto`, serde `lowercase`, default `Auto`).
@@ -173,6 +175,7 @@ If the field **must converge between devices**, it doesn't belong in TOML at all
 | `sync.transport` / `sync.relay_url` | TUI peer-sync wiring | `crates/outl-tui/src/actions/lifecycle/peer_sync.rs::wire_sync_transport` (config-driven; replaces the `OUTL_IROH=1` env gate) |
 | `tui.icons` | TUI chrome icon set | `crates/outl-tui/src/runtime.rs` |
 | `tui.mouse_capture` | TUI only | `crates/outl-tui/src/runtime.rs` (conditionally emits `EnableMouseCapture` and arms the `Event::Mouse` branch) |
+| `tui.table_style` | TUI only | `crates/outl-tui/src/runtime.rs` (read at boot, set on `App::box_tables`; consumed by `view::table::emit_table_lines`) |
 | `display.backlinks_order` | TUI at boot (`runtime.rs`, applied post-construction); GUI clients on every `build_page_view` call | `crates/outl-tui/src/runtime.rs`, `crates/outl-tauri-shared/src/helpers.rs::build_page_view` (desktop + mobile share this reader) |
 | `assets.max_bytes` | Every file-import path: CLI `outl asset add`, MCP `outl_asset_add`, desktop/mobile "Attach file" + drag-drop, TUI `/upload` + paste-a-path | `crates/outl-cli/src/cmd/asset.rs`, `crates/outl-tauri-shared/src/commands/asset.rs`, `crates/outl-tui/src/commands/builtins/asset.rs` + `crates/outl-tui/src/actions/paste.rs` (all route through `outl_actions::asset::import_asset(root, source, max_bytes)`) |
 

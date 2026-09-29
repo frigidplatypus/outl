@@ -154,6 +154,7 @@ The generated `config.toml` keys are `snake_case`; the Nix option names are `cam
 | `storage.lruCap` | int | `20000` | `[storage] lru_cap` · max ops held in memory. `0` = unbounded. |
 | `tui.icons` | `"emoji"` \| `"nerd-font"` | `"emoji"` | `[tui] icons` · TUI chrome icon set; `nerd-font` needs a patched font installed. |
 | `tui.mouseCapture` | bool | `false` | `[tui] mouse_capture` · capture mouse in the TUI (disables terminal text selection). |
+| `tui.tableStyle` | `"open"` \| `"box"` | `"open"` | `[tui] table_style` · frame for a standalone pipe table; `box` adds top/bottom borders and side walls. |
 | `backup.enabled` | bool | `true` | `[backup] enabled` · automatic git snapshots of the workspace. |
 | `backup.intervalMinutes` | int | `30` | `[backup] interval_minutes` · minimum minutes between automatic snapshots. |
 | `extraConfig` | attrs | `{}` | Deep-merged **last**, for keys the module has not modelled yet. Write its keys in `snake_case`, matching `config.toml`. |

@@ -27,7 +27,9 @@ Treat matching with the same paranoia as the CRDT.
   `parse_table_block(text) → Option<Table>` (with `alignments`, `header`, `rows`) recovers the grid **at render time** from a block that is a pure table; anything else (prose, a fence, a table glued to a bullet, an indented table) is `None` and renders as ordinary content.
   Storage is byte-verbatim — alignment is never written back (invariant 8).
   Ragged rows are padded/truncated to the header's width rather than refused.
-  Scope is top-level tables only; mid-block tables are a future second caller, not this PR.
+  **Collapse scope is top-level (column-0) tables only** — a mid-block or indented table is never given its own node.
+  `table_run_len(lines, start) → Option<usize>` is a second, indent-agnostic recognizer for *renderers*: it finds a table run *inside* a block's stored (already-unindented) lines so a client can project a grid over it without collapsing it (the TUI's mid-prose / nested-table draw).
+  Recognition stays one owner — the collapse and the render-time run share `is_table_row` / `is_delimiter_row` and the same header + delimiter + data triad.
   Per-client draw is `outl_shortcuts::Capability::MarkdownTable` (TUI `Full`, GUI clients `Missing`).
 - Render outline AST → `.md` (clean, no IDs).
   Each line in `OutlineNode.text` after the first is emitted at `indent + 1`; the renderer **does not invent** prefixes on continuation lines — whatever the user (or the parser) put in `text` round-trips as-is.
@@ -294,7 +296,7 @@ src/
 ├── ast.rs          # OutlineNode, ParsedPage, ParseWarning(Kind) — re-exported by parse
 ├── property.rs     # `key:: value` line + the page-property header run (private mod)
 ├── fence.rs        # fenced code: literal capture while the outline grammar is suspended
-├── table.rs        # pipe tables: collapse a top-level table to one block + recover its column grid
+├── table.rs        # pipe tables: collapse a top-level table to one block + recover its grid + find a render-time run inside a block
 ├── render.rs       # AST → md (clean)
 ├── sidecar.rs      # read/write .outl JSON, derive_ref_handle, content_hash
 ├── matching.rs     # 3-level matching algorithm
