@@ -290,6 +290,27 @@ pub(crate) fn emit_block_lines(
         mode,
         RenderMode::Pretty { .. } | RenderMode::Transformed { .. }
     );
+    // A block that `outl_md` collapsed into one pipe table renders as an
+    // aligned grid (RFC 0329). Only a plain pretty-rendered block takes
+    // this path — a selected / edited table keeps its raw source so the
+    // cursor columns stay byte-aligned, and embeds / transforms keep
+    // their decoration.
+    if let RenderMode::Pretty { text } = mode {
+        if let Some(table) = outl_md::parse_table_block(text) {
+            crate::view::table::emit_table_lines(
+                indent,
+                bullet_style,
+                has_auto_run,
+                fold,
+                &table,
+                &app.theme,
+                &app.icons,
+                out,
+                text_width,
+            );
+            return;
+        }
+    }
     let rows = block_to_rows(text, indent, cursor_char);
 
     // TODO/DONE checkbox decoration only fits on single-line bullets

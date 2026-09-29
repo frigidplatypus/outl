@@ -181,6 +181,19 @@ fn parse_block_list(
             if indent != 0 {
                 return blocks;
             }
+            // A top-level pipe table is one block, not one per line. The
+            // helper advances `i` itself; on `None` it leaves it untouched
+            // and the verbatim recovery below runs unchanged. See
+            // `crate::table` for why a whole table is a single node and
+            // why the collapse is a fixpoint.
+            if let Some(text) = crate::table::consume_table_block(lines, i) {
+                blocks.push(OutlineNode {
+                    text,
+                    properties: Vec::new(),
+                    children: Vec::new(),
+                });
+                continue;
+            }
             warnings.push(ParseWarning {
                 line: *i + 1,
                 raw: raw.to_string(),

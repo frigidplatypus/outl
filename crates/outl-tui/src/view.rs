@@ -24,6 +24,7 @@ pub(crate) mod overlays;
 mod properties;
 pub(crate) mod row_chrome;
 mod sidebar;
+mod table;
 mod toasts;
 mod warnings_banner;
 mod wrap;

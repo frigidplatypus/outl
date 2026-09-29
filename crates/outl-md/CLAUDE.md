@@ -22,6 +22,13 @@ Treat matching with the same paranoia as the CRDT.
   **What the parser preserves (blank lines, own indentation, a leading newline, both fence characters, a BOM), and the four shapes that are known-unfixed on purpose: [`docs/markdown-format.md`](../../docs/markdown-format.md#what-the-parser-preserves-and-what-it-still-gets-wrong).**
   Getting any of them wrong is the issue #210 producer, measured at 41 pages / 387 lines on a real workspace and 0 after the fix.
 
+- **Pipe tables** (`table.rs`) — recognition + the column model, not a GFM engine.
+  `looks_like_table_start` / `consume_table_block` collapse a top-level (column-0) pipe table into **one** `OutlineNode` whose `text` is the rows `\n`-joined — reusing the continuation path, so the collapse is a fixpoint and no `UnrecognizedBlockMarker` is raised (a table is recognised syntax, not a placed-failed line).
+  `parse_table_block(text) → Option<Table>` (with `alignments`, `header`, `rows`) recovers the grid **at render time** from a block that is a pure table; anything else (prose, a fence, a table glued to a bullet, an indented table) is `None` and renders as ordinary content.
+  Storage is byte-verbatim — alignment is never written back (invariant 8).
+  Ragged rows are padded/truncated to the header's width rather than refused.
+  Scope is top-level tables only; mid-block tables are a future second caller, not this PR.
+  Per-client draw is `outl_shortcuts::Capability::MarkdownTable` (TUI `Full`, GUI clients `Missing`).
 - Render outline AST → `.md` (clean, no IDs).
   Each line in `OutlineNode.text` after the first is emitted at `indent + 1`; the renderer **does not invent** prefixes on continuation lines — whatever the user (or the parser) put in `text` round-trips as-is.
   Block-kind markers (`TODO `, `DOING `, `DONE `, `> `) are owned by `outl-actions` (`todo.rs`, `quote.rs`); this crate only preserves them verbatim, which is why `DOING ` needed no parser change.
@@ -287,6 +294,7 @@ src/
 ├── ast.rs          # OutlineNode, ParsedPage, ParseWarning(Kind) — re-exported by parse
 ├── property.rs     # `key:: value` line + the page-property header run (private mod)
 ├── fence.rs        # fenced code: literal capture while the outline grammar is suspended
+├── table.rs        # pipe tables: collapse a top-level table to one block + recover its column grid
 ├── render.rs       # AST → md (clean)
 ├── sidecar.rs      # read/write .outl JSON, derive_ref_handle, content_hash
 ├── matching.rs     # 3-level matching algorithm

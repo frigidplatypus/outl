@@ -7,14 +7,14 @@ The flake builds the **stock upstream release** by default, so it is a reproduci
 ## Try it
 
 ```console
-nix run github:frigidplatypus/outl            # outl CLI/TUI/MCP (default output)
-nix run github:frigidplatypus/outl#outl-desktop
+nix run github:outlmd/outl            # outl CLI/TUI/MCP (default output)
+nix run github:outlmd/outl#outl-desktop
 ```
 
 ## As a flake input
 
 ```nix
-inputs.outl.url = "github:frigidplatypus/outl";
+inputs.outl.url = "github:outlmd/outl";
 
 # ...
 environment.systemPackages = [ inputs.outl.packages.${system}.outl ];
@@ -22,7 +22,20 @@ environment.systemPackages = [ inputs.outl.packages.${system}.outl ];
 ```
 
 The default outputs (`outl`, `outl-desktop`, `default`) build the pinned `upstream` input, so they are stock outl no matter which branch this flake is read from.
-The `-dev` outputs (`outl-dev`, `outl-desktop-dev`) build *this branch's tree* — reach for them only when the input points at the `dev` ref and you want local changes.
+The `-dev` outputs (`outl-dev`, `outl-desktop-dev`) build *this branch's tree* — use them for local changes on `dev`, `experimental`, or another development ref.
+
+## Development shell
+
+The repository's reproducible development environment is the flake devshell, not the package outputs:
+
+```console
+nix develop                         # current checkout
+nix develop github:outlmd/outl/dev
+nix develop github:outlmd/outl/experimental
+```
+
+It supplies the Rust toolchain from `rust-toolchain.toml`, `cargo-tauri`, Bun, Node.js and `just`.
+The local fast loop is `just build` / `just build-desktop`; `just nix-build` performs the hermetic package build.
 
 ## Binary cache
 
@@ -43,7 +56,7 @@ The cache holds whatever has been pushed to it — it is populated as releases a
 ## Home-manager module
 
 ```nix
-inputs.outl.url = "github:frigidplatypus/outl";
+inputs.outl.url = "github:outlmd/outl";
 
 homeConfigurations.me = nixpkgs.lib.homeManagerConfiguration {
   pkgs = nixpkgs.legacyPackages.x86_64-linux;

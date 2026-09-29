@@ -37,6 +37,7 @@ mod shortcode;
 pub mod sidecar;
 mod similarity;
 pub mod slug;
+pub mod table;
 pub mod tag;
 mod token;
 pub mod unlogged;
@@ -67,6 +68,7 @@ pub use sidecar::{
     content_hash, file_hash, resolve_sidecar_path, sidecar_path_for, Sidecar, SidecarBlock,
 };
 pub use slug::{slugify, UNTITLED_SLUG};
+pub use table::{parse_table_block, table_from_node, Align, Table};
 pub use tag::{text_contains_tag, text_contains_tag_or_child};
 pub use unlogged::content_lines_missing_from;
 pub use view::{block_to_rows, char_to_line_col, BlockRow, BlockRowKind};
