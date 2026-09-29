@@ -127,6 +127,7 @@ A few of the keys:
 | `sync.transport` | enum | `"iroh"` | `"iroh"` (P2P QUIC) or `"file"` (iCloud / shared FS). |
 | `reminders.quietHours` | str? | `null` | e.g. `"22:00-07:00"`. |
 | `backup.enabled` / `backup.intervalMinutes` | bool / int | `true` / `30` | Automatic git snapshots of the workspace. |
+| `tui.icons` | enum | `"emoji"` | TUI chrome icons: `"emoji"` (works with any terminal font) or `"nerd-font"` (needs a patched font). |
 | `extraConfig` | attrs | `{}` | Merged last, for keys the module does not model yet. |
 
 The full key list is in the module source ([`hm-module.nix`](../hm-module.nix)); the meaning of each key is in [Configuration](config.md).
