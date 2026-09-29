@@ -292,6 +292,20 @@ in
           };
 
           tui = {
+            icons = lib.mkOption {
+              type = lib.types.enum [
+                "emoji"
+                "nerd-font"
+              ];
+              default = "emoji";
+              description = ''
+                Chrome icon set for the TUI. "emoji" (default) uses unicode
+                glyphs that work with ordinary terminal fonts; "nerd-font" opts
+                into compact Font Awesome / Material Design Nerd Font glyphs and
+                needs a patched font installed or those cells render as tofu.
+              '';
+            };
+
             mouseCapture = lib.mkOption {
               type = lib.types.bool;
               default = false;
@@ -410,6 +424,7 @@ in
           };
 
           tui = {
+            icons = s.tui.icons;
             mouse_capture = s.tui.mouseCapture;
           };
 

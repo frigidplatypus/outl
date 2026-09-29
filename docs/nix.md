@@ -152,11 +152,11 @@ The generated `config.toml` keys are `snake_case`; the Nix option names are `cam
 | `snapshot.enabled` | bool | `true` | `[snapshot] enabled` · materialized-state snapshots for faster boot. |
 | `snapshot.opThreshold` | int | `10000` | `[snapshot] op_threshold` · ops between snapshot writes. |
 | `storage.lruCap` | int | `20000` | `[storage] lru_cap` · max ops held in memory. `0` = unbounded. |
+| `tui.icons` | `"emoji"` \| `"nerd-font"` | `"emoji"` | `[tui] icons` · TUI chrome icon set; `nerd-font` needs a patched font installed. |
 | `tui.mouseCapture` | bool | `false` | `[tui] mouse_capture` · capture mouse in the TUI (disables terminal text selection). |
 | `backup.enabled` | bool | `true` | `[backup] enabled` · automatic git snapshots of the workspace. |
 | `backup.intervalMinutes` | int | `30` | `[backup] interval_minutes` · minimum minutes between automatic snapshots. |
 | `extraConfig` | attrs | `{}` | Deep-merged **last**, for keys the module has not modelled yet. Write its keys in `snake_case`, matching `config.toml`. |
-| `extraConfig.tui.icons` | str | `"emoji"` | TUI icon style: `"emoji"` or `"nerd-font"`. |
 
 Every option carries a `description` home-manager renders as documentation, so `nix-option-lookup`/the generated manpage is authoritative.
 The source is [`hm-module.nix`](../hm-module.nix); the meaning of each key is in [Configuration](config.md).
