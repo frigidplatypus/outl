@@ -91,6 +91,9 @@ impl App {
             // Product default; the runtime overrides it from
             // `[display] backlinks_order` right after construction.
             backlinks_newest_first: true,
+            // Product default (open grid); the runtime overrides it from
+            // `[tui] table_style` right after construction.
+            box_tables: false,
             show_sidebar: false,
             sidebar_focus: None,
             sidebar_cursor: 0,

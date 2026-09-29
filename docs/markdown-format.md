@@ -280,6 +280,12 @@ The collapse is a **fixpoint** because it reuses the continuation path: the firs
 A table glued to a bullet (`- | a | b |`), a table nested under a block, or a prose paragraph whose second line happens to contain a `|` is **not** a table for these purposes — it stays ordinary block text (the second case is recovered permissively, exactly as before), so recognition is conservative and never hijacks a paragraph.
 Cells may be ragged: a short row is padded and a long one truncated to the header's column count, so a malformed-but-recognised table survives rather than being refused and split back into one block per line.
 
+**A table inside a block is still ordinary block text — but the TUI draws its rows as a grid.**
+Not collapsed into its own block, no id, no fold: a table sitting mid-prose or under a parent bullet stays the block's continuation text, exactly as above.
+At draw time, though, `outl_md::table_run_len` finds the table run among those lines and the TUI projects a grid over it, leaving the surrounding prose as prose.
+So a table at column 0 and a table buried in a block look the same on screen, and differ only in storage (whether the collapse made it one block).
+The one shape that stays literal is a table sharing a *single line* with other text (`prose | a | b | tail`) — there is no row axis inside one inline span.
+
 The grid is owned by [`outl_md::table`] (`parse_table_block` → `Table { alignments, header, rows }`); the outline grammar calls it in the depth-0 arm of `parse`, and each client decides whether to draw it.
 
 ```
@@ -290,6 +296,7 @@ The grid is owned by [`outl_md::table`] (`parse_table_block` → `Table { alignm
 ```
 
 Per-client coverage is recorded as [`Capability::MarkdownTable`](client-parity.md) (`Full` on the TUI, `Missing` on the two GUI clients until they grow a table renderer).
+The TUI additionally frames a **standalone** table when `[tui] table_style = "box"` (default `open`): a top border, a `│` wall on each side of every row, and a bottom border, all in the dim colour. A table nested inside prose stays open regardless, so no wall lands on its parent's text. See [config.md → `[tui]`](config.md#tui).
 See [`outl_md::table`] for the recognition predicate and column model, and [RFC 0329](rfcs/0329-markdown-pipe-tables.md) for the parse/render split.
 
 [`outl_md::table`]: ../crates/outl-md/src/table.rs

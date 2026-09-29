@@ -30,10 +30,19 @@ use outl_md::{Align, Table};
 const COLUMN_RULE: &str = " │ ";
 
 /// Render `table` as a run of [`Line`]s appended to `out`, prefixed with
-/// the same `│ ` indent rails and `- ` bullet head the outline's other
-/// rows use. The first visual line carries the bullet head; the rule and
-/// every data line carry a blank continuation head so the columns stay
-/// flush under the header.
+/// the same `│ ` indent rails the outline's other rows use.
+///
+/// When `carries_bullet` the first visual line carries the block's bullet
+/// head (fold glyph, optional auto-run bolt, `- `); the rule and every data
+/// line carry a blank continuation head so the columns stay flush under the
+/// header. When it is `false` the grid sits *inside* a block whose bullet is
+/// on some earlier line (a mid-prose table), so its own first line takes a
+/// continuation head too and no fold glyph is drawn.
+///
+/// When `box_style` a **standalone** table (`carries_bullet`) is wrapped in
+/// a full frame: a top border row, a `│` wall on each side of every row, and
+/// a bottom border row. A mid-prose / nested table is left open regardless,
+/// because its side walls would land on the carrying block's indent rails.
 ///
 /// `text_width == 0` is the "don't size to the pane" sentinel (headless
 /// renders) — columns keep their natural width. Otherwise the widest
@@ -44,18 +53,27 @@ pub(crate) fn emit_table_lines(
     bullet_style: Style,
     has_auto_run: bool,
     fold: FoldMarker,
+    carries_bullet: bool,
     table: &Table,
     theme: &Theme,
     out: &mut Vec<Line<'static>>,
     text_width: u16,
+    box_style: bool,
 ) {
     let ncols = column_count(table);
     if ncols == 0 {
         return;
     }
 
+    // Only a standalone table is boxed: a mid-prose / nested run draws
+    // under the carrying block's content column, where a `│` wall would
+    // collide with its indent rails, so it keeps the open style.
+    let boxed = box_style && carries_bullet;
+
     let mut widths = column_widths(table, ncols);
-    let prefix_w = prefix_width(indent, has_auto_run);
+    // Two extra columns when boxed: the left and right walls. Fold them
+    // into the prefix so `fit_widths` shrinks the cells, not the frame.
+    let prefix_w = prefix_width(indent, has_auto_run) + usize::from(boxed) * 2;
     let available = if text_width == 0 {
         usize::MAX
     } else {
@@ -65,20 +83,89 @@ pub(crate) fn emit_table_lines(
 
     let guides: Vec<Span<'static>> =
         std::iter::repeat_n(Span::styled("│ ", theme.dim), indent as usize).collect();
-    let bullet_head = bullet_head(bullet_style, has_auto_run, fold, theme);
+    let first_head = if carries_bullet {
+        bullet_head(bullet_style, has_auto_run, fold, theme)
+    } else {
+        continuation_head(has_auto_run)
+    };
     let cont_head = continuation_head(has_auto_run);
 
+    if boxed {
+        out.push(push_row(
+            &guides,
+            &cont_head,
+            border_cells(&widths, "┌", "┬", "┐", theme),
+        ));
+    }
+
     let header = table_cells(&table.header, &widths, table, theme, theme.heading);
-    out.push(push_row(&guides, &bullet_head, header));
+    out.push(push_row(
+        &guides,
+        &first_head,
+        with_walls(boxed, header, theme),
+    ));
 
     let rule = rule_cells(&widths, table, theme);
-    out.push(push_row(&guides, &cont_head, rule));
+    out.push(push_row(
+        &guides,
+        &cont_head,
+        with_walls(boxed, rule, theme),
+    ));
 
     let body = Style::default().fg(theme.foreground);
     for row in &table.rows {
         let cells = table_cells(row, &widths, table, theme, body);
-        out.push(push_row(&guides, &cont_head, cells));
+        out.push(push_row(
+            &guides,
+            &cont_head,
+            with_walls(boxed, cells, theme),
+        ));
     }
+
+    if boxed {
+        out.push(push_row(
+            &guides,
+            &cont_head,
+            border_cells(&widths, "└", "┴", "┘", theme),
+        ));
+    }
+}
+
+/// Wrap a row's cell spans in a `│` wall on each side when `boxed`,
+/// returning them untouched for the open style.
+fn with_walls(boxed: bool, cells: Vec<Span<'static>>, theme: &Theme) -> Vec<Span<'static>> {
+    if !boxed {
+        return cells;
+    }
+    let mut spans = Vec::with_capacity(cells.len() + 2);
+    spans.push(Span::styled("│", theme.dim));
+    spans.extend(cells);
+    spans.push(Span::styled("│", theme.dim));
+    spans
+}
+
+/// Border / divider row spanning the same columns as the data rows: `left`
+/// corner, a `─` run per column, a `mid` tee joining them across the gutter,
+/// and a `right` corner. The connector is three cells wide (`─X─`) to match
+/// the ` │ ` gutter, so the border aligns glyph-for-glyph with the `│` rules
+/// above / below it.
+fn border_cells(
+    widths: &[usize],
+    left: &str,
+    mid: &str,
+    right: &str,
+    theme: &Theme,
+) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    spans.push(Span::styled(left.to_string(), theme.dim));
+    for (i, &w) in widths.iter().enumerate() {
+        spans.push(Span::styled("─".repeat(w), theme.dim));
+        if i + 1 < widths.len() {
+            spans.push(Span::styled(format!("─{mid}─"), theme.dim));
+        }
+    }
+    spans.push(Span::styled(right.to_string(), theme.dim));
+    spans
 }
 
 /// Column count: the header's width, but never fewer than the widest data
@@ -293,16 +380,22 @@ mod tests {
     const SIMPLE: &str = "| Name | Qty | Price |\n|:---|---:|:---:|\n| Apple | 3 | 1.50 |";
 
     fn render(table: &Table, width: u16) -> Vec<Line<'static>> {
+        render_styled(table, width, false)
+    }
+
+    fn render_styled(table: &Table, width: u16, box_style: bool) -> Vec<Line<'static>> {
         let mut out = Vec::new();
         emit_table_lines(
             0,
             theme().bullet,
             false,
             FoldMarker::None,
+            true,
             table,
             &theme(),
             &mut out,
             width,
+            box_style,
         );
         out
     }
@@ -385,10 +478,12 @@ mod tests {
             theme().bullet,
             true,
             FoldMarker::Collapsed,
+            true,
             &parse(SIMPLE),
             &theme(),
             &mut out,
             0,
+            false,
         );
         // Bullet line opens with the rail, the fold glyph and a bolt; the
         // continuation line pads the same total width, so both share it.
@@ -396,6 +491,53 @@ mod tests {
         let bullet = line_text(&out[0]);
         assert!(bullet.starts_with("│ "), "indent rail missing: {bullet:?}");
         assert!(bullet.contains("▶ "), "fold glyph missing: {bullet:?}");
+    }
+
+    #[test]
+    fn a_boxed_standalone_table_frames_top_and_bottom() {
+        let lines = render_styled(&parse(SIMPLE), 0, true);
+        // open grid is 3 lines; the box adds a top border and a bottom one.
+        assert_eq!(
+            lines.len(),
+            2 + 3,
+            "top border + header + rule + data + bottom"
+        );
+        let top = line_text(&lines[0]);
+        let bottom = line_text(&lines[lines.len() - 1]);
+        assert!(
+            top.contains('┌') && top.contains('┬') && top.contains('┐'),
+            "top: {top:?}"
+        );
+        assert!(
+            bottom.contains('└') && bottom.contains('┴') && bottom.contains('┘'),
+            "bottom: {bottom:?}"
+        );
+        // Header, rule and data rows now carry a side wall on each end.
+        for row in &lines[1..lines.len() - 1] {
+            let body = line_text(row);
+            assert!(body.contains('│'), "row wall missing: {body:?}");
+        }
+    }
+
+    #[test]
+    fn a_boxed_grid_shares_one_display_width_across_every_row() {
+        let lines = render_styled(&parse(SIMPLE), 0, true);
+        let w = line_width(&lines[0]);
+        assert!(
+            lines.iter().all(|l| line_width(l) == w),
+            "box rows differ: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn the_box_border_aligns_with_the_column_rules() {
+        // The `┬` / `┴` tees sit exactly where the interior `│` rules do, so
+        // the border is not a separate width — the tee count equals the
+        // number of interior gutters (ncols - 1).
+        let lines = render_styled(&parse(SIMPLE), 0, true);
+        let top = line_text(&lines[0]);
+        let tees = top.chars().filter(|c| *c == '┬').count();
+        assert_eq!(tees, 2, "three columns → two interior tees: {top:?}");
     }
 
     // The grid only reaches the outline through `emit_block_lines`; these
@@ -468,5 +610,124 @@ mod tests {
             out.iter().any(|l| line_text(l).contains('|')),
             "raw pipes kept under cursor"
         );
+    }
+
+    const MID_PROSE: &str = "intro\n| Name | Qty |\n|:--|--:|\n| Apple | 3 |\noutro";
+
+    /// A table sitting *inside* a block renders as a grid wedged between its
+    /// prose lines, not one block of raw pipes and not a hijacked paragraph.
+    #[test]
+    fn a_mid_prose_table_renders_as_a_grid_between_its_prose() {
+        let (app, _d) = app();
+        let out = via_outline(
+            &app,
+            RenderMode::Pretty {
+                text: MID_PROSE.into(),
+            },
+        );
+        // intro row + header + rule + data + outro row.
+        assert_eq!(out.len(), 5, "prose + 3 grid rows + prose: {out:?}");
+        assert!(line_text(&out[0]).contains("intro"), "leading prose kept");
+        assert!(
+            !line_text(&out[0]).contains('|'),
+            "leading prose is not raw"
+        );
+        assert!(line_text(&out[1]).contains("Name"), "grid header");
+        assert!(line_text(&out[2]).contains('-'), "grid rule");
+        assert!(line_text(&out[3]).contains("Apple"), "grid data");
+        assert!(line_text(&out[4]).contains("outro"), "trailing prose kept");
+        for line in &out[1..=3] {
+            assert!(!line_text(line).contains('|'), "grid has no raw pipes");
+        }
+    }
+
+    /// The grid drawn for a mid-block run must not re-draw the block's
+    /// bullet — the bullet belongs to the block's first line, which here is
+    /// the prose. The grid header takes a continuation head instead.
+    #[test]
+    fn a_mid_prose_grid_carries_no_bullet() {
+        let (app, _d) = app();
+        let out = via_outline(
+            &app,
+            RenderMode::Pretty {
+                text: MID_PROSE.into(),
+            },
+        );
+        let header_row = line_text(&out[1]);
+        assert!(
+            !header_row.contains("- "),
+            "grid header must not carry a bullet: {header_row:?}"
+        );
+    }
+
+    /// A mid-block grid nested under a parent draws the indent rails once,
+    /// aligned to the parent's content column — never a second set stacked
+    /// on top of the block's own rails.
+    #[test]
+    fn a_nested_mid_prose_grid_draws_the_parents_rails() {
+        let (app, _d) = app();
+        let mut out = Vec::new();
+        emit_block_lines(
+            2,
+            app.theme.bullet,
+            &RenderMode::Pretty {
+                text: MID_PROSE.into(),
+            },
+            false,
+            FoldMarker::None,
+            &app,
+            &mut out,
+            0,
+        );
+        // The grid header (out[1]) opens with exactly two `│ ` rails.
+        let header_row = line_text(&out[1]);
+        assert!(
+            header_row.starts_with("│ │ "),
+            "expected two indent rails: {header_row:?}"
+        );
+        assert!(header_row.contains("Name"), "still the header row");
+    }
+
+    /// With `box_tables` on, a standalone table reaches the outline boxed:
+    /// two extra border rows around the open grid, corners present.
+    #[test]
+    fn a_standalone_table_reaches_the_outline_boxed_when_configured() {
+        let (mut app, _d) = app();
+        app.box_tables = true;
+        let out = via_outline(
+            &app,
+            RenderMode::Pretty {
+                text: SIMPLE.into(),
+            },
+        );
+        assert_eq!(out.len(), 2 + 3, "top border + grid + bottom border");
+        assert!(line_text(&out[0]).contains('┌'), "top border");
+        assert!(
+            line_text(&out[out.len() - 1]).contains('└'),
+            "bottom border"
+        );
+    }
+
+    /// `box_tables` never boxes a table sitting inside prose: the side walls
+    /// would land on the carrying block's content column, so the open grid
+    /// stays regardless of the flag.
+    #[test]
+    fn a_mid_prose_table_is_never_boxed() {
+        let (mut app, _d) = app();
+        app.box_tables = true;
+        let out = via_outline(
+            &app,
+            RenderMode::Pretty {
+                text: MID_PROSE.into(),
+            },
+        );
+        assert_eq!(out.len(), 5, "still prose + 3 grid rows + prose");
+        for line in &out {
+            let body = line_text(line);
+            assert!(
+                !body.contains('┌') && !body.contains('└') && !body.contains('┐'),
+                "mid-prose grid must stay open: {body:?}"
+            );
+        }
     }
 }

@@ -130,6 +130,10 @@ pub fn run_with_theme_override(path: &Path, theme_override: Option<&str>) -> Res
     // Backlinks list direction (issue #142). Read once at boot; the
     // `Ctrl+O` toggle persists changes back to `config.toml`.
     let backlinks_newest_first = global_cfg.display.backlinks_order.newest_first();
+    // Pipe-table frame (`[tui] table_style`). Read once at boot; no
+    // runtime toggle, so it goes straight to `App` post-construction
+    // like the backlinks direction. Only a standalone table boxes.
+    let box_tables = matches!(global_cfg.tui.table_style, outl_config::TableStyle::Box);
     // `shared_workspace` gates the peer-sync threads (iroh transport + the
     // filesystem poller). JsonlStorage is the ONLY persistent backend
     // (sqlite was removed in 0.5.0), so a workspace is shareable unless its
@@ -200,6 +204,7 @@ pub fn run_with_theme_override(path: &Path, theme_override: Option<&str>) -> Res
         theme,
         shared_workspace,
         backlinks_newest_first,
+        box_tables,
     );
 
     if enhanced_keys {
@@ -415,12 +420,14 @@ fn event_loop(
     theme: Theme,
     shared_workspace: bool,
     backlinks_newest_first: bool,
+    box_tables: bool,
 ) -> Result<()> {
     let mut app = App::new(workspace_root, workspace, actor, theme, shared_workspace)?;
     // Apply the persisted backlinks direction (issue #142); the field
     // only feeds the render path, so setting it post-construction is
     // enough and keeps it out of `App::new`'s already-long signature.
     app.backlinks_newest_first = backlinks_newest_first;
+    app.box_tables = box_tables;
     loop {
         // Pick up the background index build if it finished since the
         // last frame. Non-blocking; costs ~one channel try_recv.

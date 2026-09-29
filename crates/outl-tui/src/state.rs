@@ -744,6 +744,16 @@ pub(crate) struct App {
     /// preference — it never goes through the op log.
     pub(crate) backlinks_newest_first: bool,
 
+    /// Whether a **standalone** pipe table is drawn inside a full box
+    /// (top border, side walls, bottom border) rather than the open
+    /// header + rule + rows grid. Loaded from `[tui] table_style` at
+    /// boot (`runtime.rs`); `true` for `box`, `false` for `open`. A pure
+    /// display preference — it never goes through the op log. A table
+    /// sitting inside prose is always open regardless of this flag, so
+    /// the box's side walls never collide with the carrying block's
+    /// indent rails.
+    pub(crate) box_tables: bool,
+
     /// Whether the left sidebar (mini-calendar + pinned + recent) is
     /// visible. Default `false` so first-time users land on the
     /// classic single-pane layout — the toggle (`\`) opt-ins those who

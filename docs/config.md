@@ -190,6 +190,7 @@ See [theming.md](theming.md) for the look of each.
 | Field | Type | Default | Read by | Effect |
 |---|---|---|---|---|
 | `mouse_capture` | bool | `false` | TUI only | When `true`, the TUI captures mouse events: the scroll wheel moves the outline selection, a click selects the block under the pointer, and dragging selects a range that is copied as clean outl markdown to the OS clipboard on release. Default is `false` because capturing the mouse disables the terminal's own text-selection (Shift-drag). The keyboard yank (`yy` / `Y` / Visual `y`) always writes to the clipboard regardless of this flag. |
+| `table_style` | `"open"` \| `"box"` | `"open"` | TUI only | How a **standalone** pipe table is framed. `open` draws the header, alignment rule and rows with ` │ ` gutters and no frame. `box` wraps that same grid in a top border (`┌ ┬ ┐`), a left and right wall (`│`) on every row, and a bottom border (`└ ┴ ┘`). A table nested **inside** prose always uses the open style, so a wall never lands on the carrying block's content column. Read once at boot; not a runtime toggle and never an op. |
 
 #### `[display]`
 

@@ -153,6 +153,7 @@ The generated `config.toml` keys are `snake_case`; the Nix option names are `cam
 | `snapshot.opThreshold` | int | `10000` | `[snapshot] op_threshold` · ops between snapshot writes. |
 | `storage.lruCap` | int | `20000` | `[storage] lru_cap` · max ops held in memory. `0` = unbounded. |
 | `tui.mouseCapture` | bool | `false` | `[tui] mouse_capture` · capture mouse in the TUI (disables terminal text selection). |
+| `tui.tableStyle` | `"open"` \| `"box"` | `"open"` | `[tui] table_style` · frame for a standalone pipe table; `box` adds top/bottom borders and side walls. |
 | `backup.enabled` | bool | `true` | `[backup] enabled` · automatic git snapshots of the workspace. |
 | `backup.intervalMinutes` | int | `30` | `[backup] interval_minutes` · minimum minutes between automatic snapshots. |
 | `extraConfig` | attrs | `{}` | Deep-merged **last**, for keys the module has not modelled yet. Write its keys in `snake_case`, matching `config.toml`. |

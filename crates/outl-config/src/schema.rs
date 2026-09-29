@@ -167,6 +167,26 @@ pub struct DisplayCfg {
     pub window_decorations: bool,
 }
 
+/// How the TUI draws a pipe table in the pretty view (RFC 0329).
+///
+/// `lowercase` serde so the TOML reads `table_style = "open"` /
+/// `"box"` — the shape the user sees, not the Rust variant casing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TableStyle {
+    /// Header + alignment rule + data rows, columns ruled with a dim `│`
+    /// and no enclosing frame. The product default, and the only style
+    /// a mid-prose / nested table ever uses.
+    #[default]
+    Open,
+    /// The open grid wrapped in a full box — a top border, side walls on
+    /// every row, and a bottom border. Applied only to a **standalone**
+    /// table (the grid run is the whole block, at any indent level); a
+    /// table sitting inside prose keeps the open style so its side walls
+    /// never collide with the carrying block's indent rails.
+    Box,
+}
+
 /// TUI-only preferences (the desktop ignores this section).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -183,6 +203,13 @@ pub struct TuiCfg {
     /// selection. The keyboard yank (`yy` / `Y` / Visual `y`) copies
     /// markdown to the clipboard regardless of this flag.
     pub mouse_capture: bool,
+
+    /// How a standalone pipe table is framed in the pretty view. Read
+    /// once at boot in `runtime.rs`; a pure display preference (same
+    /// never-converges-between-devices policy as `theme.preset`, root
+    /// `CLAUDE.md` invariant #7), so it never goes through the op log.
+    /// Default [`TableStyle::Open`].
+    pub table_style: TableStyle,
 }
 
 /// Workspace section — primarily where the desktop remembers the
@@ -556,6 +583,20 @@ mod tests {
         let c: Config = toml::from_str("[display]\nbacklinks_order = \"oldest\"\n").unwrap();
         assert_eq!(c.display.backlinks_order, BacklinksOrder::Oldest);
         assert!(!c.display.backlinks_order.newest_first());
+    }
+
+    #[test]
+    fn table_style_defaults_to_open() {
+        let c: Config = toml::from_str("[tui]\nmouse_capture = true\n").unwrap();
+        assert_eq!(c.tui.table_style, TableStyle::Open);
+    }
+
+    #[test]
+    fn table_style_parses_box() {
+        let c: Config = toml::from_str("[tui]\ntable_style = \"box\"\n").unwrap();
+        assert_eq!(c.tui.table_style, TableStyle::Box);
+        let back = toml::to_string(&c).unwrap();
+        assert!(back.contains("table_style = \"box\""), "{back}");
     }
 
     #[test]
