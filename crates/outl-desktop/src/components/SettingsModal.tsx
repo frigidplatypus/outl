@@ -102,6 +102,13 @@ export function SettingsModal() {
     setBusy(true);
     try {
       const persisted = await updateSettings(d);
+      // Mirror the persisted framing into the store so already-rendered
+      // tables re-draw without a reload (the TUI only reads it at boot;
+      // the modal's write goes through `updateSettings`, so there is no
+      // dedicated command to piggyback on).
+      if (persisted.table_style === "open" || persisted.table_style === "box") {
+        setAppState("tableStyle", persisted.table_style);
+      }
       activeTheme = themeConfig(persisted);
       setDraft(persisted);
       await installTheme(activeTheme);
@@ -247,6 +254,24 @@ export function SettingsModal() {
                   }
                   class="w-24 rounded border border-(--color-outl-fg)/15 bg-(--color-outl-fg)/5 px-2 py-1 text-sm outline-none focus:border-(--color-outl-fg)/30"
                 />
+              </label>
+
+              <label class="block">
+                <div class="mb-1 text-sm font-medium">Table style</div>
+                <select
+                  value={draft()!.table_style}
+                  onChange={(e) =>
+                    setDraft({ ...draft()!, table_style: e.currentTarget.value })
+                  }
+                  class="w-full rounded border border-(--color-outl-fg)/15 bg-(--color-outl-fg)/5 px-2 py-1 text-sm outline-none focus:border-(--color-outl-fg)/30"
+                >
+                  <option value="open">Open — header rule only</option>
+                  <option value="box">Box — full grid lines</option>
+                </select>
+                <div class="mt-1 text-xs opacity-50">
+                  Framing of pipe tables in the outline; the TUI picks the
+                  same value up on its next launch.
+                </div>
               </label>
 
               <div>

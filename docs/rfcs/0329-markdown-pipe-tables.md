@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| **Status** | Accepted (TUI shipped; GUI renderers open) |
+| **Status** | Accepted (TUI + desktop whole-block shipped; mobile renderer and desktop mid-block open) |
 | **Issue** | [#329](https://github.com/outlmd/outl/issues/329) |
-| **PR** | none yet |
+| **PR** | desktop whole-block grid (this change) |
 | **Date** | 2026-09-27 |
 | **Reference doc** | [markdown-format.md → Pipe tables](../markdown-format.md#pipe-tables); `crates/outl-md/CLAUDE.md` → "Pipe tables"; `crates/outl-tui/CLAUDE.md` → the table-render bullet |
 | **Invariant** | root `CLAUDE.md` invariants 1, 2, 8, 12, 13 |
@@ -37,9 +37,9 @@ The first parse (a raw import) reads each row at column 0 and stores it trimmed;
 So `render → parse` is stable, and — the invariant-8 point — **storage stays byte-verbatim**: alignment is derived from the delimiter row at draw time and never written back into the block or the op log.
 The projection does not rewrite what the log holds; it only reads it.
 
-**The draw is TUI-only for now.**
-Per-client coverage is recorded as `outl_shortcuts::Capability::MarkdownTable`: `Full` on the TUI, `Missing` on desktop and mobile, each carrying a nudge that says the rows are still saved in full.
-The grid bypasses `push_wrapped` (fixed columns want per-cell truncation, not word wrap) and uses only existing theme tokens (`theme.heading`, `theme.dim`, `theme.hint`, `theme.bullet`, `theme.foreground`).
+**Desktop now draws a whole-block table; mid-block and mobile are still raw.**
+The column model has exactly one owner — `outl_md::table` — and a client that wants the grid calls `outl_md::parse_table_block` rather than writing a second parser. The desktop does, in `outl-frontend-shared`: `markdown/table.ts` is the byte-for-byte TypeScript port of that module and `markdown/TableGrid.tsx` renders the `Table` as an HTML grid, reached from `BlockRow` only when a *whole* block is one table (`parseTableBlock(text)` is non-null); a table sitting mid-prose or under a bullet still shows raw rows there, because the port mirrors the whole-block parser, not the TUI's `table_run_len` run-walker. Per-client coverage is `outl_shortcuts::Capability::MarkdownTable`: `Full` on the TUI, `Partial` on desktop (whole-block only, `DESKTOP_TABLE_RUNS_STAY_RAW`), `Missing` on mobile, each nudge saying the rows are still saved in full.
+The TUI grid bypasses `push_wrapped` (fixed columns want per-cell truncation, not word wrap) and uses only existing theme tokens (`theme.heading`, `theme.dim`, `theme.hint`, `theme.bullet`, `theme.foreground`); the desktop grid sizes columns from the same widest-cell rule in JSX (`displayWidth` counts East-Asian wide / combining cells as 2) and colours only through `--color-outl-*` tokens (invariant 13 — no hex literal).
 
 ## Why not the alternatives
 
@@ -73,7 +73,7 @@ This change never writes to storage: parse collapses rows into one block's text 
 **The refusal path is "don't collapse", not "lose the line".**
 When `looks_like_table_start` / `parse_table_block` say no — a paragraph whose second line carries a `|`, a table glued to a bullet, a one-line table — the parser takes the *existing* recovery arm: the line becomes a verbatim block with a warning, exactly as it did before this PR.
 `a_paragraph_with_a_pipe_is_not_mistaken_for_a_table` pins that no prose is hijacked into a table, so the new recognition cannot silently re-shape a paragraph into a grid the user didn't write.
-What the change *does* make newly reachable is a top-level table rendering with column alignment on the TUI; on a GUI client the same table renders as its raw rows, and `Capability::MarkdownTable` records that gap so no user mistakes raw rows for lost content.
+What the change *does* make newly reachable is a top-level table rendering with column alignment on the TUI and on the desktop's whole-block grid; where a client still prints raw rows — mobile, and on the desktop any table sitting inside other text — `Capability::MarkdownTable` records that gap so no user mistakes raw rows for lost content.
 
 ## How it cannot regress
 
@@ -88,12 +88,12 @@ What the change *does* make newly reachable is a top-level table rendering with 
    - Render (outl-tui `src/view/table.rs`): `a_pretty_block_that_is_a_table_renders_as_a_grid` and `an_edited_table_block_keeps_its_raw_source` drive the real `emit_block_lines` (so a regression that stops the pretty branch from delegating, or that draws the grid over a block under the cursor, fails); `every_row_shares_one_display_width` and `rule_marks_declared_alignment` pin the geometry; `a_mid_prose_table_renders_as_a_grid_between_its_prose`, `a_mid_prose_grid_carries_no_bullet` and `a_nested_mid_prose_grid_draws_the_parents_rails` pin the mid-block run: prose kept either side, no second bullet, the parent's rails drawn once. The `[tui] table_style = "box"` frame is pinned by `a_boxed_standalone_table_frames_top_and_bottom`, `a_boxed_grid_shares_one_display_width_across_every_row` and `the_box_border_aligns_with_the_column_rules` (the `┬`/`┴` tees land on the interior gutters), and `a_standalone_table_reaches_the_outline_boxed_when_configured` / `a_mid_prose_table_is_never_boxed` pin that only a standalone run boxes — a mid-prose grid never grows a wall onto the carrying block's content column.
    - Corpus gate (outl-md `tests/corpus/gfm_table.md` and `gfm_table_mid_block.md`): the three corpus properties run over a real table, including the `render → parse` fixpoint; the mid-block fixture pins that a table living inside a block's text (prose around it, and one nested a level deeper) round-trips through disk unchanged and is accounted for by the unlogged-content check.
    - Capability parity (outl-shortcuts): `the_parity_doc_matches_the_code` pins `docs/client-parity.md` against the verdicts, so a client that starts (or stops) drawing the grid must move the row.
+   - Shared corpus (outl-md `tests/table_corpus.rs` + outl-frontend-shared `src/markdown/table.test.ts`): both parsers read one fixture, `tests/corpus/table_grid.json`. The Rust test regenerates it (`OUTL_UPDATE_TABLE_FIXTURE=1`); the vitest side asserts the TypeScript port recovers the identical grid and fails until the port follows — the column model cannot drift between the drawer that draws it and the port the GUI grids with. The desktop settings round-trip is pinned by the `table_style` tests in `src-tauri/src/settings.rs`.
 
 ## Scope
 
-- **Desktop and mobile renderers.**
-  [#329](https://github.com/outlmd/outl/issues/329) stays open until both GUI clients draw the grid; until then `Capability::MarkdownTable` reads `Missing` on both, and the raw pipe rows are the honest fallback.
-  When a client grows a renderer, it wraps `outl_md::parse_table_block` (one owner of the column model) rather than writing a TS table parser, and flips its column to `Full`.
+- **Desktop whole-block shipped; mobile renderer and desktop mid-block open.**
+  [#329](https://github.com/outlmd/outl/issues/329) stays open until both GUI clients draw every table the TUI grids. The desktop now draws a block that is *only* a table (`TableGrid`, fed by the `markdown/table.ts` port of `parse_table_block`) and reads `Partial`; the mobile client reads `Missing`. When a client grows coverage for the remaining shapes — mobile wholesale, desktop mid-block / nested via a `table_run_len` port — it flips its column to `Full`, still wrapping the one column model rather than inventing a second.
 
 - **Mid-block / indented tables — recognized at render, never collapsed.**
   A table sitting inside a block (mid-prose, or under a bullet) is still *not* its own node: it stays the block's continuation text, recovered exactly as before.
@@ -104,7 +104,7 @@ What the change *does* make newly reachable is a top-level table rendering with 
 
 - **The box frame is a TUI-only view preference, not new state.**
   `[tui] table_style = "open" | "box"` (`open` default) decides whether a *standalone* table is wrapped in a top border, side walls and a bottom border.
-  It is pure display state like `theme.preset` and `[display] backlinks_order` (root invariant 7): read once at boot into `App::box_tables`, never an `Op`, never converges between devices, and the desktop ignores the section — a GUI draws the grid in JSX and has no notion of an ASCII frame.
+  It is pure display state like `theme.preset` and `[display] backlinks_order` (root invariant 7): read once at boot into `App::box_tables`, never an `Op`, never converges between devices. The desktop models the *same* `[tui] table_style` key through its settings DTO and modal so a user's framing pick follows them across clients, and `TableGrid` maps it: `box` draws a rounded card border, `open` rules the header only — the JSX reading of an ASCII frame, not an ASCII frame.
   A mid-prose / nested run ignores the flag and stays open, so a wall never lands on the carrying block's content column.
 
 - **Query-result tables (` ```query `) are a different thing.**

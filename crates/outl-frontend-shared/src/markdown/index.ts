@@ -14,3 +14,13 @@ export {
   remindRule,
   type PropertyChip,
 } from "./properties";
+export {
+  isDelimiterRow,
+  isTableRow,
+  parseTableBlock,
+  splitRow,
+  tableRunLen,
+  type Align,
+  type Table,
+} from "./table";
+export { TableGrid, type TableGridProps, type TableStyle } from "./TableGrid";

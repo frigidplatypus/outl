@@ -1,0 +1,240 @@
+[
+  {
+    "name": "plain",
+    "text": "|a|b|\n|---|---|\n|1|2|\n|3|4|",
+    "expected": {
+      "alignments": [
+        "left",
+        "left"
+      ],
+      "header": [
+        "a",
+        "b"
+      ],
+      "rows": [
+        [
+          "1",
+          "2"
+        ],
+        [
+          "3",
+          "4"
+        ]
+      ]
+    }
+  },
+  {
+    "name": "alignment",
+    "text": "|l|c|r|\n|:---|:---:|---:|\n|x|y|z|",
+    "expected": {
+      "alignments": [
+        "left",
+        "center",
+        "right"
+      ],
+      "header": [
+        "l",
+        "c",
+        "r"
+      ],
+      "rows": [
+        [
+          "x",
+          "y",
+          "z"
+        ]
+      ]
+    }
+  },
+  {
+    "name": "padded-and-ragged",
+    "text": "|  a  |  b  |\n| --- | --- |\n|1|\n|2|3|4|",
+    "expected": {
+      "alignments": [
+        "left",
+        "left"
+      ],
+      "header": [
+        "a",
+        "b"
+      ],
+      "rows": [
+        [
+          "1",
+          ""
+        ],
+        [
+          "2",
+          "3"
+        ]
+      ]
+    }
+  },
+  {
+    "name": "escaped-pipe",
+    "text": "|a|b|\n|---|---|\n|x \\| y|z|",
+    "expected": {
+      "alignments": [
+        "left",
+        "left"
+      ],
+      "header": [
+        "a",
+        "b"
+      ],
+      "rows": [
+        [
+          "x | y",
+          "z"
+        ]
+      ]
+    }
+  },
+  {
+    "name": "empty-cells",
+    "text": "|a|b|\n|---|---|\n||2|",
+    "expected": {
+      "alignments": [
+        "left",
+        "left"
+      ],
+      "header": [
+        "a",
+        "b"
+      ],
+      "rows": [
+        [
+          "",
+          "2"
+        ]
+      ]
+    }
+  },
+  {
+    "name": "untrimmed-delimiter",
+    "text": "|a|b|\n  |---|---|  \n|1|2|",
+    "expected": {
+      "alignments": [
+        "left",
+        "left"
+      ],
+      "header": [
+        "a",
+        "b"
+      ],
+      "rows": [
+        [
+          "1",
+          "2"
+        ]
+      ]
+    }
+  },
+  {
+    "name": "prose-then-table",
+    "text": "look:\n|a|b|\n|---|---|\n|1|2|",
+    "expected": null
+  },
+  {
+    "name": "table-then-prose",
+    "text": "|a|b|\n|---|---|\n|1|2|\nthat was the table",
+    "expected": null
+  },
+  {
+    "name": "quoted-table",
+    "text": "> |a|b|\n> |---|---|\n> |1|2|",
+    "expected": null
+  },
+  {
+    "name": "header-chrome",
+    "text": "## |a|b|\n|---|---|\n|1|2|",
+    "expected": {
+      "alignments": [
+        "left",
+        "left",
+        "left"
+      ],
+      "header": [
+        "##",
+        "a",
+        "b"
+      ],
+      "rows": [
+        [
+          "1",
+          "2",
+          ""
+        ]
+      ]
+    }
+  },
+  {
+    "name": "header-only",
+    "text": "|a|b|\n|---|---|",
+    "expected": null
+  },
+  {
+    "name": "delimiter-first",
+    "text": "|---|---|\n|1|2|",
+    "expected": null
+  },
+  {
+    "name": "no-delimiter",
+    "text": "|a|b|\n|1|2|",
+    "expected": null
+  },
+  {
+    "name": "pipe-in-prose",
+    "text": "a | b but not a table",
+    "expected": null
+  },
+  {
+    "name": "empty",
+    "text": "",
+    "expected": null
+  },
+  {
+    "name": "cjk-width",
+    "text": "|名前|説明|\n|---|---|\n|あ|表|\n|bb|cc|",
+    "expected": {
+      "alignments": [
+        "left",
+        "left"
+      ],
+      "header": [
+        "名前",
+        "説明"
+      ],
+      "rows": [
+        [
+          "あ",
+          "表"
+        ],
+        [
+          "bb",
+          "cc"
+        ]
+      ]
+    }
+  },
+  {
+    "name": "single-column",
+    "text": "|a|\n|---|\n|1|\n|2|",
+    "expected": {
+      "alignments": [
+        "left"
+      ],
+      "header": [
+        "a"
+      ],
+      "rows": [
+        [
+          "1"
+        ],
+        [
+          "2"
+        ]
+      ]
+    }
+  }
+]

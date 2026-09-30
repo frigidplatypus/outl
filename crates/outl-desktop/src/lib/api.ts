@@ -159,6 +159,12 @@ export interface Settings {
    * landing inside it is pushed to the window's end, never dropped.
    */
   reminders_quiet_hours: string;
+  /**
+   * Pipe-table framing: `"open"` (default) or `"box"`. Mirrors the
+   * Rust `Settings.table_style` and the `[tui] table_style` config
+   * key — the same value the TUI reads at boot.
+   */
+  table_style: string;
 }
 
 // `Palette`, `listThemes` and `getTheme` moved to `@outl/shared` (RFC 0022,

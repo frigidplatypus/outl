@@ -60,8 +60,12 @@
 
 use crate::parse::OutlineNode;
 
-/// Horizontal alignment of a table column, read from its delimiter cell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Horizontal alignment of a table column, read from its delimiter
+/// cell. The `lowercase` serde spelling matches the TypeScript port's
+/// `Align` union in `outl-frontend-shared`, so
+/// `tests/corpus/table_grid.json` is one fixture both suites read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Align {
     /// No colons, or a leading colon (`:---`).
     Left,
@@ -77,7 +81,7 @@ pub enum Align {
 /// [`Self::alignments`] entries: short rows are padded with empty cells,
 /// long rows truncated to the header's width. A cell has already been
 /// unescaped (`\|` → `|`, `\\` → `\`) and trimmed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Table {
     /// One alignment per column, taken from the delimiter row.
     pub alignments: Vec<Align>,

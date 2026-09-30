@@ -291,11 +291,12 @@ The grid is owned by [`outl_md::table`] (`parse_table_block` → `Table { alignm
 ```
 | client | renders the grid? |
 |--------|-------------------|
-| TUI | ✅ aligned columns, padded and truncated to the pane, `│` rails in the theme's dim colour |
-| desktop / mobile | ❌ the raw `| … |` rows for now — every row is still saved in full |
+| TUI | ✅ every table run — whole-block, mid-prose, nested — aligned columns, padded and truncated to the pane, `│` rails in the theme's dim colour |
+| desktop | 🟡 a block that is *only* one table, as an HTML grid (`TableGrid`); a table sitting inside other text still shows the raw `| … |` rows |
+| mobile | ❌ the raw `| … |` rows for now — every row is still saved in full |
 ```
 
-Per-client coverage is recorded as [`Capability::MarkdownTable`](client-parity.md) (`Full` on the TUI, `Missing` on the two GUI clients until they grow a table renderer).
+Per-client coverage is recorded as [`Capability::MarkdownTable`](client-parity.md) (`Full` on the TUI, `Partial` on the desktop — whole-block only — and `Missing` on mobile until it grows a table renderer; every nudge says the rows are still saved in full).
 The TUI additionally frames a **standalone** table when `[tui] table_style = "box"` (default `open`): a top border, a `│` wall on each side of every row, and a bottom border, all in the dim colour. A table nested inside prose stays open regardless, so no wall lands on its parent's text. See [config.md → `[tui]`](config.md#tui).
 See [`outl_md::table`] for the recognition predicate and column model, and [RFC 0329](rfcs/0329-markdown-pipe-tables.md) for the parse/render split.
 

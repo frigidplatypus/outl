@@ -11,8 +11,8 @@
 use serde::{Deserialize, Serialize};
 
 use outl_config::{
-    BacklinksOrder, Config, DisplayCfg, EditorCfg, SyncConfig, SyncTransportKind, ThemeCfg,
-    WorkspaceCfg,
+    BacklinksOrder, Config, DisplayCfg, EditorCfg, SyncConfig, SyncTransportKind, TableStyle,
+    ThemeCfg, WorkspaceCfg,
 };
 
 /// Parse the flat wire string into a transport kind. Anything that isn't an
@@ -41,6 +41,25 @@ fn parse_backlinks_order(s: &str) -> BacklinksOrder {
         "oldest" => BacklinksOrder::Oldest,
         _ => BacklinksOrder::Newest,
     }
+}
+
+/// Parse the flat wire string into a table style. Anything unrecognised
+/// (including an empty string from an older frontend) resolves to `"open"`,
+/// matching `TableStyle::default()`.
+fn parse_table_style(s: &str) -> TableStyle {
+    match s {
+        "box" => TableStyle::Box,
+        _ => TableStyle::Open,
+    }
+}
+
+/// Render a table style to the lowercase wire string the frontend uses.
+fn table_style_str(t: TableStyle) -> String {
+    match t {
+        TableStyle::Open => "open",
+        TableStyle::Box => "box",
+    }
+    .to_string()
 }
 
 /// Render a backlinks order to the lowercase wire string the frontend uses.
@@ -126,6 +145,13 @@ pub struct Settings {
     /// Quiet-hours window as `"22:00-07:00"`, or `""` for none. A fire
     /// landing inside it is pushed to the window's end.
     pub reminders_quiet_hours: String,
+    /// How a standalone pipe table is framed: `"open"` (default) or
+    /// `"box"`. Mirrors `[tui] table_style` — the same key the TUI
+    /// reads at boot, so the preference set in either client applies
+    /// to both. A pure display preference (never the op log); unlike
+    /// the TUI, which reads config once at launch, the desktop applies
+    /// it live after Save.
+    pub table_style: String,
 }
 
 impl Settings {
@@ -156,6 +182,7 @@ impl From<Config> for Settings {
             backlinks_order: backlinks_order_str(c.display.backlinks_order),
             reminders_enabled: c.reminders.enabled,
             reminders_quiet_hours: c.reminders.quiet_hours.unwrap_or_default(),
+            table_style: table_style_str(c.tui.table_style),
         }
     }
 }
@@ -201,10 +228,19 @@ impl From<Settings> for Config {
                 // the on-disk value so editing the transport doesn't drop it.
                 relay_url: None,
             },
-            // `[tui]` is TUI-only; the desktop doesn't model it. `save`
-            // restores it from disk so a hand-set `mouse_capture` survives
-            // a settings write (same pattern as `[calendar]`).
-            tui: outl_config::TuiCfg::default(),
+            // `[tui] table_style` IS modelled here — the table framing is
+            // a shared preference the modal can set, mirrored onto the
+            // same `[tui]` key the TUI reads at boot. `mouse_capture` is
+            // TUI-only; `save` restores it from disk so a hand-set value
+            // survives a settings write (same pattern as `sync.relay_url`).
+            // (Before `table_style` was modelled this section was claimed
+            // restored in a comment but never actually restored — a modal
+            // save silently reset `mouse_capture`. Restoring the one
+            // unmodelled field here closes that.)
+            tui: outl_config::TuiCfg {
+                table_style: parse_table_style(&s.table_style),
+                mouse_capture: false,
+            },
             // `[snapshot]` is core-managed; the desktop doesn't model it.
             // `save` restores it from disk so a hand-set policy survives a
             // settings write (same pattern as `[calendar]` / `[tui]`).
@@ -281,6 +317,12 @@ fn restore_unmodeled_sections(cfg: &mut Config, on_disk: &Config) {
     // edit).
     cfg.sync.relay_url = on_disk.sync.relay_url.clone();
     cfg.calendar = on_disk.calendar.clone();
+    // `[tui] table_style` is modelled in `Settings` (the table framing
+    // control); `mouse_capture` is not, so restore exactly that field
+    // from disk. Restoring the whole section would silently revert the
+    // modal's framing pick — the same mistake the theme-pair test in
+    // `mod tests` guards against.
+    cfg.tui.mouse_capture = on_disk.tui.mouse_capture;
     // `[theme]` (all three fields: `preset`, `preset_dark`, `mode`) is now
     // FULLY modeled in `Settings` — the modal owns the whole pair. Do NOT
     // add a restore-from-disk line for any of them here: that was the
@@ -351,6 +393,7 @@ mod tests {
             backlinks_order: "oldest".into(),
             reminders_enabled: true,
             reminders_quiet_hours: "22:00-07:00".into(),
+            table_style: "box".into(),
         };
         let cfg: Config = s.clone().into();
         let back: Settings = cfg.into();
@@ -364,6 +407,10 @@ mod tests {
         assert_eq!(back.backlinks_order, s.backlinks_order);
         assert_eq!(back.reminders_enabled, s.reminders_enabled);
         assert_eq!(back.reminders_quiet_hours, s.reminders_quiet_hours);
+        assert_eq!(
+            back.table_style, s.table_style,
+            "table framing must round-trip through [tui] table_style"
+        );
     }
 
     /// Regression test for the RFC 0022 follow-up that added
@@ -398,11 +445,18 @@ mod tests {
         // A hand-set value in a still-unmodelled section, distinct from
         // the default, so a lost restore would show up as a mismatch.
         on_disk.calendar.timezone = Some("America/Sao_Paulo".into());
+        // `[tui]`: `mouse_capture` is unmodelled (must survive a modal
+        // save) while `table_style` is modelled (the modal's pick must
+        // win over a stale on-disk value). Both hand-set away from the
+        // default so a wrong direction of restore shows up.
+        on_disk.tui.mouse_capture = true;
+        on_disk.tui.table_style = TableStyle::Box;
 
         let modal_settings = Settings {
             theme: "dracula".into(),
             theme_dark: "nord".into(),
             theme_mode: "dark".into(),
+            table_style: "open".into(),
             ..Settings::fresh()
         };
         let mut cfg: Config = modal_settings.into();
@@ -425,6 +479,15 @@ mod tests {
         assert_eq!(
             cfg.calendar, on_disk.calendar,
             "[calendar] is still unmodelled by Settings and must still be restored from disk"
+        );
+        assert!(
+            cfg.tui.mouse_capture,
+            "[tui] mouse_capture is unmodelled by Settings and must survive a modal save"
+        );
+        assert_eq!(
+            cfg.tui.table_style,
+            TableStyle::Open,
+            "the modal's framing pick must win — table_style is modeled now, so it must NOT be restored from disk"
         );
     }
 

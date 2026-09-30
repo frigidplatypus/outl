@@ -113,6 +113,11 @@ function App() {
       if (s.backlinks_order === "oldest" || s.backlinks_order === "newest") {
         setAppState("backlinksOrder", s.backlinks_order);
       }
+      // Table framing is a display preference from the same file; a
+      // stale/unknown value keeps the store default ("open").
+      if (s.table_style === "open" || s.table_style === "box") {
+        setAppState("tableStyle", s.table_style);
+      }
       const cfg = await getThemeConfig();
       return await installTheme({
         mode: cfg.mode,

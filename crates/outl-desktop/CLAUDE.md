@@ -141,6 +141,13 @@ A `"> "`-prefixed block renders with a left border + ~6% tint, right-rounded, bo
 Detection is `splitQuote` + `stripQuoteFromTokens`; toggling routes `toggleQuote` → `toggle_quote` → `outl_actions::block::toggle_quote`.
 Convention: [`docs/clients.md` → Blockquote convention](../../docs/clients.md#blockquote-convention).
 
+## Pipe-table grid
+
+A block that is *only* a pipe table renders as an aligned HTML grid via `<TableGrid />` + `parseTableBlock` (`@outl/shared/markdown`), reached from `<BlockRow />` — the same column model the TUI draws, shared rather than re-parsed here.
+A table sitting **inside** other text is `parseTableBlock` → `null` and keeps its raw `| … |` rows (the port intentionally does not mirror the TUI's `table_run_len` mid-block recognizer — that gap is why `Capability::MarkdownTable` is `Partial` on desktop, not `Full`).
+The framing follows `[tui] table_style`: hydrated through `settings.from_config` into `appState.tableStyle`, the Settings modal's "Table style" select writes it back to the same key `box` → framed card, `open` → header rule only. Pure display state, never an op.
+Convention: [RFC 0329](../../docs/rfcs/0329-markdown-pipe-tables.md); shared-corpus fixture pins the port against `outl_md::table`.
+
 ## "This page isn't syncing" banner
 
 `<PageAheadOfLogBanner client="desktop" />` (from `@outl/shared/warnings`) renders above the outline when `PageView.md_ahead_of_log` comes back set.

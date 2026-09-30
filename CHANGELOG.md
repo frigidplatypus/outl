@@ -7,6 +7,12 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Added
 
+- **Markdown pipe tables render as grids — the TUI collapses and draws them, the desktop draws a block that is one whole table as an HTML grid.**
+  A column-0 table now collapses into **one** block on parse, reusing the continuation path a table's rows already took, so the collapse is a render fixpoint and no `UnrecognizedBlockMarker` is raised — a table is recognised syntax, not a failed line ([#329](https://github.com/outlmd/outl/issues/329), [RFC 0329](docs/rfcs/0329-markdown-pipe-tables.md)).
+  The column model — widest-cell widths, `:---:` alignment, CJK wide and combining cells counting 2 — has exactly one owner, `outl_md::table`; a client that wants the grid calls `parse_table_block` rather than writing a parser.
+  **The desktop ships that grid** (`<TableGrid />` + a TypeScript port of the column model in `@outl/shared/markdown`), and the port is pinned against a shared JSON corpus (`crates/outl-md/tests/corpus/table_grid.json`) that the Rust test regenerates: the vitest side fails the moment the two parsers disagree, so the drawer and the port cannot drift.
+  The desktop's `Partial` is deliberate and stays open until it mirrors `table_run_len`: a table sitting *inside* other text still shows its raw `| … |` rows there, while the TUI projects a grid over mid-prose and nested runs too. `Capability::MarkdownTable` now reads `Full` / `Partial` / `Missing` (TUI / desktop / mobile), each nudge saying the rows are saved in full.
+  `[tui] table_style` grew a second reader: the desktop hydrates the same `open` / `box` pick into its Settings modal's "Table style" select and maps it to JSX framing — `box` a rounded card border, `open` a header rule — the same intent, rendered per medium. Still pure display state, never an op.
 - **"Open With → outl" on the desktop — a `.md` or `.txt` from anywhere becomes a page.**
   Right-click a file in Finder / Explorer / a Linux file manager, pick outl, and the file lands as a page titled `open-in/<file name>`, built out of ordinary ops like everything else. `bundle.fileAssociations` registers the four extensions with `role: "Viewer"` and `rank: "Alternate"` — outl **imports a copy and never writes back to the file**, and it must not quietly become the system handler for every `.txt` on the machine.
 

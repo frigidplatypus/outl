@@ -22,6 +22,7 @@ import type {
   ResolvedBlock,
   WorkspaceSummary,
 } from "@outl/shared/api/types";
+import type { TableStyle } from "@outl/shared/markdown";
 
 export type Mode =
   | "normal"
@@ -193,6 +194,14 @@ export interface AppStateShape {
    */
   backlinksOrder: BacklinksOrder;
   /**
+   * Framing of a standalone pipe table: `"open"` (default, header
+   * rule only) or `"box"` (full grid lines). Hydrated from
+   * `config.toml` at boot (`getSettings`) and persisted through the
+   * settings modal; the same `[tui] table_style` key the TUI reads.
+   * A pure display preference — never an Op.
+   */
+  tableStyle: TableStyle;
+  /**
    * Caret intent the next mounting `<BlockRow />` textarea consumes
    * the moment it lands in the DOM. Set by vim-style entry actions
    * that need the caret somewhere other than where the click would
@@ -292,6 +301,7 @@ const [state, setState] = createStore<AppStateShape>({
   sidebarOpen: false,
   backlinksOpen: true,
   backlinksOrder: "newest",
+  tableStyle: "open",
   caretIntent: null,
   pickerOpen: false,
   pickerSeed: null,

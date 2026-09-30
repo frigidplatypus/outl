@@ -118,13 +118,20 @@ mod why {
          to join an existing workspace from a desktop, run `outl peer pair` in a terminal.";
 
     /// The block's rows are stored and shown either way; only the TUI
-    /// lays them into an aligned grid. The GUI clients print the raw
-    /// `| … |` text until they grow a table renderer, so the nudge
-    /// points at the client that draws the grid rather than implying
-    /// the data is missing.
-    pub const TABLE_GRID_IS_TUI_ONLY: &str =
+    /// and the desktop lay them into an aligned grid. Mobile prints
+    /// the raw `| … |` text until it grows a table renderer, so the
+    /// nudge points at the clients that draw the grid rather than
+    /// implying the data is missing.
+    pub const TABLE_GRID_NOT_DRAWN_HERE: &str =
         "Tables show as their raw `| … |` rows here for now — the aligned grid is drawn in the \
-         TUI, and every row is still saved in full.";
+         TUI and the desktop, and every row is still saved in full.";
+
+    /// The desktop grids a block that is *only* a table; a table run
+    /// inside other text (or nested under a bullet) still shows raw
+    /// pipe lines, which the TUI grids too.
+    pub const DESKTOP_TABLE_RUNS_STAY_RAW: &str =
+        "Tables that sit inside other text show as their raw `| … |` rows here — the desktop \
+         grids a table only when a whole block is one; every row is still saved in full.";
 }
 
 /// Per-client support for every capability in the catalog.
@@ -281,16 +288,17 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
             desktop: Full,
             mobile: Missing(why::NO_MOBILE_SHARE_TARGET),
         },
-        // The TUI draws an aligned grid (`view/table.rs`, reached from
-        // the pretty-render branch of `emit_block_lines`). Both GUI
-        // clients keep the same stored rows but print them as raw pipe
-        // text — the storage is identical, only the render differs, so
-        // this is `Missing` (a renderer not yet built) and not
-        // `NotApplicable`.
+        // The TUI draws an aligned grid for every table run
+        // (`view/table.rs`, reached from the pretty-render branch of
+        // `emit_block_lines`). The desktop grids a block that is only
+        // a table (`TableGrid` in `outl-frontend-shared`) — mid-block
+        // and nested runs stay raw pipe text, hence `Partial`, not
+        // `Full`. Mobile has no renderer at all, hence `Missing`. The
+        // storage is identical everywhere; only the render differs.
         Capability::MarkdownTable => ClientSupport {
             tui: Full,
-            desktop: Missing(why::TABLE_GRID_IS_TUI_ONLY),
-            mobile: Missing(why::TABLE_GRID_IS_TUI_ONLY),
+            desktop: Partial(why::DESKTOP_TABLE_RUNS_STAY_RAW),
+            mobile: Missing(why::TABLE_GRID_NOT_DRAWN_HERE),
         },
     }
 }

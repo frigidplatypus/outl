@@ -22,7 +22,9 @@ import {
   EmbeddedSubtree,
   MarkdownInline,
   QuoteWrap,
+  TableGrid,
   isBlockQuoted,
+  parseTableBlock,
   splitQuote,
   stripQuoteFromTokens,
 } from "@outl/shared/markdown";
@@ -1035,6 +1037,15 @@ export function BlockRow(props: {
                 const fence = !isEditing()
                   ? detectFence(props.block.text)
                   : null;
+                // A block that is *only* a pipe table renders as the
+                // aligned grid (the mirror of the TUI's table drawer);
+                // mid-block table runs keep the raw inline rendering
+                // here — the capability gap is declared in
+                // `outl_shortcuts` as `Partial`.
+                const table =
+                  !fence && !isEditing()
+                    ? parseTableBlock(props.block.text)
+                    : null;
                 return (
                   <Show
                     when={isEditing()}
@@ -1052,6 +1063,8 @@ export function BlockRow(props: {
                           onRun={() => props.cb.onRunCodeBlock(props.block.id)}
                           onOpenPage={props.cb.onOpenPage}
                         />
+                      ) : table ? (
+                        <TableGrid table={table} style={appState.tableStyle} />
                       ) : (
                         (() => {
                           // The chrome lives on the wrapper a level
