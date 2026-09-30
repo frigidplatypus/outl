@@ -210,6 +210,17 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   The UI is the door for people who don't know the syntax, not a replacement for it.
   ([#13](https://github.com/outlmd/outl/issues/13))
 
+- **A markdown pipe table is now one block, drawn as a grid in the TUI ([#329](https://github.com/outlmd/outl/issues/329)).**
+  A table pasted from a README or a docs page had no home in the outline grammar — no `- `, no `key:: value` — so every one of its lines fell through to the depth-0 recovery arm and became an orphan block, with an `UnrecognizedBlockMarker` warning per row and a wall of `|` glyphs where a grid should sit.
+  `outl-md` now recognises a column-0 table run (`header + |---|` delimiter + data rows) and folds the whole run into one block whose `text` is the rows `\n`-joined — the shape a fenced code block already uses — so the collapse is a fixpoint through the existing continuation path and the parse banner stays quiet.
+  Storage stays byte-verbatim; only the renderer reads a grid.
+  Alignment is derived from the delimiter row at draw time and never written back (invariant 7); ragged rows pad/truncate to the header's column count rather than being refused and split back into per-line blocks.
+  Recognition is conservative on purpose — a table glued to a bullet, nested under a block, or a paragraph whose second line carries a `|` stays ordinary block text — and a table living inside a block is still not its own node: the TUI projects a grid over the run at draw time (`outl_md::table_run_len`) and leaves the surrounding prose as prose.
+  `[tui] table_style = "open" | "box"` (default `open`) frames a *standalone* table with a top border, side walls, and a bottom border; a nested run always stays open so a wall never lands on the carrying block's content column.
+  Pure display state, read once at boot — never an op.
+  Desktop and mobile still show the raw pipe rows, and that gap is recorded rather than discovered: `Capability::MarkdownTable` is `Full` on the TUI, `Missing` on both GUI clients with a nudge that the rows are saved in full.
+  Reasoning and rejected alternatives: [RFC 0329](docs/rfcs/0329-markdown-pipe-tables.md).
+
 ### Fixed
 
 - **The Insert-mode caret pushed every character to its right one column over in the TUI ([#320](https://github.com/outlmd/outl/issues/320)).**
