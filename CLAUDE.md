@@ -431,6 +431,8 @@ The rule, past incidents, and what to do when a primitive doesn't exist yet live
 
 - **Build / test:** `/check` runs fmt + clippy + test + doc on the Rust workspace, then vitest + `tsc --noEmit` across every bun workspace package.
   Both halves are required before "done": roughly a third of each GUI client is TypeScript, and two invariants (12 and 13) are enforced only by TS parity tests.
+  `cargo`, `just` and `bun` are **not on the ambient PATH** in this repo — they exist only inside the flake devshell (see [Nix development](#nix-development-and-packaging)); a bare `cargo test` fails with `command not found`.
+  From a non-Nix shell, invoke commands as `nix develop -c cargo test …`.
   Full dev loop (slash commands, hooks, agents, CI walkthrough) is in [`docs/development.md`](docs/development.md).
 - **Specialized agents** (invoke proactively when their `When to use` matches):
   `crdt-invariant-checker`, `paper-verifier`, `markdown-roundtrip-tester`, `refactor-architect`, `doc-keeper`.
