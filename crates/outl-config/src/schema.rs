@@ -155,7 +155,6 @@ pub struct DisplayCfg {
     /// [`BacklinksOrder::Newest`] — the fix for issue #142, where long
     /// backlink lists buried the latest reference at the bottom.
     pub backlinks_order: BacklinksOrder,
-
 }
 
 /// Workspace section — primarily where the desktop remembers the
