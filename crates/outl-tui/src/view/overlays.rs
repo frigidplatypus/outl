@@ -1006,7 +1006,7 @@ fn help_tab_body(tab: usize, theme: &Theme, icons: &crate::icons::IconSet) -> Ve
             Line::from("  g x         run code block under cursor (also `:run`)"),
             Line::from("  Ctrl+S      force save"),
             Line::from("  Ctrl+L      reload workspace from disk"),
-            Line::from("  B           toggle inline backlinks"),
+            Line::from("  Ctrl+B      toggle inline backlinks"),
             Line::from("  Ctrl+E      toggle left sidebar (opens with focus on Pinned)"),
             Line::from("  q q         quit (chord)"),
             Line::from(""),
@@ -1056,6 +1056,7 @@ fn help_tab_body(tab: usize, theme: &Theme, icons: &crate::icons::IconSet) -> Ve
             Line::from("  d / x       delete selected blocks"),
             Line::from("  y           yank selected blocks"),
             Line::from("  Tab / S-Tab indent / outdent the range"),
+            Line::from("  Ctrl+B      toggle the backlinks panel"),
         ],
         "Sidebar" => vec![
             Line::from(Span::styled("Open / close", theme.help_title)),
