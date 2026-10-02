@@ -78,6 +78,8 @@ This matches Bear / Ulysses on the desktop and `outl-tui`'s historical behaviour
 So `Cmd+Shift+E` (VS Code's "Show Explorer") and `Cmd+Shift+B` are the canonical chrome chords on the desktop.
 The TUI mirrors the spirit with `Ctrl+E` / `Ctrl+B` (most terminals collapse `Ctrl+Shift+letter` into `Ctrl+letter`, so both forms work identically).
 
+> **The TUI sidebar opens focused** (any mode): while it has focus it owns the keyboard — `j`/`k`/`Tab`/`Enter`/`d` act on its rows, `Esc` returns to the mode you were in with any in-progress insert or visual range untouched. See [tui.md](tui.md#pages-sidebar).
+
 ---
 
 ## Inline markdown — Insert mode (textarea focused)
