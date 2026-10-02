@@ -62,5 +62,17 @@ jobs:
       - name: Build outl-desktop
         run: nix build .#outl-desktop --print-build-logs
 
+      - name: Build branch tree (outl-dev + outl-desktop-dev)
+        # The default `outl`/`outl-desktop` outputs always build the pinned
+        # upstream input, so on a fork branch they are stock outl and add
+        # nothing to the cache. The branch's own tree is served by the
+        # *-dev outputs; build those so `github:<fork>/<branch>#outl-dev`
+        # substitutes instead of compiling per machine. Skipped on main,
+        # including when sync-upstream.yml invokes this job there.
+        if: github.ref_name == 'dev' || github.ref_name == 'experimental'
+        run: |
+          nix build .#outl-dev --print-build-logs
+          nix build .#outl-desktop-dev --print-build-logs
+
       - name: Verify flake
         run: nix flake check --no-build
