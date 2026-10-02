@@ -360,7 +360,10 @@
             pname = "outl-desktop-frontend";
             inherit version;
             src = projectSrc;
-            outputHash = "sha256-bH3dyEP82lURXw9O/AtKiXtYzF/3VMyhTjwrN1fKIxQ=";
+            # Branch-specific: experimental's frontend tree diverges from dev's
+            # and from upstream, so this hash differs per branch by design.
+            # On frontend edits, copy `got: sha256-...` from the FOD mismatch.
+            outputHash = "sha256-Frz4QrEQ13EZ/XfaQsCgHqklXSj12W8SY7IYDfwF1P4=";
           };
 
           outl-desktop-dev = mkOutlDesktop {
