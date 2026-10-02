@@ -43,7 +43,7 @@ pub(crate) struct Cli {
     pub(crate) verbose: u8,
 
     /// Print version information and exit (`-v`; `--version`/`-V` are equivalent).
-    #[arg(short = 'v', action = clap::ArgAction::Version, global = true)]
+    #[arg(short = 'v', action = clap::ArgAction::Version)]
     #[allow(dead_code)]
     pub(crate) show_version: (),
 }
