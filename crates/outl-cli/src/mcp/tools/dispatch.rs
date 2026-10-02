@@ -47,7 +47,7 @@ use crate::cmd::{
     asset as asset_cmd, backlinks as bl_cmd, batch as batch_cmd, block as block_cmd,
     daily as daily_cmd, doctor as doctor_cmd, export_v2 as exp_cmd, page as page_cmd,
     prop as prop_cmd, query as query_cmd, search as search_cmd, tag as tag_cmd,
-    template as tpl_cmd, workspace_info as wi_cmd,
+    template as tpl_cmd, trash as trash_cmd, workspace_info as wi_cmd,
 };
 use outl_exec::run_query_dsl_with_index;
 
@@ -57,7 +57,7 @@ use crate::output::ApiError;
 
 use super::payload::{tool_error_payload, tool_success_payload};
 
-use super::{opt_params, opt_str, require_str};
+use super::{opt_params, opt_str, opt_str_strict, require_str, str_array};
 
 /// Tool names that mutate the workspace. After a successful call we
 /// invalidate the cached `WorkspaceIndex` so subsequent read-only
@@ -90,6 +90,7 @@ const MUTATING: &[&str] = &[
     "outl_page_prop_set",
     "outl_batch",
     "outl_template_apply",
+    "outl_trash_restore",
 ];
 
 /// Dispatch a `tools/call` request to the correct handler.
@@ -338,29 +339,16 @@ fn run_tool(name: &str, args: &Value, ctx: &Arc<ServerCtx>) -> Result<Value, Api
         }
         "outl_query" => {
             let q = query_cmd::QueryArgs {
-                tag: opt_str(args, "tag").map(str::to_string),
-                not_tag: opt_str(args, "notTag").map(str::to_string),
-                priority: opt_str(args, "priority").map(str::to_string),
-                props: args
-                    .get("props")
-                    .and_then(Value::as_array)
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(str::to_string))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                not_props: args
-                    .get("notProps")
-                    .and_then(Value::as_array)
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(str::to_string))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                since: opt_str(args, "since").map(str::to_string),
-                kind: opt_str(args, "kind").map(str::to_string),
+                tag: opt_str_strict(args, "tag")?.map(str::to_string),
+                not_tags: str_array(args, "not_tags")?,
+                priority: opt_str_strict(args, "priority")?.map(str::to_string),
+                not_priority: opt_str_strict(args, "not_priority")?.map(str::to_string),
+                props: str_array(args, "props")?,
+                not_props: str_array(args, "not_props")?,
+                since: opt_str_strict(args, "since")?.map(str::to_string),
+                not_since: opt_str_strict(args, "not_since")?.map(str::to_string),
+                kind: opt_str_strict(args, "kind")?.map(str::to_string),
+                not_kind: opt_str_strict(args, "not_kind")?.map(str::to_string),
                 raw: opt_str(args, "raw").map(str::to_string),
                 json: true,
             };
@@ -396,6 +384,11 @@ fn run_tool(name: &str, args: &Value, ctx: &Arc<ServerCtx>) -> Result<Value, Api
         }
 
         // --- backlinks / refs ---
+        "outl_trash_list" => ctx.with_workspace(|wc| trash_cmd::list(wc)),
+        "outl_trash_restore" => {
+            let id = require_str(args, "id")?.to_string();
+            ctx.with_workspace(|wc| trash_cmd::restore(wc, &id))
+        }
         "outl_backlinks" => {
             let slug = require_str(args, "slug")?.to_string();
             ctx.with_workspace(|wc| bl_cmd::page(wc, &slug))

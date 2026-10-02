@@ -97,7 +97,7 @@ Violating any one breaks user trust irreversibly.
    `if_stale_ignores_whitespace_only_differences_when_deciding`,
    `if_stale_declines_when_the_sidecar_cannot_answer` (an empty verdict from a reference that *cannot* answer is not permission to write — that is how a peer on an older binary re-arms the loss),
    `if_stale_still_projects_a_page_whose_sidecar_has_no_blocks` (the opposite case: nothing on disk to lose)
-   (`crates/outl-actions/src/journal/tests.rs`), plus
+   (`crates/outl-actions/src/journal/tests/if_stale.rs`), plus
    `recovery_does_not_reproject_over_text_the_log_never_saw`
    (`crates/outl-actions/tests/desync_recovery.rs`, the same defect reached through the desync recovery's re-projection), plus
    `a_torn_op_log_never_lets_repair_overwrite_a_good_md`
@@ -250,6 +250,46 @@ Violating any one breaks user trust irreversibly.
 
     **The general rule** (9 → 12 above): this one asks **does this name mean the same fact everywhere it appears?**
 
+14. **A filter that cannot be negated is half a filter, and the negation is never a second implementation.**
+    Every predicate a user can write — a ` ```query ` directive, an `outl query` flag, an MCP filter argument — ships with its complement in the same change.
+    The complement is `!` over the positive's own matcher, applied by one generic wrapper, not a `NotFoo` sibling that re-answers the question.
+
+    Not theory.
+    The ` ```query ` DSL shipped with six positive filters and no way to say "not".
+    ["open work tasks, minus anything parked under #someday"](https://github.com/outlmd/outl/issues/323) was unexpressible, which is a feature gap.
+    The first fix was worse than the gap: two hand-written variants, `NotTag` and `NotProp`, giving two of the six filters a negative and leaving four without one — and the two that existed each carried their own copy of "does this block have tag x".
+
+    Two copies of one predicate drift, and **the direction a negative filter drifts is always the one that silently removes results.**
+    That asymmetry is the whole reason this is an invariant.
+    An over-inclusive positive shows the user an extra row they can see and ignore.
+    An over-inclusive negative deletes a row from the answer, and a user cannot notice a block that is not there.
+    `tag:` matched by substring, harmlessly, for months; negated, that same substring would have hidden every `#workflow` block behind a `not-tag: work` written to hide something else.
+
+    So the mechanism, not the discipline:
+
+    - `not-<key>` **parses `<key>`** and wraps the result in `Filter::Not(Box<Filter>)` (`crates/outl-exec/src/runtimes/query/dsl.rs`).
+      The engine's only negative arm is `Filter::Not(inner) => !matches(inner, …)`.
+    - A new directive is therefore negatable the moment its variant and match arm exist.
+      **Adding a hand-written `NotFoo` variant is the thing to refuse in review** — it reintroduces the second opinion this wrapper removed.
+    - What is *not* a filter has no negative: `sort` and `limit` are rejected as unknown keys under a `not-` prefix, rather than read as some reversed ordering.
+    - The same pairing holds on surfaces that cannot share the enum. `outl query`'s flags are hand-paired, so each pair is pinned by a test instead: `query_every_filter_and_its_negation_return_nothing`.
+
+    **A filter whose complement reads oddly still gets the honest complement.**
+    `since: 7d` means "a journal dated within 7 days", so `not-since: 7d` matches every ordinary page too — they were never journals.
+    Inventing a friendlier meaning ("older than") would be a second matcher wearing a helpful name, and `tag: x` + `not-tag: x` returning rows is exactly the bug that buys.
+    Document the surprise; do not paper over it.
+
+    **The regression net:** `no_filter_and_its_negation_can_both_match` (`crates/outl-exec/src/runtimes/query/engine.rs`) iterates the whole `Filter` set rather than the pairs that shipped first, so a new variant with a broken negation fails there.
+    `every_filter_key_has_a_negative`, `sort_and_limit_have_no_negative`, `a_double_negative_is_an_unknown_key_not_a_positive` (`dsl.rs`),
+    `every_directive_has_a_working_negative` (`crates/outl-exec/tests/query_negative_filters.rs`),
+    `query_every_filter_and_its_negation_return_nothing` (`crates/outl-cli/tests/cli_machine.rs`).
+
+    **A filter that can only match nothing fails loudly.**
+    `not-tag:` with no name, `not-text:` with no needle, `not-prop: status:` with a dangling colon, a tag name outside the tokenizer's alphabet — each parses to a predicate no block can satisfy, so the *negative* quietly excludes nothing and returns the rows the user asked to hide.
+    Every one is a parse error.
+
+    **The general rule** (9 → 13 above): this one asks **can the user say "not this", and is that answered by the same code that says "this"?**
+
 
 ## Repo layout
 
@@ -270,9 +310,12 @@ outl/
 └── crates/
     ├── outl-core/             # tree CRDT, op log, storage trait
     ├── outl-md/               # parser, sidecar, matching
+    ├── outl-ws/               # workspace bootstrap: lock/actor protocol, shard registration, slug repair
     ├── outl-actions/          # UI-agnostic workspace ops (shared by every client)
     ├── outl-shortcuts/        # canonical (chord, action) catalog + per-client support matrix
     ├── outl-exec/             # code-block runtime (desktop + mobile)
+    ├── outl-plugins/          # plugin runtime, manifest, permission gating, host API
+    ├── outl-sync-iroh/        # iroh QUIC transport: endpoint, pairing, op-log delta sync
     ├── outl-import/           # adapter-based graph importers (Roam, Logseq, Obsidian + auto-detect)
     ├── outl-config/           # `outl.toml` parsing + schema
     ├── outl-theme/            # palette + presets (TUI + desktop)
@@ -391,6 +434,8 @@ The rule, past incidents, and what to do when a primitive doesn't exist yet live
 
 - **Build / test:** `/check` runs fmt + clippy + test + doc on the Rust workspace, then vitest + `tsc --noEmit` across every bun workspace package.
   Both halves are required before "done": roughly a third of each GUI client is TypeScript, and two invariants (12 and 13) are enforced only by TS parity tests.
+  `cargo`, `just` and `bun` are **not on the ambient PATH** in this repo — they exist only inside the flake devshell (see [Nix development](#nix-development-and-packaging)); a bare `cargo test` fails with `command not found`.
+  From a non-Nix shell, invoke commands as `nix develop -c cargo test …`.
   Full dev loop (slash commands, hooks, agents, CI walkthrough) is in [`docs/development.md`](docs/development.md).
 - **Specialized agents** (invoke proactively when their `When to use` matches):
   `crdt-invariant-checker`, `paper-verifier`, `markdown-roundtrip-tester`, `refactor-architect`, `doc-keeper`.
@@ -429,6 +474,7 @@ Don't unilaterally pivot.
 | `outl-shortcuts` is the single (chord → action) catalog | Two parallel implementations is the bug we paid to remove (TUI used to define bindings in `input/`, desktop wired its own `KeyboardEvent` handlers — `Cmd+P` and `Ctrl+P` drifted within a sprint). Adding a key on any client without going through `defaults.rs` puts that drift back. See `outl-shortcuts/CLAUDE.md`. **Only the desktop resolves through `lookup()` today** — the TUI still dispatches Normal-mode keys from its own `match` in `input/normal.rs`, and mobile consumes neither; `docs/shortcuts.md` claimed otherwise for months. Finishing that migration is open work, not a settled decision |
 | `wrappers/catalog.rs` is the single declaration of the **Tauri command surface** | The bodies were shared; the wrappers were not, and 3,033 lines of hand-written shim diverged by omission (`history`: 183 lines vs 22). A client takes a whole module or records the gap. `tests/command_parity.rs` catches both a skipped module and a generated command missing from `generate_handler!`. See `outl-tauri-shared/CLAUDE.md` |
 | `outl_actions::commit_page` owns **what happens around a page mutation** | The five-step sequence had one implementation, behind a trait wanting `&Mutex<Option<Workspace>>` — unreachable from the TUI and CLI, which each re-derived a subset. `AppHost` stayed put on purpose ([#264](https://github.com/outlmd/outl/issues/264)) |
+| `Filter::Not(Box<Filter>)` is the single owner of **negation** in the query DSL | `not-<key>` parses `<key>` and wraps it, so every filter is negatable the moment it exists and the two sides cannot disagree. The first implementation hand-wrote `NotTag` / `NotProp`: two of six filters negatable, each with its own copy of the predicate. See [invariant 14](#critical-invariants-never-violate) |
 | `outl_shortcuts::support` is the single owner of **which client performs which action** | An exhaustive `match`, so a new `Action` variant does not compile until all three clients declare what they do with it. The lesser states carry the sentence shown to the user, so a client cannot invent its own wording. See [invariant 12](#critical-invariants-never-violate) |
 | One `ops-<actor>.jsonl` per device, never shared | Any file transport (iCloud, Syncthing, shared FS) is last-write-wins per file; per-actor files turn that into a non-issue; iroh ships ops directly |
 | MIT license | Simple, widely understood, no patent grant baggage |
@@ -449,7 +495,10 @@ Don't add code for these unless explicitly asked:
   What is still open is release plumbing, not the port: see [`docs/android-platform.md`](docs/android-platform.md)
 - App-closed reminder delivery — `remind::` fires today only while the app runs.
   The iOS `UNCalendarNotificationTrigger` pre-registration, the macOS launch agent, the Windows scheduled toast and the systemd user timer are all follow-ups to issue #63; see [`docs/reminders.md`](docs/reminders.md) → Background delivery
-- Per-page op log shards ([`docs/sync.md` Part 2 — Per-page op log shards](docs/sync.md#per-page-op-log-shards-for-10k-pages); only land it when the single-jsonl-per-device layout hits the 10k-page wall)
+- An automatic switch to per-page op log shards.
+  The layout itself **shipped** (RFC 0137 Phase B): `PageScope::PerPage(slug)` writes `ops/<actor>/<slug>.jsonl`, `outl init --scope=per-page` starts a workspace on it and `outl migrate-to-per-page-ops` converts one.
+  What does not exist is a trigger — nothing counts pages and nothing flips at the 10k wall, so the layout is opt-in per workspace.
+  Tracked with the rest of the op-log growth work in [#110](https://github.com/outlmd/outl/issues/110)
 - Character cursor inside the selected block in desktop Normal mode.
   TUI-only today.
   The desktop's vim mode has only a selected block id, so the char-level vim ops `x`/`X`/`D`/`C`/`s`/`r`/`f`/`F`/`~`/`e` surface a status-line nudge instead of firing.
@@ -489,6 +538,10 @@ Full review policy (Rust quality, hot paths, architecture, simplicity, testing) 
 - ❌ Reintroducing SQLite / rusqlite / any binary log format — cross-device sync depends on per-actor append-only files
 - ❌ Using `id::` Logseq-style metadata anywhere
 - ❌ Adding an `Action`, or any cross-client capability, without recording which clients lack it (invariant 12)
+- ❌ Adding a user-writable filter without its negative, or hand-writing a `NotFoo` variant instead of reusing `Filter::Not` (invariant 14).
+  The negation is `!` over the positive's matcher; a second matcher drifts, and a negative that drifts deletes results the user cannot see are missing.
+- ❌ Accepting a filter value that can only ever match nothing (an empty tag, an empty `text:`, a dangling `prop: k:`).
+  Harmless on the positive side, silent over-exclusion on the negative side — parse-error it.
 - ❌ Writing the "this isn't available here" wording in a client instead of in the catalog
 - ❌ Marking work "done" without `/check` passing
 - ❌ Re-introducing `"version"` in `crates/outl-mobile/src-tauri/tauri.conf.json` — Tauri must keep falling back to `Cargo.toml` (see `outl-mobile/CLAUDE.md`)

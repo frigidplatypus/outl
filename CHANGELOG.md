@@ -13,6 +13,62 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   **The desktop ships that grid** (`<TableGrid />` + a TypeScript port of the column model in `@outl/shared/markdown`), and the port is pinned against a shared JSON corpus (`crates/outl-md/tests/corpus/table_grid.json`) that the Rust test regenerates: the vitest side fails the moment the two parsers disagree, so the drawer and the port cannot drift.
   The desktop's `Partial` is deliberate and stays open until it mirrors `table_run_len`: a table sitting *inside* other text still shows its raw `| … |` rows there, while the TUI projects a grid over mid-prose and nested runs too. `Capability::MarkdownTable` now reads `Full` / `Partial` / `Missing` (TUI / desktop / mobile), each nudge saying the rows are saved in full.
   `[tui] table_style` grew a second reader: the desktop hydrates the same `open` / `box` pick into its Settings modal's "Table style" select and maps it to JSX framing — `box` a rounded card border, `open` a header rule — the same intent, rendered per medium. Still pure display state, never an op.
+- **`outl trash list` and `outl trash restore <id>` — deleted blocks are readable and recoverable.**
+  Invariant 6 makes delete a `Move(node, TRASH_ROOT)`, "simplifies the algorithm and preserves history". The preserving half has worked since day one; the reading half did not exist, so on a real workspace `outl doctor` could report 683 blocks across 393 deletions and nothing else could name one of them ([#287](https://github.com/outlmd/outl/issues/287)). What the invariant bought was "the bytes are still on disk", which is a much weaker promise than "you can get it back" — the difference between a recycle bin and a deleted file on a drive you have not overwritten yet.
+
+  ```console
+  $ outl trash list
+  393 deletion(s) in the trash
+    01KVWQX6G8MAS26T1BENQ61ET7  asdasdasd
+    01KWEVH8CD7YE79RD2AZAJPT5C  dkfjdskjf
+        cannot restore 01KWEVH8CD7YE79RD2AZAJPT5C: the block it was deleted from (01KWEVH5EVX4A533ER9SYBCW8R) is in the trash too — restore 01KWEVH5EVX4A533ER9SYBCW8R first
+  ```
+
+  Also `outl_trash_list` / `outl_trash_restore` over MCP, because an agent that can delete a block should be able to undo it.
+
+  **Where a block came from is folded from the op log, never read off `Move.old_parent`.** That field is the originating replica's local derivation for `undo_op` — on the reference workspace 65,141 of 65,703 stored `Move`s name `root` regardless of where the block actually was, and an append-only log never rewrites them. `trash::parent_at_deletion` is the single owner of that fold, and `timeline::came_from` now calls it instead of keeping its own. The old copy answered with the *first* page a block was ever deleted from, which was harmless only because nothing could restore a block and delete it somewhere else; shipping `restore` made that reachable, so it is pinned by `a_deletion_is_attributed_to_the_page_the_block_left_last`.
+
+  **The listing and the mutation share one verdict** (`trash::refusal_for`). A listing that decided "restorable" for itself is a second owner of the rule, and it drifts towards promising a restore that then fails — the same shape invariant 8 applies to which pages are safe to overwrite.
+
+  **A restored block lands as the last child**, not in the slot it held: `Move.old_position` carries the same caveat as `old_parent`.
+
+  **Two things are deliberately absent.** Restoring a **page** needs a re-projected `.md` on top of the `Move`, and 16 of the 18 deleted pages on that workspace have their slug taken by a live page today — inventing a free slug would make this a second owner of the slug rule, so it refuses and points at `outl block tree <id>` (`outl page history` resolves only live slugs, so it cannot find a deleted page and shows the replacement's history when the slug was reused). And there is no **`trash empty`**: it is the only operation here that actually destroys, so it belongs with op-log compaction ([#110](https://github.com/outlmd/outl/issues/110)). Retention is "forever until that lands", which is a policy — `docs/cli.md` now states it rather than leaving it to be inferred.
+
+  No client has a trash surface yet. That is recorded as `Capability::Trash` rather than left to be discovered, and it needed a new mechanism: `no_capability_is_out_of_reach_on_every_client` is right that a capability nobody reaches is normally a feature that does not exist, so a CLI-only capability is a declared row in `outl_shortcuts::CLI_ONLY` with its reason — the shape `outl-tauri-shared`'s `DECLARED_GAPS` already uses — instead of a weakened assertion.
+
+  Measured against the 393 deletions on that workspace: 286 restorable, 89 refused for a trashed parent, 18 refused as pages.
+
+  **Two things the fold has to get right that are not obvious.** Invariant 4 keeps a `Move` the tree **refused as a cycle** in the op log, so a fold that replays `new_parent` unconditionally disagrees with the tree on exactly those ops, and whether one was refused depends on the tree **when it ran**: `Move(A, B)` with `B` under `A`, then `B` moved away, leaves nothing in today's tree to say so, and a check against it restored `A` under `B`. The fold replays each placement against the ancestors its target had at that instant, the way `do_op` decided it. And `refusal_for` proves the node is in the trash before it folds, so an empty fold could not keep answering "this block is not in the trash": that contradiction is `TRASH_ORIGIN_UNKNOWN` now, which also separates a damaged log from a parent that is merely gone. Pinned by `a_move_the_tree_refused_as_a_cycle_never_becomes_the_origin`, `a_move_refused_into_a_descendant_stays_refused_after_the_descendant_leaves` and `a_block_the_log_cannot_place_is_not_reported_as_untrashed`.
+
+- **Every ` ```query ` filter now has a negative: `not-status`, `not-tag`, `not-prop`, `not-kind`, `not-since`, `not-text`.**
+  The DSL could only say what a block *is*. A workspace with a `#someday` / `#backlog` parking lot mixed into live notes had no way to write "open work tasks, minus the parked ones" — every directive was a positive containment check, implicitly ANDed ([#323](https://github.com/outlmd/outl/issues/323)).
+
+  ````markdown
+  - ```query
+    status: todo
+    tag: work
+    not-tag: research
+    not-tag: someday
+    not-prop: status: parked
+    sort: page, status
+    ```
+  ````
+
+  **There is one negative filter, not six.** `not-<key>` is parsed by parsing `<key>` and wrapping the result in `Filter::Not`, which the engine answers with a single `!` over the positive's own arm. So a fence carrying `tag: x` and `not-tag: x` returns nothing — not because two implementations were kept in step, but because there is only one. Two implementations of "has tag x" drift, and the half that drifts is always the one that silently removes results: a user never sees a block that is missing.
+
+  The shape also means a **future** directive arrives negatable. Add the variant and its match arm and `not-<key>` is live; a hand-written `NotFoo` variant is the thing to refuse in review. `sort` and `limit` are not filters, so `not-sort` is rejected as an unknown key. Pinned by `no_filter_and_its_negation_can_both_match`, which iterates the whole `Filter` set rather than the two that shipped first.
+
+  **`not-since:` is the one that reads oddly**, and deliberately so: `since: 7d` means "a journal dated within 7 days", so its exact complement includes every ordinary page. Read it as `!since`, not as "older than"; pair it with `kind: journal` for the latter.
+
+  **`prop:` shipped in the same change**, and `BlockEntry` now carries the block's `key:: value` pairs (both index population paths already had them; this is a copy, not a second parse). A negation with no positive counterpart is a filter whose complement cannot be written — you could *exclude* every block carrying a `status::` and not *select* one.
+
+  **`prop: key` matches any value; `prop: key: value` narrows.** A dangling colon (`not-prop: status:`) is a parse error, not a wildcard, and so is `not-tag:` with no name. Reading either as "match anything" turns one typo into a filter that drops the workspace, and prints no reason.
+
+  Wired through every surface, with the same one-negative-per-filter rule: the CLI (`--not-tag`, `--not-prop`, `--not-kind`, `--not-since`, `--not-priority`), the MCP tool (`not_tags`, `not_props`, `not_kind`, `not_since`, `not_priority`), the JS/plugin SDK (`outl.query({ notStatus, notTag, notProp, notKind, notSince, notText })`), and `QueryParams`.
+
+  **The CLI and MCP pair filters pages, not blocks, and they are a different matcher — deliberately.** `outl query --tag=ops` asks whether the page's subtree mentions `#ops` exactly and case-sensitively; the fence's `tag: ops` also answers for `#ops/deploy` and ignores case. A property filter is spelled `key=value` on the CLI and `key: value` in a fence. What holds on *both* is the law that matters: each negative is the exact complement of the positive **on its own surface**, so `--tag=x --not-tag=x` returns nothing and so does `tag: x` + `not-tag: x`.
+
+  **Every way of writing one of these filters that could not possibly match now fails loudly**, because the direction a negative filter fails silently is the one that hands back the rows you asked to hide. Rejected: an empty tag or an empty `text:` needle on any surface; a tag name outside the tokenizer's alphabet (`not-tag: research # parked` has no trailing comment in this DSL, so the whole tail was the name); a property filter with an empty value; the fence's `key: value` separator passed to the CLI's `key=value` flag; a non-string entry in an MCP `not_tags` / `not_props` array, and a non-string `tag`, both of which used to drop the filter and return the workspace. `--tag '#work'` and `not-tag: #work` are accepted — the hash is how the tag is spelled everywhere the user sees it.
 - **"Open With → outl" on the desktop — a `.md` or `.txt` from anywhere becomes a page.**
   Right-click a file in Finder / Explorer / a Linux file manager, pick outl, and the file lands as a page titled `open-in/<file name>`, built out of ordinary ops like everything else. `bundle.fileAssociations` registers the four extensions with `role: "Viewer"` and `rank: "Alternate"` — outl **imports a copy and never writes back to the file**, and it must not quietly become the system handler for every `.txt` on the machine.
 
@@ -27,6 +83,25 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   **Three platforms, three deliveries, one destination.** macOS sends an Apple Event (`RunEvent::Opened`); Linux and Windows send `argv`, cold via `std::env::args()` and warm via `tauri-plugin-single-instance`. Two details that are easy to get wrong and are pinned by tests: `RunEvent::Opened` is *also* where `outl://` deep links arrive on macOS, so the router keeps only `file://` (otherwise a deep link navigates twice — once from the plugin, once from here); and a cold-start file arrives before the frontend has a listener, so it is buffered exactly like a cold-start deep link ([#98](https://github.com/outlmd/outl/issues/98)) rather than emitted into nothing.
 
   **Mobile registers the command and has no way to be handed a file** — no share-sheet or document-type association is declared — and that gap is now a recorded fact rather than a discovery: `Capability::OpenExternalFile` in `outl_shortcuts::capability_support`, which is an exhaustive `match`, so the three clients had to declare a verdict before this compiled (root `CLAUDE.md` invariant 12). The TUI's verdict is `NotApplicable`: a file manager has no terminal process to hand a file to.
+
+- **Monochrome Nerd Font icons in the TUI, opt-in via `[tui] icons = "nerd-font"`.**
+  Every TUI icon — footer chips, fold markers, sidebar glyphs, palette/property/command glyphs — used to render as a colour emoji, with no way to turn that off.
+  Some terminals (alacritty without `font-emoji`, kitty in some configs, most tmux setups) either render them as broken boxes, double them with the surrounding text, or pick a fallback that disagrees with the rest of the UI's typography.
+  There was no supported way to get a compact monochrome outline.
+
+  `[tui] icons` now selects between two sets shipped from one `IconSet` in `outl-tui::icons`:
+  `"emoji"` (the default, byte-for-byte what the TUI rendered before) and `"nerd-font"` (Font Awesome 4 + Material Design codepoints from any patched font).
+  The selection is read once at boot in `runtime::run`, propagated to `App::icons`, and threaded through every view module that renders a glyph.
+  `property_glyph`, `category_glyph`, `command_glyph` and `fold_span` are now methods on `IconSet`, so a per-view "which glyph does this role take" question can no longer be answered twice.
+
+  **Emoji mode is pinned to upstream's literals by an exhaustive test** (`emoji_preserves_the_pre_iconset_glyphs`) that asserts every field value AND every `property_glyph` / `category_glyph` / `command_glyph` arm returns the byte sequence the pre-IconSet code returned.
+  The `📅`/`📆` and `🕐`/`🕒` pairs are split into `calendar`/`week` and `clock`/`stamp` fields for exactly that reason — the Emoji set must keep them distinct (the upstream `/week*` and `/stamp` commands render different glyphs from `/date*` and `/time*`), even though Nerd Font collapses each pair to one codepoint.
+  The mirror test (`nerd_font_uses_only_pua_glyphs`) walks every nerd field and refuses anything outside the three Unicode PUA planes, so a future contributor cannot quietly drop a colour emoji back into the Nerd Font set.
+  The same exhaustive `match` shape on a new Tauri command or wire DTO is what makes those safe; this is the same discipline applied to glyphs.
+
+  The desktop settings modal had a sibling defect on the way out — saving it stomped the `[tui]` block out of the global config because `TuiCfg` was not part of its round-trip.
+  The same hole existed for `[snapshot]` and `[storage]`, neither of which the modal models either: a save silently reset a hand-set boot-cache policy or op-log LRU cap to the defaults.
+  All three are now restored from disk on save, pinned by the extended `save_restores_the_sections_the_desktop_never_models` test.
 
 - **`UX.md` — the behaviour half of the design specification.**
   `DESIGN.md` was carrying two documents. One of them answered *what it looks like* — roles, tokens, spacing, elevation — and the other, scattered through the Components, Do's-and-Don'ts, Platform-divergence and Accessibility sections, answered *what happens*: what a `Missing` verdict promises the user, why a nudge may not say "unimplemented", why a chord with no handler is worse than an error. The second document had no name, so nothing linked to it and every new interaction rule landed wherever it fit.
@@ -167,7 +242,73 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   The UI is the door for people who don't know the syntax, not a replacement for it.
   ([#13](https://github.com/outlmd/outl/issues/13))
 
+- **A markdown pipe table is now one block, drawn as a grid in the TUI ([#329](https://github.com/outlmd/outl/issues/329)).**
+  A table pasted from a README or a docs page had no home in the outline grammar — no `- `, no `key:: value` — so every one of its lines fell through to the depth-0 recovery arm and became an orphan block, with an `UnrecognizedBlockMarker` warning per row and a wall of `|` glyphs where a grid should sit.
+  `outl-md` now recognises a column-0 table run (`header + |---|` delimiter + data rows) and folds the whole run into one block whose `text` is the rows `\n`-joined — the shape a fenced code block already uses — so the collapse is a fixpoint through the existing continuation path and the parse banner stays quiet.
+  Storage stays byte-verbatim; only the renderer reads a grid.
+  Alignment is derived from the delimiter row at draw time and never written back (invariant 7); ragged rows pad/truncate to the header's column count rather than being refused and split back into per-line blocks.
+  Recognition is conservative on purpose — a table glued to a bullet, nested under a block, or a paragraph whose second line carries a `|` stays ordinary block text — and a table living inside a block is still not its own node: the TUI projects a grid over the run at draw time (`outl_md::table_run_len`) and leaves the surrounding prose as prose.
+  `[tui] table_style = "open" | "box"` (default `open`) frames a *standalone* table with a top border, side walls, and a bottom border; a nested run always stays open so a wall never lands on the carrying block's content column.
+  Pure display state, read once at boot — never an op.
+  Desktop and mobile still show the raw pipe rows, and that gap is recorded rather than discovered: `Capability::MarkdownTable` is `Full` on the TUI, `Missing` on both GUI clients with a nudge that the rows are saved in full.
+  Reasoning and rejected alternatives: [RFC 0329](docs/rfcs/0329-markdown-pipe-tables.md).
+
 ### Fixed
+
+- **Desktop showed a `🖼️ name` chip where an inline image should have been ([#322](https://github.com/outlmd/outl/issues/322)).**
+  `MarkdownInline`'s `variant` flag was answering two questions with one value.
+  `variant="inline"` is what gives the desktop its TUI-style underlined refs and tags instead of mobile's pill chips, and the `image` arm read that same flag to decide whether an asset may take a block of its own.
+  The main outline row wants the first and not the second, so every image on desktop collapsed to a chip.
+  Mobile passes no `variant` at all, which is the only reason it rendered the picture, and `docs/markdown-format.md` has said "Desktop and mobile show an `<img>`" the whole time.
+
+  A `blockAssets` prop carries the second question on its own now.
+  It defaults to what the variant used to imply, so the contexts that genuinely cannot hold a block image (backlinks, embedded subtrees, breadcrumbs) keep their chip without passing anything.
+  Reported by [@jes-carr](https://github.com/jes-carr), fixed by [@DYNOSuprovo](https://github.com/DYNOSuprovo).
+
+- **The Insert-mode caret pushed every character to its right one column over in the TUI ([#320](https://github.com/outlmd/outl/issues/320)).**
+  `emit_row_with_cursor` drew the caret as a literal `▏` span spliced *between* two characters of the block's text.
+  A terminal is a cell grid and a glyph costs a cell, so the tail of the line sat one column right of where it really was, and walked back and forth by one as the cursor moved through the text.
+  The row was also one cell wider than the text, so a block near the pane edge wrapped a character earlier while it was being edited than it did the moment Esc was pressed.
+
+  The caret marks the character it sits before now — `cursor_caret_fg` plus an underline, on the cell that is already there.
+  Nothing is inserted, so nothing moves.
+  The underline is doing real work rather than decorating: `cursor_caret_fg` is a foreground colour, and a foreground colour paints nothing on a space, which is exactly where a caret in prose spends much of its time.
+
+  Past the end of the line there is no character to mark, so the `▏` stays there.
+  It has nothing to its right to shift, which is also why the overlay inputs (command palette, search, `key:: value` rows) keep theirs: `PropertyEdit` has no cursor column at all, so those carets are always past the last character.
+
+  The Normal-mode block cursor never had the bug — it inverts the character under it rather than adding one — which is why the report is specific to Insert.
+
+  **Making the caret a text cell handed it a second set of rules, and the first version of this fix broke against them.**
+  `view::wrap` treats a space as a separator it may discard: absorbed at a wrap boundary so the next row doesn't lead with a blank, and trimmed off the end of a row that just pushed a word down.
+  That was sound while the caret was its own glyph.
+  The moment the caret *became* the cell, a caret parked on a space near a wrap boundary was thrown away and the user saw no cursor at all — columns 9 and 19 of a 43-cell block in a 16-cell pane, found by walking every column rather than picking one.
+  `push_wrapped` now takes the style the cursor cell was painted with, so it can tell a load-bearing space from a separator.
+  A blanket "a styled space is never a separator" rule was the wrong shape: it would also catch the spaces inside `**bold**`, `` `code` `` and `[[a page ref]]`, which really are separators.
+  The same protection fixes the Normal-mode block cursor, which had the bug quietly before this change since it too paints a space in place.
+
+  Two things deliberately not fixed, named so they are recorded rather than discovered:
+
+  The caret styles a single `char`, not a grapheme cluster.
+  Parked on a zero-width continuation code point — a combining accent, a ZWJ inside an emoji sequence — it paints a zero-width cell and disappears.
+  Arrow keys step per `char`, so the position is reachable.
+  The old `▏` was visible there, at the price of splitting the cluster it was drawn inside.
+  Closing this properly needs grapheme segmentation, which is not a dependency of this workspace.
+
+  And the caret is still painted by outl into the cell grid rather than handed to the terminal via its real cursor.
+  A native cursor would blink and take the shape the user configured.
+  Getting there means locating the caret's screen coordinates *after* wrapping and scrolling, and arbitrating the one terminal cursor between the outline and every overlay that draws its own.
+
+- **Block properties sat two columns to the left of the block they belong to in the TUI ([#319](https://github.com/outlmd/outl/issues/319)).**
+  A bullet row spends four cells between the indent guides and the text: two for the fold slot (`▼ ` / `▶ ` / blank) and two for the `- ` bullet. Continuation rows mirrored that; property rows padded two, so a `priority:: high` landed under the fold marker instead of under the block's own text.
+
+  There were three copies of that measurement and they had drifted in three directions, so the fix is one module rather than one patched line. `view::row_chrome` owns the fold slot, the `auto-run::` marker, the pad, and the whole `key:: value` row; the outline and the backlinks mini-outline both call into it.
+
+  **Two more bugs fell out of writing the test for the first one.** `⚡` measures two cells and the pad reserved one, so every continuation row of an `auto-run::` block was a column short — the glyph is a named constant now and a test pins the pad to its measured width. And the backlinks copy never drew the `property_glyph` at all, so the same `remind::` showed a `⏰` in the outline and nothing in the backlinks pane, with no test that could notice.
+
+  **A property row wraps now.** It was pushed as a bare `Line`, and the outline's `Paragraph` has no `.wrap()` (deliberately — wrapping after layout desyncs the scroll index), so a long `template::` was clipped at the right edge with nothing to indicate it. It goes through the same `push_wrapped` every block row uses, with the glyph in the `head` so a wrapped value re-indents under the key.
+
+  Still open, and deliberately: the glyph sits inline before the key, so a block carrying both `remind::` and `priority::` has its two keys in different columns. Moving the glyph into the fold slot would need one width for `▶ ` (two cells) and another for `⏰ ` (three), and reserving the slot for everyone would cost three dead cells on every property row of every block.
 
 - **A `lua` code block could run arbitrary shell, and no interpreter honoured its timeout ([#278](https://github.com/outlmd/outl/issues/278), [#279](https://github.com/outlmd/outl/issues/279)).**
   `runtimes/lua.rs` built its interpreter with `Lua::new()`, which loads mlua's `StdLib::ALL_SAFE` — and "safe" there means *memory-safe*, not sandboxed. It excludes `debug` and `ffi` and **includes** `os` (which carries `execute`), `io` and `package`. So a fenced ` ```lua ` block had a shell, arbitrary file read and write, and `getenv`, in 7ms:
@@ -235,7 +376,23 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
   `apply` now stores what the tree recorded. The values already on disk stay wrong, because the log is append-only, so readers must keep deriving from the fields describing an op's own effect.
 
+### Fixed
+
+- **`since: 3м` in a ` ```query ` fence panicked instead of reporting an unknown unit.**
+  The parser split the value on its last *byte* (`v.len() - 1`), which is not a character boundary when the unit is multi-byte. `query` carries `auto_run() == true`, so the panic fired on every load of the page holding the fence, inside the TUI event loop or `outl mcp serve` — not on a path anything could catch. It now splits on the last character and reports `since: unknown unit 'м'`.
+
 ### Changed
+
+- **`tag:` in the ` ```query ` DSL now stops at the tag boundary.**
+  It matched by substring on the block's folded text, so `tag: ops` also hit `#opsec` and `#ops-team`. That was over-inclusive and harmless on its own — an extra row in a result list — but `not-tag:` is the same predicate with a `!` in front, and over-inclusive negated is **silent over-exclusion**: `not-tag: work` would have deleted every `#workflow` block from the answer with nothing on screen to notice. Fixing one side and not the other was not an option; fixing the negative alone would have broken the complement law.
+
+  The new behaviour is what `docs/query.md` always documented: `#ops/deploy` matches `tag: ops`, `#opsec` does not. It is case-insensitive like the rest of the DSL. `outl_md::tag::text_contains_tag_or_child` is the single owner — a sibling of `text_contains_tag`, which stays exact and case-sensitive for backlinks and tag counting. The cached `text_fold` is still the first gate (a boundary match is a subset of a substring match), so a filter that auto-runs on every page load almost never reaches the tokenizer.
+
+  **A query relying on the old substring behaviour narrows.** `tag: op` no longer answers for `#ops`; spell the tag, or its parent namespace, in full.
+
+- `outl query --prop` accepts a bare `key` (matching any value) alongside `key=value`, so `--not-prop key` has a positive counterpart. `key=` with an empty value is now rejected with `INVALID_ARG` instead of comparing against the empty string.
+
+- `outl query --tag` / `outl page list --filter tag:` accept a leading `#`. `--tag '#work'` used to match nothing, silently.
 
 - **MCP tool replies are projected for an LLM, cutting a call's payload by roughly half to four fifths.**
   Every successful `tools/call` used to send its payload **twice**: once as a `{ ok, data, error }` envelope in `structuredContent`, and again in `content[0].text`. For 37 of the 41 tools that second copy was pretty-printed JSON. The four markdown-shaped ones (`outl_page_render`, `outl_export_md`, `outl_daily_today`, `outl_daily_get`) already flattened their text to the `md` field, so they paid for the envelope rather than for a second JSON blob. On top of all of it, every outline node carried `tokens`, a pre-tokenized inline AST that exists so the Tauri renderers do not need their own inline tokenizer, and which restates `text` an LLM already has.

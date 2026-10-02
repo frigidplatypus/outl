@@ -532,8 +532,8 @@ pub(crate) struct AutocompleteState {
     pub(crate) selected: usize,
 }
 
-/// Application state.
 pub(crate) struct App {
+    pub(crate) icons: crate::icons::IconSet,
     pub(crate) workspace_root: PathBuf,
     pub(crate) workspace: Workspace,
     pub(crate) hlc: HlcGenerator,
@@ -747,7 +747,7 @@ pub(crate) struct App {
     /// Whether a **standalone** pipe table is drawn inside a full box
     /// (top border, side walls, bottom border) rather than the open
     /// header + rule + rows grid. Loaded from `[tui] table_style` at
-    /// boot (`runtime.rs`); `true` for `box`, `false` for `open`. A pure
+    /// boot (`runtime/mod.rs`); `true` for `box`, `false` for `open`. A pure
     /// display preference — it never goes through the op log. A table
     /// sitting inside prose is always open regardless of this flag, so
     /// the box's side walls never collide with the carrying block's

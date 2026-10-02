@@ -16,11 +16,13 @@
 
 mod backlinks;
 mod chrome;
+mod embed;
 mod inline;
 mod namespace;
-mod outline;
+pub(crate) mod outline;
 pub(crate) mod overlays;
 mod properties;
+pub(crate) mod row_chrome;
 mod sidebar;
 mod table;
 mod toasts;
@@ -45,8 +47,8 @@ pub(crate) use overlays::HELP_TABS;
 
 // Re-export the single-embed predicate so the actions layer can tell a
 // query-result row (a block that *is* one `!((blk-…))` token) apart from
-// an ordinary block, without reaching into the private `outline` module.
-pub(crate) use outline::embed_only_handle;
+// an ordinary block, without reaching into the private `embed` module.
+pub(crate) use embed::embed_only_handle;
 
 pub(crate) fn render_app(f: &mut ratatui::Frame<'_>, app: &mut App) {
     let area = f.area();

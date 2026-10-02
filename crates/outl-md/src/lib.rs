@@ -49,13 +49,17 @@ pub use atomic::{read_for_rewrite, write_atomic};
 pub use block_index::{BlockEntry, BlockIndex, BlockReference, IdentifiedNode};
 pub use diff::{diff_to_ops, DiffPlan};
 pub use emoji::{is_valid_shortcode, search as search_emoji, shortcode_to_unicode, EmojiHit};
+pub use frontmatter::{
+    frontmatter_line_count, render_frontmatter, split_frontmatter, split_frontmatter_counted,
+    PAGE_FRONTMATTER_KEY,
+};
 pub use index::{PageEntry, WorkspaceIndex};
 pub use inline::{
     byte_index_for_char, link_at_cursor, plain_text, ref_at_cursor, tokenize, tokenize_owned,
     InlineTok, InlineToken, RefTarget,
 };
 pub use matching::{match_blocks, Match, MatchLevel};
-pub use parse::{parse, OutlineNode, ParseWarning, ParseWarningKind, ParsedPage};
+pub use parse::{parse, parse_fragment, OutlineNode, ParseWarning, ParseWarningKind, ParsedPage};
 pub use reconcile::{
     reconcile_dir, reconcile_md, reconcile_md_with_guard, ReconcileError, ReconcileReport,
 };
@@ -69,6 +73,6 @@ pub use sidecar::{
 };
 pub use slug::{slugify, UNTITLED_SLUG};
 pub use table::{parse_table_block, table_from_node, table_run_len, Align, Table};
-pub use tag::text_contains_tag;
+pub use tag::{text_contains_tag, text_contains_tag_or_child};
 pub use unlogged::content_lines_missing_from;
 pub use view::{block_to_rows, char_to_line_col, header_level, BlockRow, BlockRowKind};

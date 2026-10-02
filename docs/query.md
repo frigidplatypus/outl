@@ -39,10 +39,10 @@ Blank lines and `#`-prefixed comments are ignored.
 | Key | Example | Description |
 |-----|---------|-------------|
 | `status` | `status: todo` | Filter by task state: `todo` (not started), `doing` (started), `done` (completed), or `open` (**any** task, DONE included) |
-| `tag` | `tag: ops` | Block text contains `#ops` (partial match — `#ops/deploy` matches `tag: ops`) |
-| `not-tag` | `not-tag: western` | Block text does **not** contain `#western` (partial match, same as `tag`) |
-| `prop` | `prop priority: high` | Block has property `priority` with value `high` (case-insensitive). Also accepts `prop priority high` (space instead of colon) |
-| `not-prop` | `not-prop: status` | Block does **not** have property `status` (any value). Also accepts `not-prop: status: done` to exclude a specific key-value pair |
+| `tag` | `tag: ops` | Block carries `#ops` or a tag nested under it (`#ops/deploy` matches; `#opsec` does not) |
+| `not-tag` | `not-tag: western` | Block does **not** carry `#western` or a tag nested under it. Same boundary match as `tag` |
+| `prop` | `prop: status` | Block carries the property `status::`. `prop: status: done` narrows it to one value (keys and values case-insensitive) |
+| `not-prop` | `not-prop: status` | Block does **not** carry the property `status` (any value). `not-prop: status: done` excludes one value |
 | `before` | `before: due +7d` | Property `due` is a date strictly before the threshold. Value may be an ISO date (`2025-12-01`), `today`, `tomorrow`, `yesterday`, or a relative offset (`+7d`, `-2w`, `+1m`). Also accepts `before: due: +7d` (colon between key and date) |
 | `after` | `after: deadline today` | Property `deadline` is a date strictly after the threshold. Same value grammar as `before` |
 | `page` | `page: inbox` | Block lives on page with slug `inbox` |
@@ -51,6 +51,46 @@ Blank lines and `#`-prefixed comments are ignored.
 | `text` | `text: deploy` | Substring in block text (case-insensitive) |
 | `sort` | `sort: page, due` | Sort criteria, applied left-to-right. Keys: `page`, `status`, `text`, or any property key (sorts by that property's date value; blocks without a parseable date sort last) |
 | `limit` | `limit: 50` | Maximum number of results |
+
+Every **filter** above also exists as `not-<key>`, taking the same values: `not-status`, `not-tag`, `not-prop`, `not-kind`, `not-since`, `not-text`.
+`sort` and `limit` are not filters and have no negative — `not-sort` is rejected as an unknown key.
+
+Every directive is repeatable and every line ANDs, positives included: two `tag:` lines mean "carries both", two `not-tag:` lines mean "carries neither".
+
+### Negative filters
+
+`not-<key>` is the exact complement of `<key>`, and not by convention: the parser reads `not-tag: x` by parsing `tag: x` and wrapping the result, and the engine answers it with one `!`.
+There is no second matcher to disagree with the first, so a fence carrying both `tag: x` and `not-tag: x` returns nothing — for every key, including ones added later.
+
+Repeated lines **exclude more**, they do not widen.
+
+````markdown
+- ```query
+  status: todo
+  tag: work
+  not-tag: research
+  not-tag: future
+  not-tag: someday
+  sort: page, status
+  limit: 100
+  ```
+````
+
+`not-since:` is the one that reads oddly, and it reads oddly because it is honest: `since: 7d` means "a journal dated within 7 days", so `not-since: 7d` means everything else — including every ordinary page, which was never a journal.
+Read it as `!since`, not as "older than". `not-since: 7d` plus `kind: journal` is the one you probably wanted.
+
+Matching stops at the tag boundary on both sides.
+`not-tag: work` drops `#work` and `#work/ops`, and leaves `#workflow` alone — a substring negative would hide live work behind a filter written to hide something else, with nothing on screen to notice.
+
+`prop: key` asks only whether the property is present; `prop: key: value` narrows to one value.
+A dangling colon (`not-prop: status:`) is a **parse error**, not a wildcard: reading it as "any status" would drop far more than the query asked for.
+The `.md` spelling is accepted too, so `prop: status:: done` works.
+
+The same rule covers tags. `not-tag:` with no name is rejected, and so is a name outside the tokenizer's alphabet (letters, digits, `-`, `_`, `/`) — the DSL has no trailing comments, so `not-tag: research # parked stuff` would otherwise build a filter that can never equal a tag and quietly exclude nothing.
+A leading `#` is fine: `not-tag: #research` and `not-tag: research` are the same filter.
+
+`tag:`, `prop:` and `text:` match their values **case-insensitively**: `prop: Status: Done` and `prop: status: done` are the same filter.
+Directive keys and the fixed vocabularies (`status: todo|doing|done|open`, `kind: page|journal`, `sort: page|status|text`) are literal and lowercase; `STATUS: TODO` is a parse error, not a match.
 
 ## Examples
 
@@ -176,6 +216,17 @@ Blank lines and `#`-prefixed comments are ignored.
 
 `sort: due` orders by the `due` property's date ascending; a block without a parseable `due` sorts last.
 
+### Open work tasks, minus the parking lot
+
+````markdown
+- ```query
+  status: todo
+  tag: work
+  not-tag: someday
+  not-prop: status: parked
+  sort: page
+  ```
+````
 ## How results render
 
 The query runtime returns `OutputFormat::Embeds`, which tells the orchestrator to render each result as a child bullet with an embed reference instead of dumping stdout text.
@@ -206,9 +257,10 @@ The source page is saved through the normal reconcile path (stable IDs), then th
 
 | Component | Location | Role |
 |-----------|----------|------|
-| DSL parser | `crates/outl-exec/src/runtimes/query.rs` (`dsl` module) | Line-by-line `key: value` parse into `Query` struct |
-| Execution engine | `crates/outl-exec/src/runtimes/query.rs` (`engine` module) | Filter + sort + limit against `WorkspaceIndex` |
-| Runtime | `crates/outl-exec/src/runtimes/query.rs` (`QueryRuntime`) | Implements `Runtime`, returns `OutputFormat::Embeds`, `auto_run() == true` |
+| DSL parser | `crates/outl-exec/src/runtimes/query/dsl.rs` | Line-by-line `key: value` parse into `Query` struct |
+| Execution engine | `crates/outl-exec/src/runtimes/query/engine.rs` | Filter + sort + limit against `WorkspaceIndex` |
+| Runtime + public API | `crates/outl-exec/src/runtimes/query/mod.rs` | `QueryRuntime` (returns `OutputFormat::Embeds`, `auto_run() == true`) plus `QueryParams` / `run_query_*` |
+| Tag boundary predicate | `crates/outl-md/src/tag.rs` (`text_contains_tag_or_child`) | Single owner of "does this text carry `#tag` or a child of it" |
 | Orchestrator | `crates/outl-exec/src/orchestrate.rs` | Detects `Embeds` format, calls `upsert_result_embeds` |
 | Result rendering | `crates/outl-exec/src/result_block.rs` (`upsert_result_embeds`) | Creates child bullets from stdout lines |
 | Feature flag | `crates/outl-exec/Cargo.toml` (`lang-query`) | On by default in the workspace |
@@ -236,9 +288,14 @@ Planned filters (not yet implemented):
 
 | Key | Description |
 |-----|-------------|
+
 | `group` | Group results by field (`group: page`) |
 
-New filters are `enum Filter` variants in `crates/outl-exec/src/runtimes/query.rs` — one match arm per filter, no parser change needed beyond recognizing the key.
+There is no general boolean grouping, and no OR across positive filters — "tagged `#meeting` **or** `#code-review`" cannot be said in one fence ([issue #323](https://github.com/outlmd/outl/issues/323), open question 3).
+That is a grammar change, not another `Filter` variant, so it is deliberately not bolted onto the flat directive list.
+
+New filters are `enum Filter` variants in `crates/outl-exec/src/runtimes/query/dsl.rs` — one match arm in `engine.rs` per filter, no parser change needed beyond recognizing the key.
+**The negative comes for free and must stay that way.** `not-<key>` parses `<key>` and wraps it in `Filter::Not`, which the engine answers with one `!`, so a new directive ships negatable without extra work. A hand-written `NotFoo` variant is the thing to refuse in review: it is a second opinion about what `foo` means, and the direction it drifts is the one that silently removes results.
 
 ## Date properties
 
@@ -272,6 +329,9 @@ Instead of the DSL string, pass a plain object — both paths converge on the sa
 const tasks = outl.query({
   status: "todo",
   tag: "ops",
+  notTag: ["someday", "future"],
+  notProp: "status: parked",
+  notText: "wontfix",
   sort: "page",
   limit: 50,
 });
@@ -287,10 +347,10 @@ for (const t of tasks) {
 | Field | Type | Description |
 |-------|------|-------------|
 | `status` | `"todo"` \| `"doing"` \| `"done"` \| `"open"` | Filter by task state (`"open"` is any task, DONE included) |
-| `tag` | `string` | Block contains `#tag` (partial match) |
-| `notTag` | `string` | Block does **not** contain `#tag` |
-| `prop` | `[string, string]` | Block has property key=value (case-insensitive) |
-| `notProp` | `[string, string?]` | Block does not have property key (or key=value if second element given) |
+| `tag` | `string` | Block carries `#tag` or a tag nested under it |
+| `notTag` | `string \| string[]` | Block does **not** carry `#tag` (or any of the listed tags) |
+| `prop` | `string \| string[]` | Require each property: `"key"`, or `"key: value"` |
+| `notProp` | `string \| string[]` | Exclude each: `"key"`, or `"key: value"` |
 | `before` | `[string, string]` | Property key is a date strictly before threshold (`"2025-12-01"`, `"today"`, `"+7d"`) |
 | `after` | `[string, string]` | Property key is a date strictly after threshold (same grammar) |
 | `page` | `string` | Block lives on page with this slug |
@@ -299,6 +359,10 @@ for (const t of tasks) {
 | `text` | `string` | Substring search (case-insensitive) |
 | `sort` | `string` | Sort key: `"page"`, `"status"`, `"text"`, or any property key (date-ascending; unparseable sorts last) |
 | `limit` | `number` | Max results |
+
+And one negative per filter, taking the same values: `notStatus`, `notTag`, `notProp`, `notKind`, `notSince`, `notText`.
+`prop`, `notTag` and `notProp` accept a string or an array of strings; the rest take one string.
+A non-string array entry is an error, not a silent drop — dropping one quietly hands back the rows the caller asked to exclude.
 
 All fields are optional — `outl.query({})` returns every block.
 
@@ -326,7 +390,16 @@ use outl_exec::{QueryParams, run_query_structured};
 let params = QueryParams {
     status: Some("todo".into()),
     tag: Some("ops".into()),
+    not_tag: vec!["someday".into()],
+    not_prop: vec!["status: parked".into()],
     ..Default::default()
 };
 let hits = run_query_structured(&params, &workspace_root)?;
 ```
+
+## Not the same thing as `outl query`
+
+The CLI's `outl query` filters **pages**; this DSL filters **blocks**.
+They share a name and not a matcher: `outl query --tag=ops` asks whether the page's subtree mentions `#ops` *exactly and case-sensitively*, while `tag: ops` here also answers for `#ops/deploy` and ignores case.
+A property filter is spelled `--prop key=value` there and `prop: key: value` here, and the CLI's reads the page's **own** `key::` property rather than properties on blocks inside it.
+Each negative is the exact complement of the positive **on its own surface**, which is the guarantee that actually matters — see [`cli.md`](cli.md) for the page-level flags.

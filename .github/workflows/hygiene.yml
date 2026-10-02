@@ -18,9 +18,9 @@ name: Hygiene
 # exists for, and it costs a 2 vCPU runner a few seconds.
 on:
   push:
-    branches: [main]
+    branches: [main, dev, experimental]
   pull_request:
-    branches: [main]
+    branches: [main, dev, experimental]
 
 concurrency:
   group: hygiene-${{ github.ref }}

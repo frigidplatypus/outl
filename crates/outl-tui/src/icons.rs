@@ -1,78 +1,409 @@
-//! Nerd Font glyphs for TUI chrome.
+//! Runtime-selected icons for TUI chrome.
 //!
-//! Every icon is a Font Awesome glyph from the set embedded in any
-//! [Nerd Font](https://www.nerdfonts.com) build (`nf-fa-*`). The TUI
-//! assumes the terminal runs a Nerd Font; on a font without the PUA
-//! cells these render as tofu. That is the deliberate trade for not
-//! shipping emoji in the UI.
+//! Emoji is the default because it works with ordinary terminal fonts.
+//! Nerd Font glyphs are opt-in through `[tui] icons = "nerd-font"`.
 //!
-//! Codepoints verified against the Nerd Fonts 3.5.1 `glyphnames.json`
-//! (`fa-*` entries), which embeds Font Awesome 4 at its original
-//! codepoints.
+//! Scope: every TUI-owned icon — status/footer chips, fold markers,
+//! property/command/palette glyphs. What stays Unicode in both sets by
+//! design: task checkboxes (`☐`/`◐`/`☑`, they mirror the document
+//! state), calendar day dots, scrollbar symbols, and plain geometric
+//! separators (`↪`, `≡`, `✕`, `·`).
 
-/// Journal / calendar (`nf-fa-calendar`).
-pub const CALENDAR: &str = "\u{f073}";
+use crate::theme::Theme;
+use crate::view::row_chrome::FoldMarker;
+use outl_config::TuiIconStyle;
+use ratatui::text::Span;
 
-/// Generic page / file (`nf-fa-file-o`).
-pub const FILE: &str = "\u{f016}";
+/// Icons used by the TUI's own chrome and placeholders.
+///
+/// `calendar`/`week` and `clock`/`stamp` are split so Emoji mode can
+/// preserve the upstream glyphs (`📅`/`📆`, `🕐`/`🕒`) for the
+/// `/date` vs `/week` and `/time` vs `/stamp` commands respectively,
+/// even though Nerd Font collapses each pair to one codepoint.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct IconSet {
+    pub(crate) calendar: &'static str,
+    pub(crate) week: &'static str,
+    pub(crate) file: &'static str,
+    pub(crate) image: &'static str,
+    pub(crate) clock: &'static str,
+    pub(crate) stamp: &'static str,
+    pub(crate) star: &'static str,
+    pub(crate) history: &'static str,
+    pub(crate) bolt: &'static str,
+    pub(crate) search: &'static str,
+    pub(crate) cog: &'static str,
+    pub(crate) paint_brush: &'static str,
+    pub(crate) warning: &'static str,
+    /// Toast accents — one per `ToastKind` arm, so the four states do
+    /// not drift between Emoji and Nerd Font.
+    pub(crate) success: &'static str,
+    pub(crate) info: &'static str,
+    pub(crate) error: &'static str,
+    pub(crate) save: &'static str,
+    pub(crate) clipboard: &'static str,
+    /// Snoozed-reminder chip in the reminders overlay.
+    pub(crate) snooze: &'static str,
+    pub(crate) hashtag: &'static str,
+    pub(crate) bell: &'static str,
+    pub(crate) play: &'static str,
+    /// ATX header level glyphs (`format_header_1`–`_6` in Nerd Font,
+    /// circled digits ①–⑥ as emoji), indexed by `header_level - 1`.
+    /// Drawn in place of the `- ` bullet on a `# …` block so a
+    /// heading's rank reads at a glance.
+    pub(crate) header_levels: [&'static str; 6],
+    /// TODO-progress header chip (`nf-fa-check-square-o`).
+    pub(crate) todo_chip: &'static str,
+    /// Insert-mode footer chip (`nf-fa-circle`).
+    pub(crate) editing: &'static str,
+    /// "saved Ns ago" freshness chip (`nf-fa-refresh`).
+    pub(crate) freshness: &'static str,
+    /// Workspace-name footer chip (`nf-fa-circle-thin`).
+    pub(crate) workspace: &'static str,
+    /// Backlink-count footer chip (`nf-fa-link`).
+    pub(crate) backlinks: &'static str,
+    /// Fold marker before an expanded parent; carries its own padding
+    /// space so columns stay flush (`nf-fa-chevron-down`).
+    pub(crate) fold_open: &'static str,
+    /// Fold marker before a collapsed parent (`nf-fa-chevron-right`).
+    pub(crate) fold_closed: &'static str,
+    /// Help-overlay legend line explaining the two fold markers.
+    pub(crate) fold_legend: &'static str,
+}
 
-/// Clock / time (`nf-fa-clock-o`).
-pub const CLOCK: &str = "\u{f017}";
+impl IconSet {
+    pub(crate) fn new(style: TuiIconStyle) -> Self {
+        match style {
+            TuiIconStyle::Emoji => Self::emoji(),
+            TuiIconStyle::NerdFont => Self::nerd_font(),
+        }
+    }
 
-/// Pinned / star (`nf-fa-star`).
-pub const STAR: &str = "\u{f005}";
+    pub(crate) fn property_glyph(&self, key: &str) -> Option<&'static str> {
+        match key.to_ascii_lowercase().as_str() {
+            outl_md::remind::REMIND_KEY => Some(self.bell),
+            "auto-run" => Some(self.play),
+            "template" => Some(self.clipboard),
+            _ => None,
+        }
+    }
 
-/// Recent / history (`nf-fa-history`).
-pub const HISTORY: &str = "\u{f1da}";
+    pub(crate) fn category_glyph(&self, category: &str) -> &'static str {
+        match category {
+            "Actions" => self.bolt,
+            "Navigation" => "↪",
+            "Search" => self.search,
+            "Settings" => self.cog,
+            "Dates & time" => self.calendar,
+            _ => "•",
+        }
+    }
 
-/// Auto-run / actions (`nf-fa-bolt`).
-pub const BOLT: &str = "\u{f0e7}";
+    /// The fold marker as a styled span, glyph and colour together.
+    /// The `None` arm keeps the two-cell gap so leaf bullets stay
+    /// aligned with their parent's.
+    pub(crate) fn fold_span(&self, marker: FoldMarker, theme: &Theme) -> Span<'static> {
+        match marker {
+            FoldMarker::None => Span::raw("  "),
+            FoldMarker::Expanded => Span::styled(self.fold_open, theme.dim),
+            FoldMarker::Collapsed => Span::styled(self.fold_closed, theme.hint),
+        }
+    }
 
-/// Search (`nf-fa-search`).
-pub const SEARCH: &str = "\u{f002}";
+    pub(crate) fn command_glyph(&self, name: &str) -> &'static str {
+        match name {
+            "run" => self.play,
+            "prop" => "≡",
+            "search" | "find" => self.search,
+            "theme" => self.paint_brush,
+            "open" | "switch" => "↪",
+            "quit" | "q" => "✕",
+            n if n.starts_with("date") || n == "dt" || n == "dy" || n == "dtm" => self.calendar,
+            n if n.starts_with("time") => self.clock,
+            n if n.starts_with("iso") => self.hashtag,
+            n if n.starts_with("week") => self.week,
+            "stamp" => self.stamp,
+            _ => "·",
+        }
+    }
 
-/// Settings (`nf-fa-cog`).
-pub const COG: &str = "\u{f013}";
+    fn emoji() -> Self {
+        Self {
+            calendar: "📅",
+            week: "📆",
+            file: "📄",
+            image: "🖼",
+            clock: "🕐",
+            stamp: "🕒",
+            star: "⭐",
+            history: "🕘",
+            bolt: "⚡",
+            search: "🔎",
+            cog: "⚙",
+            paint_brush: "🎨",
+            warning: "⚠",
+            success: "✓",
+            info: "ℹ",
+            error: "✕",
+            save: "💾",
+            clipboard: "📋",
+            snooze: "💤",
+            hashtag: "🔢",
+            bell: "⏰",
+            play: "▶",
+            header_levels: ["①", "②", "③", "④", "⑤", "⑥"],
+            todo_chip: "☑",
+            editing: "●",
+            freshness: "⟳",
+            workspace: "◌",
+            backlinks: "⇇",
+            fold_open: "▼ ",
+            fold_closed: "▶ ",
+            fold_legend: "              (▼ expanded · ▶ collapsed · synced via op log)",
+        }
+    }
 
-/// Theme / paint (`nf-fa-paint-brush`).
-pub const PAINT_BRUSH: &str = "\u{f1fc}";
+    fn nerd_font() -> Self {
+        Self {
+            calendar: "\u{f073}",
+            week: "\u{f073}",
+            file: "\u{f016}",
+            image: "\u{f03e}",
+            clock: "\u{f017}",
+            stamp: "\u{f017}",
+            star: "\u{f005}",
+            history: "\u{f1da}",
+            bolt: "\u{f0e7}",
+            search: "\u{f002}",
+            cog: "\u{f013}",
+            paint_brush: "\u{f07c0}",
+            warning: "\u{f071}",
+            success: "\u{f00c}",
+            info: "\u{f05a}",
+            error: "\u{f00d}",
+            save: "\u{f0c7}",
+            clipboard: "\u{f0ea}",
+            snooze: "\u{f1f6}",
+            hashtag: "\u{f292}",
+            bell: "\u{f0f3}",
+            play: "\u{f04b}",
+            header_levels: [
+                "\u{f026b}", "\u{f026c}", "\u{f026d}", "\u{f026e}", "\u{f026f}", "\u{f0270}",
+            ],
+            todo_chip: "\u{f046}",
+            editing: "\u{f111}",
+            freshness: "\u{f021}",
+            workspace: "\u{f1db}",
+            backlinks: "\u{f0c1}",
+            fold_open: "\u{f078} ",
+            fold_closed: "\u{f054} ",
+            fold_legend:
+                "              (\u{f078} expanded · \u{f054} collapsed · synced via op log)",
+        }
+    }
+}
 
-/// Warning (`nf-fa-exclamation-triangle`).
-pub const WARNING: &str = "\u{f071}";
+impl Default for IconSet {
+    fn default() -> Self {
+        Self::new(TuiIconStyle::default())
+    }
+}
 
-/// Save (`nf-fa-save`).
-pub const SAVE: &str = "\u{f0c7}";
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Image asset placeholder (`nf-fa-image`).
-pub const IMAGE: &str = "\u{f03e}";
+    #[test]
+    fn emoji_is_the_default_and_contains_no_private_use_glyphs() {
+        let icons = IconSet::default();
+        assert_eq!(icons.calendar, "📅");
+        assert!(icons
+            .file
+            .chars()
+            .all(|ch| !(0xE000..=0xF8FF).contains(&(ch as u32))));
+    }
 
-/// Template / clipboard (`nf-fa-clipboard`).
-pub const CLIPBOARD: &str = "\u{f0ea}";
+    #[test]
+    fn nerd_font_is_explicit() {
+        let icons = IconSet::new(TuiIconStyle::NerdFont);
+        assert_eq!(icons.calendar, "\u{f073}");
+        assert!(icons
+            .calendar
+            .chars()
+            .any(|ch| (0xE000..=0xF8FF).contains(&(ch as u32))));
+    }
 
-/// Snoozed / moon (`nf-fa-moon-o`).
-pub const MOON: &str = "\u{f186}";
+    #[test]
+    fn nerd_font_uses_only_pua_glyphs() {
+        // Nerd Font mode renders nothing the user's font cannot
+        // draw as a single-colour cell. Every codepoint that ships
+        // in this set is in some Unicode PUA plane (BMP PUA,
+        // PUA-A in plane 15, or PUA-B in plane 16), so a terminal
+        // without a Nerd Font shows the well-known "missing box"
+        // glyph rather than a colour emoji.
+        fn in_some_pua(ch: char) -> bool {
+            let cp = ch as u32;
+            (0xE000..=0xF8FF).contains(&cp)
+                || (0xF0000..=0xFFFFD).contains(&cp)
+                || (0x100000..=0x10FFFD).contains(&cp)
+        }
+        let nerd = IconSet::new(TuiIconStyle::NerdFont);
+        for glyph in [
+            nerd.calendar,
+            nerd.week,
+            nerd.file,
+            nerd.image,
+            nerd.clock,
+            nerd.stamp,
+            nerd.star,
+            nerd.history,
+            nerd.bolt,
+            nerd.search,
+            nerd.cog,
+            nerd.paint_brush,
+            nerd.warning,
+            nerd.success,
+            nerd.info,
+            nerd.error,
+            nerd.save,
+            nerd.clipboard,
+            nerd.snooze,
+            nerd.hashtag,
+            nerd.bell,
+            nerd.play,
+            nerd.todo_chip,
+            nerd.editing,
+            nerd.freshness,
+            nerd.workspace,
+            nerd.backlinks,
+            nerd.fold_open,
+            nerd.fold_closed,
+        ] {
+            assert!(
+                glyph.chars().all(|ch| ch == ' ' || in_some_pua(ch)),
+                "nerd glyph must be PUA-only (or a padding space): {glyph:?}"
+            );
+        }
+        for glyph in nerd.header_levels {
+            assert!(
+                glyph.chars().all(in_some_pua),
+                "nerd header glyph must be PUA-only: {glyph:?}"
+            );
+        }
+    }
 
-/// ISO / number (`nf-fa-hashtag`).
-pub const HASHTAG: &str = "\u{f292}";
+    #[test]
+    fn play_routes_through_the_icon_set() {
+        let emoji = IconSet::new(TuiIconStyle::Emoji);
+        assert_eq!(emoji.property_glyph("auto-run"), Some("▶"));
+        assert_eq!(emoji.command_glyph("run"), "▶");
 
-/// Reminder / bell (`nf-fa-bell`).
-pub const BELL: &str = "\u{f0f3}";
+        let nerd = IconSet::new(TuiIconStyle::NerdFont);
+        assert_eq!(nerd.property_glyph("auto-run"), Some("\u{f04b}"));
+        assert_eq!(nerd.command_glyph("run"), "\u{f04b}");
+    }
 
-/// ATX header level 1 (`nf-md-format_header_1`) — drawn in place of the
-/// `- ` bullet on a `# …` block. Levels 2–6 follow contiguously.
-pub const HEADER_1: &str = "\u{f026b}";
+    #[test]
+    fn emoji_preserves_the_pre_iconset_glyphs() {
+        let emoji = IconSet::new(TuiIconStyle::Emoji);
 
-/// ATX header level 2 (`nf-md-format_header_2`).
-pub const HEADER_2: &str = "\u{f026c}";
+        // Every field literal that used to be a hardcoded glyph in
+        // `view/outline.rs` / `view/overlays.rs` / `view/sidebar.rs` /
+        // `view/chrome.rs` / `view/inline.rs` / `view/toasts.rs`.
+        // Reverting any of these is a silent visual regression.
+        assert_eq!(emoji.calendar, "📅");
+        assert_eq!(emoji.week, "📆");
+        assert_eq!(emoji.file, "📄");
+        assert_eq!(emoji.image, "🖼");
+        assert_eq!(emoji.clock, "🕐");
+        assert_eq!(emoji.stamp, "🕒");
+        assert_eq!(emoji.star, "⭐");
+        assert_eq!(emoji.history, "🕘");
+        assert_eq!(emoji.bolt, "⚡");
+        assert_eq!(emoji.search, "🔎");
+        assert_eq!(emoji.cog, "⚙");
+        assert_eq!(emoji.paint_brush, "🎨");
+        assert_eq!(emoji.warning, "⚠");
+        assert_eq!(emoji.success, "✓");
+        assert_eq!(emoji.info, "ℹ");
+        assert_eq!(emoji.error, "✕");
+        assert_eq!(emoji.save, "💾");
+        assert_eq!(emoji.clipboard, "📋");
+        assert_eq!(emoji.snooze, "💤");
+        assert_eq!(emoji.hashtag, "🔢");
+        assert_eq!(emoji.bell, "⏰");
+        assert_eq!(emoji.play, "▶");
+        assert_eq!(emoji.todo_chip, "☑");
+        assert_eq!(emoji.editing, "●");
+        assert_eq!(emoji.freshness, "⟳");
+        assert_eq!(emoji.workspace, "◌");
+        assert_eq!(emoji.backlinks, "⇇");
+        assert_eq!(emoji.fold_open, "▼ ");
+        assert_eq!(emoji.fold_closed, "▶ ");
+        assert_eq!(
+            emoji.fold_legend,
+            "              (▼ expanded · ▶ collapsed · synced via op log)"
+        );
 
-/// ATX header level 3 (`nf-md-format_header_3`).
-pub const HEADER_3: &str = "\u{f026d}";
+        // Property glyphs (was `view::outline::property_glyph`).
+        assert_eq!(
+            emoji.property_glyph(outl_md::remind::REMIND_KEY),
+            Some("⏰")
+        );
+        assert_eq!(emoji.property_glyph("auto-run"), Some("▶"));
+        assert_eq!(emoji.property_glyph("template"), Some("📋"));
+        assert_eq!(emoji.property_glyph("pinned"), None);
 
-/// ATX header level 4 (`nf-md-format_header_4`).
-pub const HEADER_4: &str = "\u{f026e}";
+        // Category glyphs (was `view::overlays::category_icon`).
+        assert_eq!(emoji.category_glyph("Actions"), "⚡");
+        assert_eq!(emoji.category_glyph("Navigation"), "↪");
+        assert_eq!(emoji.category_glyph("Search"), "🔎");
+        assert_eq!(emoji.category_glyph("Settings"), "⚙");
+        assert_eq!(emoji.category_glyph("Dates & time"), "📅");
+        assert_eq!(emoji.category_glyph("Other"), "•");
 
-/// ATX header level 5 (`nf-md-format_header_5`).
-pub const HEADER_5: &str = "\u{f026f}";
+        // Command glyphs (was `view::overlays::command_icon`).
+        assert_eq!(emoji.command_glyph("run"), "▶");
+        assert_eq!(emoji.command_glyph("prop"), "≡");
+        assert_eq!(emoji.command_glyph("search"), "🔎");
+        assert_eq!(emoji.command_glyph("find"), "🔎");
+        assert_eq!(emoji.command_glyph("theme"), "🎨");
+        assert_eq!(emoji.command_glyph("open"), "↪");
+        assert_eq!(emoji.command_glyph("switch"), "↪");
+        assert_eq!(emoji.command_glyph("quit"), "✕");
+        assert_eq!(emoji.command_glyph("q"), "✕");
+        assert_eq!(emoji.command_glyph("date-today"), "📅");
+        assert_eq!(emoji.command_glyph("dt"), "📅");
+        assert_eq!(emoji.command_glyph("dy"), "📅");
+        assert_eq!(emoji.command_glyph("dtm"), "📅");
+        assert_eq!(emoji.command_glyph("time-now"), "🕐");
+        assert_eq!(emoji.command_glyph("iso-date-today"), "🔢");
+        assert_eq!(emoji.command_glyph("week"), "📆");
+        assert_eq!(emoji.command_glyph("week-tag"), "📆");
+        assert_eq!(emoji.command_glyph("stamp"), "🕒");
+        assert_eq!(emoji.command_glyph("anything-else"), "·");
+    }
 
-/// ATX header level 6 (`nf-md-format_header_6`).
-pub const HEADER_6: &str = "\u{f0270}";
+    #[test]
+    fn chrome_and_fold_glyphs_route_through_the_set() {
+        let nerd = IconSet::new(TuiIconStyle::NerdFont);
+        for glyph in [
+            nerd.todo_chip,
+            nerd.editing,
+            nerd.freshness,
+            nerd.workspace,
+            nerd.backlinks,
+            nerd.fold_open,
+            nerd.fold_closed,
+        ] {
+            assert!(
+                glyph
+                    .chars()
+                    .all(|ch| ch == ' ' || (0xE000..=0xF8FF).contains(&(ch as u32))),
+                "nerd chip must be PUA-only: {glyph:?}"
+            );
+        }
+        assert!(nerd.fold_legend.contains('\u{f078}'));
+        assert!(nerd.fold_legend.contains('\u{f054}'));
+    }
+}

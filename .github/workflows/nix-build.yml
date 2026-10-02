@@ -6,7 +6,7 @@ name: Nix Build & Cache
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, dev, experimental]
     paths:
       - 'flake.nix'
       - 'flake.lock'
@@ -18,7 +18,7 @@ on:
       - '.github/workflows/nix-build.yml'
       - '.github/workflows/_nix.yml'
   pull_request:
-    branches: [main]
+    branches: [main, dev, experimental]
     paths:
       - 'flake.nix'
       - 'flake.lock'

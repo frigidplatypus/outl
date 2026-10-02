@@ -20,9 +20,9 @@ use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthChar;
 use unicode_width::UnicodeWidthStr;
 
-use crate::icons;
+use crate::icons::IconSet;
 use crate::theme::Theme;
-use crate::view::outline::FoldMarker;
+use crate::view::row_chrome::{push_body_indent, FoldMarker};
 use outl_md::{Align, Table};
 
 /// Cells painted between columns: a dim vertical bar with one space each
@@ -56,6 +56,7 @@ pub(crate) fn emit_table_lines(
     carries_bullet: bool,
     table: &Table,
     theme: &Theme,
+    icons: &IconSet,
     out: &mut Vec<Line<'static>>,
     text_width: u16,
     box_style: bool,
@@ -73,7 +74,7 @@ pub(crate) fn emit_table_lines(
     let mut widths = column_widths(table, ncols);
     // Two extra columns when boxed: the left and right walls. Fold them
     // into the prefix so `fit_widths` shrinks the cells, not the frame.
-    let prefix_w = prefix_width(indent, has_auto_run) + usize::from(boxed) * 2;
+    let prefix_w = prefix_width(indent, has_auto_run, icons) + usize::from(boxed) * 2;
     let available = if text_width == 0 {
         usize::MAX
     } else {
@@ -84,11 +85,11 @@ pub(crate) fn emit_table_lines(
     let guides: Vec<Span<'static>> =
         std::iter::repeat_n(Span::styled("│ ", theme.dim), indent as usize).collect();
     let first_head = if carries_bullet {
-        bullet_head(bullet_style, has_auto_run, fold, theme)
+        bullet_head(bullet_style, has_auto_run, fold, theme, icons)
     } else {
-        continuation_head(has_auto_run)
+        continuation_head(has_auto_run, icons)
     };
-    let cont_head = continuation_head(has_auto_run);
+    let cont_head = continuation_head(has_auto_run, icons);
 
     if boxed {
         out.push(push_row(
@@ -215,8 +216,9 @@ fn fit_widths(widths: &mut [usize], ncols: usize, available: usize) {
 /// Total display width consumed before the table's own content: the
 /// indent rails plus the fold/bolt/bullet head (a row's bullet head and
 /// continuation head are deliberately the same width).
-fn prefix_width(indent: u32, has_auto_run: bool) -> usize {
-    2 * indent as usize + 4 + usize::from(has_auto_run)
+fn prefix_width(indent: u32, has_auto_run: bool, icons: &IconSet) -> usize {
+    let bolt = if has_auto_run { icons.bolt.width() } else { 0 };
+    2 * indent as usize + 4 + bolt
 }
 
 /// Bullet head for the table's first line, mirroring the outline's
@@ -226,15 +228,11 @@ fn bullet_head(
     has_auto_run: bool,
     fold: FoldMarker,
     theme: &Theme,
+    icons: &IconSet,
 ) -> Vec<Span<'static>> {
-    let mut head = Vec::new();
-    match fold {
-        FoldMarker::None => head.push(Span::raw("  ")),
-        FoldMarker::Expanded => head.push(Span::styled("▼ ", theme.dim)),
-        FoldMarker::Collapsed => head.push(Span::styled("▶ ", theme.hint)),
-    }
+    let mut head = vec![icons.fold_span(fold, theme)];
     if has_auto_run {
-        head.push(Span::styled(icons::BOLT, theme.hint));
+        head.push(Span::styled(icons.bolt, theme.hint));
     }
     head.push(Span::styled("- ", bullet_style));
     head
@@ -243,12 +241,9 @@ fn bullet_head(
 /// Blank head for the rule and data lines, mirroring the outline's
 /// `BlockRowKind::Continuation` head so those columns align under the
 /// header above them.
-fn continuation_head(has_auto_run: bool) -> Vec<Span<'static>> {
-    let mut head = vec![Span::raw("  ")];
-    if has_auto_run {
-        head.push(Span::raw(" "));
-    }
-    head.push(Span::raw("  "));
+fn continuation_head(has_auto_run: bool, icons: &IconSet) -> Vec<Span<'static>> {
+    let mut head = Vec::new();
+    push_body_indent(&mut head, has_auto_run, icons);
     head
 }
 
@@ -373,6 +368,10 @@ mod tests {
         crate::theme::default_theme()
     }
 
+    fn icons() -> IconSet {
+        IconSet::new(outl_config::TuiIconStyle::Emoji)
+    }
+
     fn parse(md: &str) -> Table {
         outl_md::parse_table_block(md).expect("sample must parse as a table")
     }
@@ -393,6 +392,7 @@ mod tests {
             true,
             table,
             &theme(),
+            &icons(),
             &mut out,
             width,
             box_style,
@@ -481,6 +481,7 @@ mod tests {
             true,
             &parse(SIMPLE),
             &theme(),
+            &icons(),
             &mut out,
             0,
             false,
@@ -553,7 +554,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let actor = ActorId::new();
         let ws = Workspace::open_in_memory(actor).unwrap();
-        let app = App::new(
+        let app = App::new_for_tests(
             dir.path().to_path_buf(),
             ws,
             actor,

@@ -213,32 +213,20 @@ fn js_value_to_query_params(
         params.tag = Some(v.to_std_string_escaped());
     }
     if let Some(v) = obj
-        .get(js_string!("notTag"), ctx)
-        .map_err(|e| e.to_string())?
-        .as_string()
-    {
-        params.not_tag = Some(v.to_std_string_escaped());
-    }
-    if let Some(v) = obj
         .get(js_string!("page"), ctx)
         .map_err(|e| e.to_string())?
         .as_string()
     {
         params.page = Some(v.to_std_string_escaped());
     }
-    // prop / before / after: [key, value] — both elements required.
-    if let Some((Some(k), Some(v))) = js_str_tuple(&obj, ctx, "prop") {
-        params.prop = Some((k, v));
-    }
+    // before / after: [key, date] — both elements required. The
+    // date accepts ISO and relative forms, resolved at query-build
+    // time so `+7d` means seven days from now.
     if let Some((Some(k), Some(v))) = js_str_tuple(&obj, ctx, "before") {
         params.before = Some((k, v));
     }
     if let Some((Some(k), Some(v))) = js_str_tuple(&obj, ctx, "after") {
         params.after = Some((k, v));
-    }
-    // notProp: [key] or [key, value] — second element optional.
-    if let Some((Some(k), v)) = js_str_tuple(&obj, ctx, "notProp") {
-        params.not_prop = Some((k, v));
     }
     if let Some(v) = obj
         .get(js_string!("kind"), ctx)
@@ -261,6 +249,21 @@ fn js_value_to_query_params(
     {
         params.text = Some(v.to_std_string_escaped());
     }
+    // A negative that silently vanishes on a bad type runs the
+    // unfiltered query and hands back exactly the rows the caller
+    // asked to hide, so a present non-string value is an error here,
+    // the way `string_list` already treats one in a list.
+    for (key, slot) in [
+        ("notStatus", &mut params.not_status),
+        ("notKind", &mut params.not_kind),
+        ("notSince", &mut params.not_since),
+        ("notText", &mut params.not_text),
+    ] {
+        *slot = optional_string(&obj, key, ctx)?;
+    }
+    params.not_tag = string_list(&obj, "notTag", ctx)?;
+    params.prop = string_list(&obj, "prop", ctx)?;
+    params.not_prop = string_list(&obj, "notProp", ctx)?;
     if let Some(v) = obj
         .get(js_string!("limit"), ctx)
         .map_err(|e| e.to_string())?
@@ -283,6 +286,67 @@ fn js_value_to_query_params(
         }
     }
     Ok(params)
+}
+
+/// Read an optional scalar string field.
+///
+/// Absent (`undefined` / `null`) is `None`; present with any other
+/// non-string type is an error rather than a silent skip.
+#[cfg(feature = "lang-query")]
+fn optional_string(
+    obj: &boa_engine::JsObject,
+    key: &'static str,
+    ctx: &mut Context,
+) -> Result<Option<String>, String> {
+    let val = obj.get(js_string!(key), ctx).map_err(|e| e.to_string())?;
+    if val.is_undefined() || val.is_null() {
+        return Ok(None);
+    }
+    val.as_string()
+        .map(|s| Some(s.to_std_string_escaped()))
+        .ok_or_else(|| format!("outl.query: `{key}` must be a string"))
+}
+
+/// Read a field that accepts either one string or an array of them.
+///
+/// `notTag: "research"` and `notTag: ["research", "future"]` are the
+/// same request with one and three entries; making the caller wrap a
+/// single exclusion in an array would be the kind of papercut the DSL
+/// (repeated `not-tag:` lines) does not have.
+///
+/// Deliberately *not* comma-splitting a string: `notProp` values are
+/// free text and a comma inside one is a value, not a separator.
+#[cfg(feature = "lang-query")]
+fn string_list(
+    obj: &boa_engine::JsObject,
+    key: &'static str,
+    ctx: &mut Context,
+) -> Result<Vec<String>, String> {
+    let val = obj.get(js_string!(key), ctx).map_err(|e| e.to_string())?;
+    if val.is_undefined() || val.is_null() {
+        return Ok(Vec::new());
+    }
+    if let Some(s) = val.as_string() {
+        return Ok(vec![s.to_std_string_escaped()]);
+    }
+    let arr = val
+        .as_object()
+        .filter(|o| o.is_array())
+        .ok_or_else(|| format!("outl.query: `{key}` must be a string or an array of strings"))?;
+    let len = arr
+        .get(js_string!("length"), ctx)
+        .map_err(|e| e.to_string())?
+        .as_number()
+        .unwrap_or(0.0) as usize;
+    let mut out = Vec::with_capacity(len);
+    for i in 0..len {
+        let item = arr.get(i, ctx).map_err(|e| e.to_string())?;
+        let s = item
+            .as_string()
+            .ok_or_else(|| format!("outl.query: `{key}[{i}]` must be a string"))?;
+        out.push(s.to_std_string_escaped());
+    }
+    Ok(out)
 }
 
 /// Convert query hits into a JS array of objects.
@@ -354,6 +418,73 @@ mod tests {
     #[test]
     fn arrow_fn_and_map() {
         assert_eq!(run("[1,2,3].map(n => n * n).join(',')"), "1,4,9");
+    }
+
+    #[cfg(feature = "lang-query")]
+    fn params_from(src: &str) -> Result<super::super::query::QueryParams, String> {
+        let mut ctx = Context::default();
+        let val = ctx
+            .eval(Source::from_bytes(src))
+            .expect("the literal evaluates");
+        js_value_to_query_params(&val, &mut ctx)
+    }
+
+    #[cfg(feature = "lang-query")]
+    #[test]
+    fn a_negative_filter_accepts_one_string_or_a_list() {
+        let one = params_from("({ notTag: 'research' })").unwrap();
+        assert_eq!(one.not_tag, vec!["research".to_string()]);
+
+        let many = params_from("({ notTag: ['research', 'future'] })").unwrap();
+        assert_eq!(
+            many.not_tag,
+            vec!["research".to_string(), "future".to_string()]
+        );
+
+        let none = params_from("({ status: 'todo' })").unwrap();
+        assert!(none.not_tag.is_empty());
+        assert!(none.not_prop.is_empty());
+        assert!(none.prop.is_empty());
+    }
+
+    #[cfg(feature = "lang-query")]
+    #[test]
+    fn a_prop_filter_keeps_the_dsl_spelling() {
+        // One spelling for `key: value` across the DSL, the CLI and
+        // here — a second shape would be a second thing to keep in
+        // sync with the parser.
+        let p = params_from("({ prop: 'status: done', notProp: ['priority'] })").unwrap();
+        assert_eq!(p.prop, vec!["status: done".to_string()]);
+        assert_eq!(p.not_prop, vec!["priority".to_string()]);
+    }
+
+    #[cfg(feature = "lang-query")]
+    #[test]
+    fn a_non_string_entry_is_an_error_not_a_silent_drop() {
+        // Silently ignoring `notTag: [null]` would widen the result
+        // set behind the caller's back.
+        let err = params_from("({ notTag: [1] })").unwrap_err();
+        assert!(err.contains("must be a string"), "got {err:?}");
+        let err = params_from("({ notTag: 7 })").unwrap_err();
+        assert!(err.contains("must be a string"), "got {err:?}");
+    }
+
+    #[cfg(feature = "lang-query")]
+    #[test]
+    fn a_non_string_scalar_negative_is_an_error_not_an_unfiltered_query() {
+        // `notStatus: 7` used to fall through `.as_string()` and run
+        // with no exclusion at all, returning the rows it was meant
+        // to hide.
+        for key in ["notStatus", "notKind", "notSince", "notText"] {
+            let err = params_from(&format!("({{ {key}: 7 }})")).unwrap_err();
+            assert!(
+                err.contains(key) && err.contains("must be a string"),
+                "got {err:?}"
+            );
+        }
+        // Absent and null still mean "no filter".
+        let p = params_from("({ notStatus: null })").unwrap();
+        assert!(p.not_status.is_none());
     }
 
     #[test]

@@ -291,12 +291,11 @@ The grid is owned by [`outl_md::table`] (`parse_table_block` → `Table { alignm
 ```
 | client | renders the grid? |
 |--------|-------------------|
-| TUI | ✅ every table run — whole-block, mid-prose, nested — aligned columns, padded and truncated to the pane, `│` rails in the theme's dim colour |
-| desktop | 🟡 a block that is *only* one table, as an HTML grid (`TableGrid`); a table sitting inside other text still shows the raw `| … |` rows |
-| mobile | ❌ the raw `| … |` rows for now — every row is still saved in full |
+| TUI | ✅ aligned columns, padded and truncated to the pane, `│` rails in the theme's dim colour |
+| desktop / mobile | ❌ the raw `| … |` rows for now — every row is still saved in full |
 ```
 
-Per-client coverage is recorded as [`Capability::MarkdownTable`](client-parity.md) (`Full` on the TUI, `Partial` on the desktop — whole-block only — and `Missing` on mobile until it grows a table renderer; every nudge says the rows are still saved in full).
+Per-client coverage is recorded as [`Capability::MarkdownTable`](client-parity.md) (`Full` on the TUI, `Missing` on the two GUI clients until they grow a table renderer).
 The TUI additionally frames a **standalone** table when `[tui] table_style = "box"` (default `open`): a top border, a `│` wall on each side of every row, and a bottom border, all in the dim colour. A table nested inside prose stays open regardless, so no wall lands on its parent's text. See [config.md → `[tui]`](config.md#tui).
 See [`outl_md::table`] for the recognition predicate and column model, and [RFC 0329](rfcs/0329-markdown-pipe-tables.md) for the parse/render split.
 
@@ -341,7 +340,7 @@ Full syntax, defaults, quiet hours, and which clients deliver: [Reminders](remin
 | `#a/b/c`, `[[a/b/c]]` | Nested tag / page — `a/b/c` lives in the `a/b` namespace, which lives in `a`. Any depth. See [Nested tags and page namespaces](#nested-tags-and-page-namespaces) |
 | `((blk-XXXXXX))` | Block reference — renders as the source block's text, links to it |
 | `!((blk-XXXXXX))` | Block embed — renders the source block expanded with its subtree |
-| `![alt](url)` | Image / embedded asset — renders inline (`<img>` on desktop/mobile, an image/file Nerd Font glyph placeholder in the TUI); `url` is a workspace-relative `assets/<hash>.<ext>` path or a remote URL. See [Asset links](#asset-links-nameassetshashext) |
+| `![alt](url)` | Image / embedded asset — renders inline (`<img>` on desktop/mobile, a `🖼`/`📄` placeholder in the TUI); `url` is a workspace-relative `assets/<hash>.<ext>` path or a remote URL. See [Asset links](#asset-links-nameassetshashext) |
 | `:shortcode:` | GitHub gemoji shortcode — renders as the unicode glyph (`:tada:` → 🎉) |
 | `{{query: ...}}` | Inline query token (legacy — parsed as opaque; use ` ```query ` code blocks instead, see [Query code blocks](#query-code-blocks) below) |
 | `**bold**`, `*italic*` / `_italic_`, `~~strike~~`, `` `code` `` | Standard CommonMark (underscore emphasis rules apply — see below) |
@@ -425,8 +424,8 @@ The reference takes one of two forms, chosen by the file kind:
 ```
 
 - **Images** (`png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `bmp`, `avif`, `ico`, `tiff`, `tif`) use the **embed form `![alt](url)`** and render **inline**.
-  Desktop and mobile show an `<img>`, the TUI shows an image-glyph + alt placeholder (a terminal can't paint pixels).
-- **Every other file** (PDF, anything) uses the **plain link `[name](url)`** and renders as a **file chip** (file glyph + name); activating it opens the file in the OS default app (TUI `g x`, desktop/mobile tap).
+  Desktop and mobile show an `<img>`, the TUI shows a `🖼 alt` placeholder (a terminal can't paint pixels).
+- **Every other file** (PDF, anything) uses the **plain link `[name](url)`** and renders as a **file chip** (`📄 name`); activating it opens the file in the OS default app (TUI `g x`, desktop/mobile tap).
 
 The importers (`outl import roam|logseq|obsidian`) apply the same rule: an imported image lands as `![…]` and renders inline, while other imported files stay `[…]` links.
 The filename stem is the hex SHA-256 of the file's bytes, so re-uploading identical content reuses the same file and reference everywhere.
@@ -505,7 +504,7 @@ The `@`-prefixed link text is what makes the rendered reference visually a menti
 
 - ❌ `id::` lines (Logseq-style) — IDs go in the sidecar
 - ❌ `<!-- block-uid: ... -->` — no HTML comments for metadata
-- ❌ YAML frontmatter (`---`) — page properties use `::` syntax instead
+- ❌ YAML frontmatter (`---`) as outl syntax — use `key:: value`; a fence another tool wrote is [kept verbatim](markdown-frontmatter.md)
 - ❌ `\`\`\`outl` fenced metadata blocks
 
 ### Permissive parsing & warnings
@@ -931,9 +930,12 @@ That same arm also failed to flush held blank lines, so `"a\n\n```…"` lost the
 **Fences are both CommonMark fence characters.**
 `fence::fence_marker` recognises ``` ``` ``` and `~~~`, and the marker travels with the opener (including into the synthetic close) so a fence closes only on its **own** character — the other one inside the body is content.
 Before this, a bullet inside a `~~~` fence became a real block, with an `UnrecognizedBlockMarker` raised against a line the user wrote correctly.
-**A UTF-8 BOM is stripped at the top of `parse`.**
+**A UTF-8 BOM is stripped before anything reads the file.**
 U+FEFF is not whitespace, so `trim` left it glued to the first `- ` and the first line stopped being a bullet: the whole first block was recovered as verbatim text with its marker inside it, and a leading `title::` stopped being a page property the same way.
 Any `.md` written by a Windows editor lost its first block's identity on import.
+`frontmatter::strip_bom` is the single owner of where those bytes end, and it sits next to the fence scan rather than in the parser for a reason: while only the grammar called it, `\u{feff}---` was frontmatter to `parse` and no fence at all to `frontmatter_line_count`, so [the unlogged-content check](#the-outl-sidecar) skipped none of the fence's lines and reported every one of them as content the op log never saw.
+That withholds `last_synced_hash` and refuses every re-projection, permanently — the write that would have dropped the BOM is the same write being refused.
+The same strip runs in `unlogged`, so a BOM'd file with no fence at all (the mark glued to the first bullet) does not read as one unlogged line either.
 
 **Known, unfixed, and deliberately so.**
 All four are convergent and guard-safe — each costs one `Op::Edit` and none can freeze a page — and each would be a grammar decision rather than a bug fix:

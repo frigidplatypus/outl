@@ -230,16 +230,18 @@ impl From<Settings> for Config {
             },
             // `[tui] table_style` IS modelled here — the table framing is
             // a shared preference the modal can set, mirrored onto the
-            // same `[tui]` key the TUI reads at boot. `mouse_capture` is
-            // TUI-only; `save` restores it from disk so a hand-set value
-            // survives a settings write (same pattern as `sync.relay_url`).
+            // same `[tui]` key the TUI reads at boot. `mouse_capture` and
+            // `icons` are TUI-only; `save` restores them from disk so
+            // hand-set values survive a settings write (same pattern as
+            // `sync.relay_url`).
             // (Before `table_style` was modelled this section was claimed
             // restored in a comment but never actually restored — a modal
-            // save silently reset `mouse_capture`. Restoring the one
-            // unmodelled field here closes that.)
+            // save silently reset `mouse_capture`. Restoring the unmodelled
+            // fields here closes that.)
             tui: outl_config::TuiCfg {
                 table_style: parse_table_style(&s.table_style),
                 mouse_capture: false,
+                icons: outl_config::TuiIconStyle::default(),
             },
             // `[snapshot]` is core-managed; the desktop doesn't model it.
             // `save` restores it from disk so a hand-set policy survives a
@@ -318,11 +320,20 @@ fn restore_unmodeled_sections(cfg: &mut Config, on_disk: &Config) {
     cfg.sync.relay_url = on_disk.sync.relay_url.clone();
     cfg.calendar = on_disk.calendar.clone();
     // `[tui] table_style` is modelled in `Settings` (the table framing
-    // control); `mouse_capture` is not, so restore exactly that field
-    // from disk. Restoring the whole section would silently revert the
-    // modal's framing pick — the same mistake the theme-pair test in
-    // `mod tests` guards against.
+    // control); `mouse_capture` and `icons` are not, so restore exactly
+    // those fields from disk. Restoring the whole section would silently
+    // revert the modal's framing pick — the same mistake the theme-pair
+    // test in `mod tests` guards against (a default here also silently
+    // means "emoji").
     cfg.tui.mouse_capture = on_disk.tui.mouse_capture;
+    cfg.tui.icons = on_disk.tui.icons;
+    // `[snapshot]` (boot-cache policy) and `[storage]` are core-managed and
+    // not modeled in the flat Settings; restore them so a modal save can't
+    // silently flip a hand-set snapshot toggle/threshold or storage choice
+    // back to the defaults — the same `[tui]`-style loss these restores exist
+    // to prevent.
+    cfg.snapshot = on_disk.snapshot.clone();
+    cfg.storage = on_disk.storage.clone();
     // `[theme]` (all three fields: `preset`, `preset_dark`, `mode`) is now
     // FULLY modeled in `Settings` — the modal owns the whole pair. Do NOT
     // add a restore-from-disk line for any of them here: that was the
@@ -346,11 +357,21 @@ fn restore_unmodeled_sections(cfg: &mut Config, on_disk: &Config) {
 /// Save the flat wire shape as `config.toml`. Same path
 /// (`~/.config/outl/config.toml`) regardless of where the OS
 /// thinks the app's config directory is.
+///
+/// Errors when the file on disk failed to parse: `outl_config::save`
+/// refuses rather than writing this struct over a config nobody could
+/// read (issue #284). That refusal matters most *here*, because
+/// `restore_unmodeled_sections` copies the unmodelled sections out of
+/// `on_disk` — which, for an unparseable file, is `Config::default()`, so
+/// the preservation below faithfully preserves nothing. The `?` carries
+/// the reason (path + the TOML line) up to `update_settings`, which hands
+/// it to the frontend; the Settings modal shows it in the error toast and
+/// stays open.
 pub fn save(_app_config_dir: &std::path::Path, settings: &Settings) -> anyhow::Result<()> {
     let mut cfg: Config = settings.clone().into();
     let on_disk = outl_config::load();
     restore_unmodeled_sections(&mut cfg, &on_disk);
-    outl_config::save(&cfg)
+    Ok(outl_config::save(&cfg)?)
 }
 
 #[cfg(test)]
@@ -525,4 +546,50 @@ mod tests {
             "a settings save must keep the owner's `managed` directive set"
         );
     }
+
+    /// Regression pin for the `[tui]` section.
+    ///
+    /// The `into()` conversion hardcodes `TuiCfg::default()`, whose
+    /// `icons` is `Emoji`, and the desktop never models `[tui]`. Without
+    /// a restore line in `restore_unmodeled_sections`, every settings
+    /// save silently rewrote a hand-set `icons = "nerd-font"` (and
+    /// `mouse_capture`) back to the defaults — the exact loss the
+    /// `[calendar]` / `[backup]` restores exist to prevent, and worse
+    /// here because the default reads as the user's own opt-in.
+    #[test]
+    fn save_restores_the_sections_the_desktop_never_models() {
+        use outl_config::TuiIconStyle;
+
+        let mut on_disk = Config::default();
+        on_disk.tui.icons = TuiIconStyle::NerdFont;
+        on_disk.tui.mouse_capture = true;
+        on_disk.snapshot.enabled = false;
+        on_disk.snapshot.op_threshold = 500;
+        on_disk.storage.lru_cap = 5_000;
+
+        let mut cfg: Config = Settings::fresh().into();
+        assert_eq!(
+            cfg.tui,
+            outl_config::TuiCfg::default(),
+            "into() must leave [tui] at defaults — the modal does not model it"
+        );
+        restore_unmodeled_sections(&mut cfg, &on_disk);
+
+        assert_eq!(
+            cfg.tui, on_disk.tui,
+            "[tui] is unmodelled by Settings and must be restored from disk — \
+             dropping it wipes the user's icon style and mouse-capture opt-in"
+        );
+        assert_eq!(
+            cfg.snapshot, on_disk.snapshot,
+            "[snapshot] is unmodelled by Settings and must be restored from disk — \
+             dropping it silently flips the boot-cache policy back to the defaults"
+        );
+        assert_eq!(
+            cfg.storage, on_disk.storage,
+            "[storage] is unmodelled by Settings and must be restored from disk — \
+             dropping it silently flips the op-log LRU cap back to the default"
+        );
+    }
+
 }

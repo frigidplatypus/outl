@@ -14,7 +14,7 @@ use outl_core::workspace::Workspace;
 
 use crate::block::{append_block, create_after};
 use crate::error::ActionError;
-use crate::page::{read_text_prop, set_property, KIND_KEY, SLUG_KEY};
+use crate::page::{read_text_prop, set_property, SLUG_KEY};
 use crate::template::list::find_template_by_name;
 use crate::template::vars::{substitute_vars, VarContext};
 use crate::template::{
@@ -243,9 +243,15 @@ fn copy_block_properties(
     let props_to_copy: Vec<(String, PropValue)> = workspace
         .tree()
         .properties_of(source)
+        // Page-model book-keeping goes through `crate::tree`'s predicate
+        // rather than a second spelling of it here: that list had
+        // `page-slug` / `page-kind` and never learned `page-source` or
+        // `page-frontmatter`, and a copy of either onto an instance claims
+        // a provenance the instance does not have. `template` / `params` /
+        // `insert` stay explicit — they are this module's own metadata,
+        // not the page model's.
         .filter(|(k, _)| {
-            *k != SLUG_KEY
-                && *k != KIND_KEY
+            !crate::tree::is_page_model_key(k)
                 && *k != TEMPLATE_KEY
                 && *k != PARAMS_KEY
                 && *k != INSERT_KEY

@@ -44,7 +44,7 @@ This section captures only the **architectural / TUI-specific behaviour** a cont
   Lives in `actions/zoom.rs` (an `impl App` block) and hangs off `App::zoom_stack: Vec<Vec<usize>>` — a stack of **DFS paths**, top = current render root, empty = whole page.
   Path-based (not id-based) because the TUI already navigates the in-flight AST by path via `outl_md::outline_ops`, so the breadcrumb is just a walk down the root path's ancestors (`zoom_breadcrumb`, rendered in `view::chrome::breadcrumb`).
   `selected` / `id_by_flat` stay **whole-page** flat indices; `render_outline` draws only the root subtree but keeps `cursor` counting from the root's whole-page index (`zoom_root_node`), so nothing re-indexes.
-  Navigation is confined to `zoom_root_window()` — `step_forward`/`step_backward` in `actions/nav.rs` clamp to `[start, end)` and don't cross into backlinks while zoomed.
+  Navigation is confined to `zoom_root_window()` — `step_forward`/`step_backward` in `actions/nav/selection.rs` clamp to `[start, end)` and don't cross into backlinks while zoomed.
   Zooming a leaf is allowed (Workflowy shows just that block); `z o` at the page root is a silent no-op.
   **Pure local view state** — never an `Op`, per-device, cleared on every view switch (`load_current_no_autorun` empties `zoom_stack` alongside `focus`).
   A stale root path (block moved/deleted) degrades to the whole page instead of panicking.
@@ -74,7 +74,7 @@ This section captures only the **architectural / TUI-specific behaviour** a cont
   Flips `App::backlinks_newest_first` and persists the choice to `[display] backlinks_order` in `~/.config/outl/config.toml`; no index rebuild, since `sort_backlinks` runs on every read.
   Same pure-display-preference policy as `theme.preset` — it never converges between devices.
   The panel header shows the current direction (`↓ newest (^O)` / `↑ oldest (^O)`).
-  Read once at boot in `runtime.rs` and set post-construction on `App` (mirrors `mouse_capture`'s wiring).
+  Read once at boot in `runtime/mod.rs` and set post-construction on `App` (mirrors `mouse_capture`'s wiring).
   Ordering itself runs through `outl_actions::sort_backlinks` in `App::backlinks_for_slug`, the same function the desktop and mobile clients call.
 - **Mouse capture (opt-in).**
   Set `[tui] mouse_capture = true` in `~/.config/outl/config.toml` to enable `Event::Mouse` handling (`actions/mouse.rs`).
@@ -174,7 +174,15 @@ TUI-specific contracts worth remembering:
   No emoji in chrome — user-set page icons (`icon::` property values) render verbatim and may still be emoji; that content is the user's, not ours.
   Codepoints live in one place (`icons.rs`) and are verified against the Nerd Fonts `glyphnames.json`; don't scatter raw PUA escapes through the view code.
 - Selected block is highlighted with a colored bullet.
-- In Insert mode, a `▏` caret marks cursor position inside the block.
+- In Insert mode the caret **marks the character it sits before** instead of splicing a `▏` into the text, which cost a column and shifted the tail of the line ([#320](https://github.com/outlmd/outl/issues/320)).
+  How it looks (underline, `cursor_caret_fg`, the `▏` past end-of-line) and how to theme it live in [`docs/theming.md`](../../docs/theming.md#tips) — don't duplicate them here.
+  The contracts this crate has to hold up:
+  `Theme::cursor_caret_on_char` is the single owner of the caret style, and it lives in `theme.rs` on purpose, because that file declares itself the owner of the modifier formula and a modifier decided in a view module would be a second owner of it.
+  **A space the cursor sits on is not a separator.**
+  `view::wrap` absorbs and trims spaces at a wrap boundary, which was safe while the caret was its own glyph and stopped being safe the moment the caret became the cell; `push_wrapped` takes the cursor's style so it can tell the two apart.
+  The overlay and property-row inputs keep their trailing `▏` because they are append-only (no `cursor_col` in `PropertyEdit`), so their caret is always past the last character.
+  Recorded gap: the caret styles one `char`, not a grapheme cluster, so on a zero-width continuation code point (combining accent, ZWJ) it paints nothing.
+  Closing that needs grapheme segmentation, which this workspace does not depend on.
 - In Normal mode on the selected block, a block cursor (white bg) sits on the character under `cursor_col`.
 - Other (non-focused) blocks render markdown prettily: `**bold**` shows as bold without asterisks,
   `*italic*` as italic,
@@ -212,13 +220,18 @@ TUI-specific contracts worth remembering:
   DOING shares `theme.todo_open`'s colour rather than claiming a third palette entry — it is unfinished work and the glyph already says which kind.
   Only DONE dims and strikes the body.
   `Ctrl+T` walks `none → TODO → DOING → DONE → none`; in Insert mode `cycle_todo_inline` shifts the caret by the **difference between the two prefixes** (`DOING ` is one wider than its neighbours), never by a constant.
+- **Every row a block owns starts in the block's text column**, and `view::row_chrome` is the only module that decides where that is.
+  `push_body_indent` owns the pad between the `│ ` indent guides and the text (two cells of fold slot, two of `- ` bullet, plus `AUTO_RUN_PAD` when the block carries `auto-run::`); `push_property_row` owns the whole `key:: value` row and calls it.
+  The outline and the backlinks mini-outline both go through those two — they are one measurement, and three separate copies of it is what [#319](https://github.com/outlmd/outl/issues/319) was.
+  Property rows landed under the fold marker, the auto-run pad was one space while `⚡` measures two, and backlinks never drew the `property_glyph` at all, so a `remind::` read differently depending on which pane you saw it in.
+  Property rows wrap through `push_wrapped` like any block row; a long `template::` used to be clipped at the right edge with nothing to say it had been.
 - IDs are **never** shown.
 - Mode tag (`NORMAL`/`INSERT`) appears in the header.
 - **Block text word-wraps to the pane width** (issue #99).
   Terminals don't reflow, and `Paragraph::wrap` can't be used because it expands lines *after* layout and would desync the `selected_line` scroll index.
   So `view::wrap::push_wrapped` emits the wrapped `Line`s up front: the first visual row keeps the bullet/fold `head`, continuations re-indent under the text column, and the `│ ` indent rails repeat on every row.
   Wrapping runs on the already-styled `Span`s (post-tokenization), so a break never splits a `**bold**` token back into literal asterisks.
-  **Cursor rows (Insert / Normal-selected) wrap too** — `emit_row_with_cursor` bakes the caret / block cursor into the row's `Span`s *before* `push_wrapped` runs.
+  **Cursor rows (Insert / Normal-selected) wrap too** — `emit_row_with_cursor` bakes the caret / block cursor into the row's `Span`s *before* `push_wrapped` runs, and returns the style it used so the wrapper can protect that cell (see the caret bullet under Visual conventions).
   Reflowing just carries the cursor onto its wrapped visual row: the char offset was already consumed turning it into a span, so there's nothing left to desync.
   The earlier "cursor rows pass width `0`" workaround was the actual #99 regression: the selected block stayed on one overflowing line and only wrapped once the cursor left it (`viewing mode won't wrap until I navigate away`).
   `text_width == 0` is still the "don't wrap" sentinel, but only headless renders pass it now.
@@ -299,11 +312,11 @@ Adding a sixth step to the hand-written sequence deepens the divergence the issu
 
 ## Theme mode: `auto` means dark here
 
-`runtime::resolve_preset_name(&ThemeCfg) -> &str` decides which side of the `[theme] preset` / `preset_dark` pair the global-config fallback resolves to: `Light` → `preset`, `Dark` and `Auto` → `ThemeCfg::dark()`.
+`runtime::preset::resolve_preset_name(&ThemeCfg) -> &str` decides which side of the `[theme] preset` / `preset_dark` pair the global-config fallback resolves to: `Light` → `preset`, `Dark` and `Auto` → `ThemeCfg::dark()`.
 A terminal has no API to read the OS appearance setting, and probing (OSC 11, `COLORFGBG`) is unreliable under tmux/screen and several emulators — so `Auto` is hardcoded to the dark side rather than guessed.
 This is a declared, permanent gap (RFC 0022), not a TODO; see [`docs/theming.md` → Light / dark pair and `mode`](../../docs/theming.md#light--dark-pair-and-mode).
 
-Only the global-config lookup in `resolve_theme` (`runtime.rs`) goes through this resolver.
+Only the global-config lookup in `resolve_theme` (`runtime/preset.rs`) goes through this resolver.
 The `--theme <preset>` CLI override and the per-workspace `.outl/config.toml` `[theme] preset` both stay a bare preset name with no pair — an explicit preset always overrides the pair, per `docs/theming.md`'s precedence order.
 Don't route those two through `resolve_preset_name`.
 
@@ -314,10 +327,21 @@ src/
 ├── main.rs              # binary entry (clap + outl_tui::run)
 ├── lib.rs               # exposes `run` so outl-cli can reuse the TUI
 ├── app.rs               # thin re-export shim + cross-module tests
+├── runtime/             # path → running program: boot, event loop, teardown
+│   ├── workspace.rs     # locks, device actor, storage backend, snapshot/LRU policy
+│   ├── preset.rs        # which theme preset this launch resolves to
+│   ├── event_loop.rs    # poll, draw, drain the coalesced save, route one keystroke
+│   ├── terminal.rs      # is stdout a terminal + the panic-time restore hook
+│   └── logging.rs       # every dependency's `tracing` output → file, not the canvas
 ├── state.rs             # plain data: App, Mode, Focus, Overlay, snapshots
 ├── actions/             # impl App { ... } blocks, one per concern
 │   ├── lifecycle.rs     # load / save / external-edit polling / new
-│   ├── nav.rs           # page/journal jumps, cursor, ref open, Focus-aware move
+│   ├── nav/             # which view is open (path / title / slug)
+│   │   ├── open.rs      # everything that *changes* it: journals, refs, pages
+│   │   ├── selection.rs # selection block to block, across the backlink zone
+│   │   ├── cursor.rs    # the caret inside the selected block's text
+│   │   ├── backlinks.rs # backlink index: accessors, background build, sort order
+│   │   └── search.rs    # `*` / `#` search for the word under the cursor
 │   ├── block.rs         # Insert mode, create/indent/outdent/delete blocks
 │   ├── history.rs       # undo / redo snapshots
 │   ├── visual.rs        # Visual mode + range ops
@@ -337,7 +361,9 @@ src/
 │   ├── chrome.rs        # top header + bottom powerline footer
 │   ├── sidebar.rs       # mini-calendar / pinned / recent sidebar
 │   ├── inline.rs        # span-level markdown (highlight + pretty)
-│   ├── outline.rs       # outline rendering (render_outline, render_block, …)
+│   ├── outline.rs       # outline rendering (render_outline, render_block, emit_block_lines)
+│   ├── row_chrome.rs    # what a block draws around its text: fold slot, ⚡, the body pad, `key:: value` rows
+│   ├── embed.rs         # `!((blk-X))` expansion: the read-only subtree a block draws below itself
 │   ├── wrap.rs          # width-aware word wrap of styled spans (push_wrapped)
 │   ├── table.rs         # pretty pipe table → aligned grid (emit_table_lines; bypasses push_wrapped)
 │   ├── overlays.rs      # every modal popup

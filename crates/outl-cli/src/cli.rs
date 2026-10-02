@@ -43,7 +43,7 @@ pub(crate) struct Cli {
     pub(crate) verbose: u8,
 
     /// Print version information and exit (`-v`; `--version`/`-V` are equivalent).
-    #[arg(short = 'v', action = clap::ArgAction::Version, global = true)]
+    #[arg(short = 'v', action = clap::ArgAction::Version)]
     #[allow(dead_code)]
     pub(crate) show_version: (),
 }
@@ -366,6 +366,11 @@ pub(crate) enum Command {
     Search(cmd::search::SearchArgs),
     /// Structured query over pages.
     Query(cmd::query::QueryArgs),
+    /// Deleted blocks: list what is in the trash, put one back.
+    Trash {
+        #[command(subcommand)]
+        sub: cmd::trash::TrashCommand,
+    },
     /// Backlinks and reference lookups.
     Backlinks {
         #[command(subcommand)]

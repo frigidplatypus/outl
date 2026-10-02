@@ -26,7 +26,7 @@ pub mod commands;
 pub mod edit_buffer;
 pub mod editor;
 pub mod fuzzy;
-pub mod icons;
+mod icons;
 pub mod input;
 pub mod keymap;
 pub mod outline_ops;

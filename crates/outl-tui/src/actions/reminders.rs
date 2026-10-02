@@ -14,7 +14,6 @@
 
 use std::io::{IsTerminal, Write};
 
-use crate::icons;
 use crate::state::{App, Focus, Mode, Overlay, RemindersState, ToastKind};
 use outl_actions::reminders::{scan_reminders, snooze_until, take_due, FiredLog, SnoozePreset};
 
@@ -126,7 +125,7 @@ impl App {
             emit_osc9(&format!("outl · {body}"));
             self.toast_for(
                 ToastKind::Warning,
-                format!("{} {body}", icons::BELL),
+                format!("{} {body}", self.icons.bell),
                 REMINDER_TOAST_MS,
             );
         }

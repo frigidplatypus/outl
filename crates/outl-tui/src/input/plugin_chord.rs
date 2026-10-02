@@ -142,7 +142,7 @@ fn native_normal_chord(key: KeyEvent) -> bool {
             | Enter
         );
         // Ctrl+S / Ctrl+L / Ctrl+C are intercepted upstream in
-        // `runtime.rs` before Normal handling, so they never reach here;
+        // `runtime/event_loop.rs` before Normal handling, so they never reach here;
         // treating them as free below is harmless.
     }
     if alt {
@@ -274,7 +274,7 @@ mod tests {
     fn app_with(root: &TempDir) -> App {
         let actor = ActorId::new();
         let ws = Workspace::open_in_memory(actor).unwrap();
-        App::new(
+        App::new_for_tests(
             root.path().to_path_buf(),
             ws,
             actor,

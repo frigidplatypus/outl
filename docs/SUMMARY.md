@@ -45,6 +45,7 @@
 ## Format
 
 * [Markdown dialect](markdown-format.md)
+* [YAML frontmatter](markdown-frontmatter.md)
 * [Query code blocks](query.md)
 * [Templates](templates.md)
 * [Workspace layout](concepts.md)

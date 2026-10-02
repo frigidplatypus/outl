@@ -94,6 +94,16 @@ pub enum Capability {
     /// renderer. This tracks the **render**, not the storage, which is
     /// identical everywhere (RFC 0329).
     MarkdownTable,
+    /// Reading the trash back: listing what has been deleted and
+    /// putting a block back where it was deleted from (issue #287).
+    ///
+    /// Invariant 6 makes delete a `Move(node, TRASH_ROOT)`, so every
+    /// client already *preserves* deletions. This is the other half —
+    /// whether a client can show them and undo one. Distinct from
+    /// `Undo`, which has a chord and only reaches the current
+    /// session's stack: this reaches a deletion from any device, on
+    /// any day, because it reads the op log rather than a stack.
+    Trash,
 }
 
 impl Capability {
@@ -117,6 +127,7 @@ impl Capability {
         Capability::ToolbarOrderLock,
         Capability::OpenExternalFile,
         Capability::MarkdownTable,
+        Capability::Trash,
     ];
 }
 
@@ -128,7 +139,7 @@ mod tests {
     /// what makes forgetting impossible: it will not compile once a
     /// new variant exists until this function's `match` grows an arm
     /// for it too.
-    const EXPECTED_11: usize = 11;
+    const EXPECTED_12: usize = 12;
 
     fn name(cap: Capability) -> &'static str {
         match cap {
@@ -143,6 +154,7 @@ mod tests {
             Capability::ToolbarOrderLock => "ToolbarOrderLock",
             Capability::OpenExternalFile => "OpenExternalFile",
             Capability::MarkdownTable => "MarkdownTable",
+            Capability::Trash => "Trash",
         }
     }
 
@@ -159,9 +171,9 @@ mod tests {
         );
         assert_eq!(
             names.len(),
-            EXPECTED_11,
-            "Capability::ALL has {} entries but the enum has {EXPECTED_11} variants \
-             — add the new variant to Capability::ALL (and bump EXPECTED_11)",
+            EXPECTED_12,
+            "Capability::ALL has {} entries but the enum has {EXPECTED_12} variants \
+             — add the new variant to Capability::ALL (and bump EXPECTED_12)",
             names.len(),
         );
     }

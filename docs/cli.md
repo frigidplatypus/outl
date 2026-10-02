@@ -197,10 +197,23 @@ Only the link enters the op log; the asset's bytes are a plain blob replicated a
 | CLI                                                              | MCP tool          |
 |------------------------------------------------------------------|-------------------|
 | `outl search "<query>" [--in=blocks\|pages] [--json]`            | `outl_search`     |
-| `outl query --tag=foo [--priority=p1] [--since=7d] [--json]`     | `outl_query`      |
+| `outl query [--tag=foo] [--not-tag=bar]… [--priority=p1] [--not-priority=p2] [--prop=k[=v]]… [--not-prop=k[=v]]… [--since=7d] [--not-since=7d] [--kind=page\|journal] [--not-kind=…] [--json]` | `outl_query` |
 
 `search` is full-text and lives today as the TUI's workspace search.
 `query` is the structured filter (tag, property, date range, kind).
+
+**Every filter has a negative**, and each is the exact complement of its positive, so `--tag=x --not-tag=x` returns nothing (pinned by `query_every_filter_and_its_negation_return_nothing`).
+`--not-tag` and `--not-prop` are repeatable; all of them AND against everything else.
+`--not-since` is the one that reads oddly and is honest about it: `--since=7d` keeps dated pages on or after the cutoff *and* every undated page, so its complement drops both. Read it as `!--since`, not as "older than".
+A property filter takes `key=value` or a bare `key` for "carries this property at all"; `key=` with nothing after it is rejected rather than read as a wildcard, because `--not-prop status=` meaning "drop every page with a status" is not what anyone typed it for.
+The MCP tool spells the two as the arrays `not_tags` / `not_props` (a bare string works as a one-element list).
+
+**`outl query` filters pages; the ` ```query ` fence filters blocks** ([`query.md`](query.md)).
+They share a name and not a matcher, in three ways worth knowing before you trust a negative:
+
+- `--tag=ops` matches `#ops` **exactly and case-sensitively** — `#ops/deploy` and `#Ops` are different tags. The fence's `tag: ops` matches both. A leading `#` is accepted on either (`--tag '#ops'`).
+- A property filter reads the page's **own** `key::` property, not properties on blocks inside it, and compares key and value case-sensitively. The fence's `prop:` reads block properties and folds case.
+- The separator is `key=value` here and `key: value` in a fence. Passing the fence spelling (`--not-prop "status: done"`) is rejected rather than read as a key nothing carries.
 
 `search` and `backlinks` answer from the **op log**, not by reading `pages/` and `journals/`.
 Practical consequence: a line that exists in a `.md` but in no op is not found.
@@ -212,6 +225,36 @@ The **block-level query DSL** — the engine behind ` ```query ` fences, with `s
 It has no CLI subcommand of its own and takes one directive per line; full syntax lives in [docs/query.md](query.md).
 The block date properties those filters read are written with `outl block prop set` / `outl_block_prop_set`.
 On the CLI the `--raw='…'` flag on `outl query` is still reserved and returns `INVALID_ARG`; surfacing the DSL from the CLI is open work, tracked separately.
+
+### Trash
+
+| CLI                             | MCP tool              |
+|---------------------------------|-----------------------|
+| `outl trash list [--json]`      | `outl_trash_list`     |
+| `outl trash restore <blk-XXX>`  | `outl_trash_restore`  |
+
+Delete is `Move(node, TRASH_ROOT)` ([invariant 6](../CLAUDE.md#critical-invariants-never-violate)), so nothing is ever physically removed.
+These two commands are how you read that back.
+
+`trash list` names every top-level deletion with a preview, how many blocks ride along under it, and whether it can be restored.
+`trash restore` puts a block back **as the last child** of the parent it was deleted from, not in the slot it used to hold — `Move.old_position` is the originating replica's local derivation for `undo_op` and is not authoritative to a reader of the log, the same caveat that applies to `old_parent`.
+
+Each refusal has its own code, so an agent can tell them apart without reading prose:
+
+| Code                       | When                                                              |
+|----------------------------|-------------------------------------------------------------------|
+| `TRASH_PARENT_TRASHED`     | the block it was deleted from is in the trash too — restore that one first, the message names it |
+| `TRASH_PAGE_UNSUPPORTED`   | the id is a deleted **page**, which needs a re-projected `.md` and usually collides with a live slug; `outl block tree <id>` still shows the content |
+| `NOT_TRASHED`              | the block is not in the trash, so there is nothing to undo        |
+| `TRASH_PARENT_MISSING`     | the folded parent is not in the tree at all — run `outl doctor` ([#301](https://github.com/outlmd/outl/issues/301)) |
+| `TRASH_ORIGIN_UNKNOWN`     | the block is in the trash and the log cannot say where it came from: no move placed it, its ops would not read, or the block it was deleted from has since moved inside it. The text is still in the listing, so recovering it is a copy/paste |
+
+**Nothing ever leaves the trash on its own, and there is no way to empty it.**
+That is deliberate rather than unfinished: emptying is the one operation here that actually destroys, so it belongs with op-log compaction ([#110](https://github.com/outlmd/outl/issues/110)) rather than as an `rm`.
+Until that lands, retention is unbounded and there is no user action that changes it.
+A workspace's trash therefore only grows; `outl doctor` reports its size.
+
+No client has a trash surface yet — it is CLI and MCP only, recorded as `Capability::Trash` in [docs/client-parity.md](client-parity.md).
 
 ### Backlinks / Refs
 
@@ -600,7 +643,7 @@ outl-cli/
 └── src/
     ├── main.rs              # clap entry, dispatches to commands/
     ├── output.rs            # JSON envelope, --json flag, exit codes
-    ├── commands/
+    ├── cmd/
     │   ├── page.rs
     │   ├── block.rs
     │   ├── daily.rs
@@ -612,12 +655,12 @@ outl-cli/
     │   └── mcp.rs           # `outl mcp serve` shim
     └── mcp/
         ├── server.rs        # stdio transport
-        ├── tools.rs         # tool registry → handlers
+        ├── tools/           # registry.rs (schemas) + dispatch.rs (handlers)
         ├── resources.rs     # outl:// URIs
         └── prompts.rs       # /outl-* prompts
 ```
 
-`commands/*.rs` and `mcp/tools.rs` both reach into `outl-actions`.
+`cmd/*.rs` and `mcp/tools/` both reach into `outl-actions`.
 No business logic lives in either layer — they format input and output, that's it.
 
 ## Status
@@ -630,7 +673,7 @@ Shipping today:
 - `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree|history|prop`
 - `outl daily today|get|append|range`
 - `outl search "<query>" [--in=blocks|pages|all]`
-- `outl query [--tag] [--priority] [--since=Nd] [--kind] [--prop k=v]`
+- `outl query [--tag] [--not-tag] [--priority] [--not-priority] [--since=Nd] [--not-since] [--kind] [--not-kind] [--prop k[=v]] [--not-prop k[=v]]`
 - `outl backlinks page|block|embed`
 - `outl tag list|pages`
 - `outl page prop set|get|list`
