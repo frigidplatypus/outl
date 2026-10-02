@@ -39,8 +39,13 @@ pub(crate) struct Cli {
     pub(crate) command: Option<Command>,
 
     /// Increase verbosity. Pass multiple times for more detail.
-    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
+    #[arg(long, action = clap::ArgAction::Count, global = true)]
     pub(crate) verbose: u8,
+
+    /// Print version information and exit (`-v`; `--version`/`-V` are equivalent).
+    #[arg(short = 'v', action = clap::ArgAction::Version, global = true)]
+    #[allow(dead_code)]
+    pub(crate) show_version: (),
 }
 
 /// Subcommands for peer/device management.
