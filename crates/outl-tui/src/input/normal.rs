@@ -1,12 +1,13 @@
 //! Normal-mode key handler: outline navigation, structural ops,
-//! chord recognition, mode switches, and the in-Normal sidebar +
-//! help intercepts.
+//! chord recognition, mode switches, and the in-Normal help intercept.
 //!
-//! Three layers of dispatch run before the main `match key.code`:
-//! the help-popup intercept (swallows every key but tab switches),
-//! the sidebar intercept (when focus is inside the sidebar), and
-//! the chord accumulator (`d`/`g`/`y`/`q` arm for a follow-up key).
-//! Everything past the chord block is bare-key handling.
+//! Two layers of dispatch run before the main `match key.code`: the
+//! help-popup intercept (swallows every key but tab switches) and the
+//! chord accumulator (`d`/`g`/`y`/`q` arm for a follow-up key).
+//! Everything past the chord block is bare-key handling. The sidebar
+//! keystrokes that used to be intercepted here moved to
+//! [`super::handle_sidebar_key`], which the event loop dispatches
+//! before mode dispatch.
 
 use crate::actions::block::InsertCursor;
 use crate::state::{App, PendingInputOp};
@@ -76,90 +77,6 @@ pub(crate) fn handle_normal_key(app: &mut App, key: KeyEvent) -> Result<bool> {
             }
         }
         return Ok(false);
-    }
-
-    // Sidebar intercept: while focus is inside the sidebar, j/k
-    // navigate the focused section, Tab cycles sections, Enter opens
-    // the item, Esc returns focus to the outline (sidebar stays
-    // visible). `\` always closes the sidebar entirely, handled
-    // further down in the Normal handler.
-    //
-    // `d` arms a one-shot "delete this page?" confirmation; the next
-    // keystroke resolves it inside the same intercept — `y` / `Y`
-    // confirms, anything else cancels (and is swallowed, matching
-    // the `pending_input_op` contract).
-    if app.sidebar_focus.is_some() || app.pending_sidebar_delete.is_some() {
-        // Delete confirmation: takes priority over regular sidebar
-        // navigation so the user can't accidentally move the cursor
-        // while the "delete? y/n" prompt is up.
-        if app.pending_sidebar_delete.is_some() {
-            match key.code {
-                KeyCode::Char('y' | 'Y') => {
-                    app.sidebar_confirm_delete()?;
-                    return Ok(false);
-                }
-                KeyCode::Esc | KeyCode::Char('n' | 'N') => {
-                    app.pending_sidebar_delete = None;
-                    app.status.clear();
-                    return Ok(false);
-                }
-                _ => {
-                    // Swallow every other key — the prompt is modal.
-                    // (Same posture as `pending_input_op`: cancel on
-                    // any non-confirming input rather than routing it.)
-                    app.pending_sidebar_delete = None;
-                    app.status.clear();
-                    return Ok(false);
-                }
-            }
-        }
-        match key.code {
-            KeyCode::Char('j') | KeyCode::Down => {
-                app.sidebar_move(1);
-                return Ok(false);
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                app.sidebar_move(-1);
-                return Ok(false);
-            }
-            KeyCode::Char('g') => {
-                app.sidebar_cursor = 0;
-                return Ok(false);
-            }
-            KeyCode::Char('G') => {
-                app.sidebar_move(i32::MAX / 2);
-                return Ok(false);
-            }
-            KeyCode::Tab => {
-                app.sidebar_cycle_section(true);
-                return Ok(false);
-            }
-            KeyCode::BackTab => {
-                app.sidebar_cycle_section(false);
-                return Ok(false);
-            }
-            KeyCode::Enter => {
-                app.sidebar_activate()?;
-                return Ok(false);
-            }
-            KeyCode::Char('d') => {
-                app.sidebar_delete_current();
-                return Ok(false);
-            }
-            KeyCode::Esc => {
-                app.sidebar_blur();
-                return Ok(false);
-            }
-            KeyCode::Char('e' | 'E') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                // Ctrl+E (Ctrl+Shift+E too — most terminals collapse
-                // them) is the same toggle that opens the sidebar
-                // from Normal; pressing it while focused closes.
-                // Matches the desktop's `Cmd+Shift+E`.
-                app.sidebar_close();
-                return Ok(false);
-            }
-            _ => {}
-        }
     }
 
     // Pending input op: `r` / `f` / `F` armed a one-shot waiting for
@@ -473,8 +390,9 @@ pub(crate) fn handle_normal_key(app: &mut App, key: KeyEvent) -> Result<bool> {
         KeyCode::Char('~') => app.toggle_case_under_cursor(),
         // `Y` — alias of `yy`. vim's "yank line" / outl's "yank block".
         KeyCode::Char('Y') => app.yank_current_alias(),
-        // `e` — cursor to the end of the next word. Guarded so it
-        // doesn't shadow `Ctrl+E` (sidebar toggle) below.
+        // `e` — cursor to the end of the next word. Guarded to
+        // bare `e` — `Ctrl+E` belongs to the sidebar chrome, which
+        // the event loop dispatches before this handler.
         KeyCode::Char('e') if key.modifiers.is_empty() => app.cursor_word_end(),
         // `*` / `#` — search the workspace for the word under cursor,
         // forward / backward. `n` / `N` walk through the results
@@ -499,42 +417,6 @@ pub(crate) fn handle_normal_key(app: &mut App, key: KeyEvent) -> Result<bool> {
         KeyCode::Right | KeyCode::Char('l') => app.move_cursor_col(1),
         KeyCode::Char('0') | KeyCode::Home => app.cursor_to_home(),
         KeyCode::Char('$') | KeyCode::End => app.cursor_to_end(),
-        // Toggle backlinks panel. `Ctrl+B` (Ctrl+Shift+B too — most
-        // terminals collapse them). Mirrors the desktop's
-        // `Cmd+Shift+B`; both clients hide backlinks by default and
-        // open them on demand.
-        //
-        // Must come **before** the unconditional `Char('b')` (vim
-        // word-left) below — Rust matches arms top-to-bottom and a
-        // pattern guard can't recover the modifier branch once an
-        // earlier unguarded arm captures the bare char.
-        KeyCode::Char('b' | 'B') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.show_backlinks = !app.show_backlinks
-        }
-        // Toggle the left sidebar (mini-calendar, pinned, recent).
-        // Default off — `Ctrl+E` opts in. Matches the desktop's
-        // `Cmd+Shift+E` (VS Code's "show explorer" chord). Most
-        // terminals collapse `Ctrl+Shift+E` into `Ctrl+E`, so we
-        // match either letter case with the CONTROL modifier and
-        // both feel identical to the user.
-        //
-        // Why not `\`? It clashed with desktop standardisation —
-        // single source of truth for the chrome chord lives in
-        // `outl-shortcuts`, and the desktop's `Cmd+Shift+E` is the
-        // industry-standard "toggle sidebar" mapping (VS Code,
-        // Cursor).
-        //
-        // Opening jumps focus straight to the first non-empty
-        // section (Pinned by default), so the user can immediately
-        // `j/k` through items and `Enter` to open — no extra Tab
-        // to "enter" the sidebar.
-        KeyCode::Char('e' | 'E') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if app.show_sidebar {
-                app.sidebar_close();
-            } else {
-                app.sidebar_open_focused();
-            }
-        }
         KeyCode::Char('w') => app.cursor_word_right(),
         KeyCode::Char('b') => app.cursor_word_left(),
         // Block reordering (vim-ish: capital J/K drag the block).

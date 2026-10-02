@@ -2,9 +2,11 @@
 //!
 //! Visual mode operates on a contiguous range of outline blocks. Keys
 //! that aren't `d`/`x`/`y`/`Tab`/`BackTab` either move the selection
-//! (extending the range) or exit to Normal — except the `Ctrl+B`
-//! backlinks and `Ctrl+E` sidebar toggles, which are pass-through chrome
-//! (the selection and mode survive them).
+//! (extending the range) or exit to Normal. The `Ctrl+B` / `Ctrl+E`
+//! chrome toggles no longer live here: they moved to the event-loop
+//! chrome in [`super::handle_sidebar_key`], which fires before mode
+//! dispatch — so the chords reach Visual mode without this handler
+//! knowing, and the range is untouched either way.
 
 use crate::state::App;
 use anyhow::Result;
@@ -23,25 +25,6 @@ pub(crate) fn handle_visual_key(app: &mut App, key: KeyEvent) -> Result<()> {
         // without losing the `Tab` discoverability.
         KeyCode::Tab | KeyCode::Char('>') => app.indent_visual_range(),
         KeyCode::BackTab | KeyCode::Char('<') => app.outdent_visual_range(),
-        // `Ctrl+B` toggles the backlinks panel exactly as in Normal —
-        // mirrors the desktop, where the chord is `Global` scope and so
-        // already fires in visual mode. Terminals collapse
-        // `Ctrl+Shift+B` into `Ctrl+B`; accept either letter case.
-        KeyCode::Char('b' | 'B') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.show_backlinks = !app.show_backlinks
-        }
-        // `Ctrl+E` toggles the sidebar's visibility, mirroring the
-        // desktop's `Global`-scope chord. Not `sidebar_open_focused`:
-        // sidebar keystrokes are dispatched inside the Normal handler,
-        // so focusing it from here would draw a cursor the keyboard
-        // could not move while Visual mode kept driving the range.
-        KeyCode::Char('e' | 'E') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if app.show_sidebar {
-                app.sidebar_close();
-            } else {
-                app.show_sidebar = true;
-            }
-        }
         // `Alt`+arrows drag the whole range among its siblings —
         // mirrors the single-block `Alt`+arrows in Normal mode. The
         // plain arrows below extend the selection, so `Alt` is what
@@ -79,22 +62,6 @@ mod tests {
         (app, dir)
     }
 
-    fn ctrl(ch: char) -> KeyEvent {
-        KeyEvent::new(KeyCode::Char(ch), KeyModifiers::CONTROL)
-    }
-
-    #[test]
-    fn ctrl_b_toggles_backlinks_without_leaving_visual() {
-        let (mut app, _dir) = app_in_visual();
-        let before = app.show_backlinks;
-        handle_visual_key(&mut app, ctrl('b')).unwrap();
-        assert_eq!(app.show_backlinks, !before);
-        // Pass-through chrome: the range selection and mode survive.
-        assert!(matches!(app.mode, Mode::Visual { anchor: 0 }));
-        handle_visual_key(&mut app, ctrl('B')).unwrap();
-        assert_eq!(app.show_backlinks, before);
-    }
-
     #[test]
     fn plain_b_does_not_toggle_backlinks() {
         let (mut app, _dir) = app_in_visual();
@@ -105,16 +72,5 @@ mod tests {
         )
         .unwrap();
         assert_eq!(app.show_backlinks, before);
-    }
-
-    #[test]
-    fn ctrl_e_toggles_sidebar_without_leaving_visual() {
-        let (mut app, _dir) = app_in_visual();
-        handle_visual_key(&mut app, ctrl('e')).unwrap();
-        assert!(app.show_sidebar);
-        assert!(matches!(app.mode, Mode::Visual { anchor: 0 }));
-        handle_visual_key(&mut app, ctrl('E')).unwrap();
-        assert!(!app.show_sidebar);
-        assert!(matches!(app.mode, Mode::Visual { anchor: 0 }));
     }
 }

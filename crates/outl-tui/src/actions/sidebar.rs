@@ -5,9 +5,11 @@
 //! *behavior*: which section has focus, where the cursor sits inside
 //! it, and what happens on `Enter`.
 //!
-//! Public surface called from `input.rs`:
-//! - [`App::sidebar_open_focused`]  — `\` while closed
-//! - [`App::sidebar_close`]         — `\` while open (any focus)
+//! Public surface called from `input::sidebar` (the event-loop chrome
+//! that owns the `Ctrl+E` chord and all keystrokes while the sidebar
+//! holds focus):
+//! - [`App::sidebar_open_focused`]  — `Ctrl+E` while closed
+//! - [`App::sidebar_close`]         — `Ctrl+E` / `\` while open
 //! - [`App::sidebar_blur`]          — `Esc` to return focus to the outline
 //! - [`App::sidebar_cycle_section`] — `Tab` / `Shift-Tab`
 //! - [`App::sidebar_move`]          — `j`/`k` inside the focused section
@@ -18,7 +20,7 @@
 //! nothing. Day-by-day navigation needs its own cursor state (which
 //! date is highlighted) — a follow-up patch.
 
-use crate::state::{App, PendingSidebarDelete, SidebarSection, View};
+use crate::state::{App, Mode, PendingSidebarDelete, SidebarSection, View};
 use anyhow::Result;
 use chrono::NaiveDate;
 use std::path::PathBuf;
@@ -104,25 +106,44 @@ impl App {
     /// `Enter` on the focused sidebar item: open the page (or
     /// journal) it points at. No-op for Calendar until that section
     /// gains its own day cursor.
+    ///
+    /// A successful open resets the editor to `Normal`: the sidebar
+    /// can hold focus from Insert or Visual, but the buffer/range
+    /// there belongs to the *previous* page — its block paths and
+    /// text are stale once the view switches, so the keyboard hands
+    /// over to the newly-opened page instead of resuming an edit of
+    /// a page that is no longer on screen. Calendar's no-op leaves
+    /// the mode untouched for the same reason reversed: nothing was
+    /// opened, so nothing invalidates it.
     pub(crate) fn sidebar_activate(&mut self) -> Result<()> {
         let Some(section) = self.sidebar_focus else {
             return Ok(());
         };
-        match section {
+        let opened = match section {
             SidebarSection::Pinned => {
                 let pinned = self.pinned_slugs_sorted();
-                if let Some(slug) = pinned.get(self.sidebar_cursor) {
-                    self.open_slug(slug)?;
+                match pinned.get(self.sidebar_cursor) {
+                    Some(slug) => {
+                        self.open_slug(slug)?;
+                        true
+                    }
+                    None => false,
                 }
             }
-            SidebarSection::Recent => {
-                if let Some(path) = self.recent_paths.get(self.sidebar_cursor).cloned() {
+            SidebarSection::Recent => match self.recent_paths.get(self.sidebar_cursor).cloned() {
+                Some(path) => {
                     self.open_path(path)?;
+                    true
                 }
-            }
+                None => false,
+            },
             SidebarSection::Calendar => {
                 // No-op until calendar grows its own date cursor.
+                false
             }
+        };
+        if opened {
+            self.mode = Mode::Normal;
         }
         Ok(())
     }

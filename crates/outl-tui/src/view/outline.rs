@@ -295,9 +295,12 @@ pub(crate) fn emit_block_lines(
     text_width: u16,
 ) {
     let (text, cursor_char, cursor_style, selected_embed_handle) = match mode {
-        RenderMode::Editing { text, cursor_char } => {
-            (text.as_str(), Some(*cursor_char), Some(CursorStyle::Caret), None)
-        }
+        RenderMode::Editing { text, cursor_char } => (
+            text.as_str(),
+            Some(*cursor_char),
+            Some(CursorStyle::Caret),
+            None,
+        ),
         RenderMode::NormalCursor { text, cursor_char } => (
             text.as_str(),
             Some(*cursor_char),

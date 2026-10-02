@@ -188,7 +188,12 @@ impl IconSet {
             bell: "\u{f0f3}",
             play: "\u{f04b}",
             header_levels: [
-                "\u{f026b}", "\u{f026c}", "\u{f026d}", "\u{f026e}", "\u{f026f}", "\u{f0270}",
+                "\u{f026b}",
+                "\u{f026c}",
+                "\u{f026d}",
+                "\u{f026e}",
+                "\u{f026f}",
+                "\u{f0270}",
             ],
             todo_chip: "\u{f046}",
             editing: "\u{f111}",

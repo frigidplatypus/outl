@@ -417,10 +417,13 @@ Hooks are dispatched once per mutation; a hook that itself mutates the workspace
 ### Pages sidebar
 
 Toggled by `Ctrl+E` (the desktop-standard "toggle sidebar" chord; `\` was dropped to avoid clashing with it).
+Opens **focused** from any mode — Normal, Insert, or Visual: the chord fires at event-loop level before mode dispatch (mirroring the desktop's `Global` scope bindings), and while focus sits in the sidebar the sidebar owns the keyboard.
+Unlisted keys are swallowed in Insert / Visual (a stray `x` cannot touch the typing buffer or shrink a visual range) but fall through in Normal (`?`, `q`, chords keep working).
+`Esc` hands the keyboard back to the mode you were in — an in-progress insert buffer or visual range is untouched by the detour.
 Shows Today / pinned / recent pages and a mini-calendar of journals.
 `j` / `k` move the selection.
 `Tab` cycles the section (Today / Pinned / Recent / Calendar).
-`Enter` opens the focused page.
+`Enter` opens the focused page and lands in Normal — the buffer/range from the previous page is stale once the view switches (Calendar's `Enter` is a no-op, so the mode survives it).
 `d` on a regular page arms a `delete page '<title>'? y/n` confirmation in the status line.
 `y` confirms, any other key cancels (and is swallowed).
 The `g d` chord (Normal mode) routes through the same confirmation flow: with the sidebar focused it deletes the highlighted row, with the outline focused it deletes the current page.

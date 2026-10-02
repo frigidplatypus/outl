@@ -31,6 +31,8 @@
 //! | `insert`   | `handle_insert_key` — text edits, soft newlines, cross-block |
 //! | `overlay`  | `handle_overlay_key` + quick-switch / search / command / slash |
 //! | `visual`   | `handle_visual_key` — range ops over selected blocks         |
+//! | `sidebar`  | `handle_sidebar_key` — event-loop chrome: sidebar/backlinks   |
+//! |            | chords + keystroke routing while sidebar focus is held        |
 //!
 //! Shared helpers (`cross_block_step`, `cross_block_nav_eligible`,
 //! `cursor_inside_open_fence`) live here in `mod.rs` so every
@@ -43,11 +45,13 @@ mod insert;
 mod normal;
 mod overlay;
 mod plugin_chord;
+mod sidebar;
 mod visual;
 
 pub(crate) use insert::handle_insert_key;
 pub(crate) use normal::handle_normal_key;
 pub(crate) use overlay::handle_overlay_key;
+pub(crate) use sidebar::handle_sidebar_key;
 pub(crate) use visual::handle_visual_key;
 
 /// Cross-block Up/Down nav only kicks in when:

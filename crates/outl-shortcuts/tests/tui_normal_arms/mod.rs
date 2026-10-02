@@ -91,8 +91,6 @@ const BARE_ARMS: &[&str] = &[
     r#"KeyCode::Right | KeyCode::Char('l')"#,
     r#"KeyCode::Char('0') | KeyCode::Home"#,
     r#"KeyCode::Char('$') | KeyCode::End"#,
-    r#"KeyCode::Char('b' | 'B') if key.modifiers.contains(KeyModifiers::CONTROL)"#,
-    r#"KeyCode::Char('e' | 'E') if key.modifiers.contains(KeyModifiers::CONTROL)"#,
     r#"KeyCode::Char('w')"#,
     r#"KeyCode::Char('b')"#,
     r#"KeyCode::Char('K')"#,

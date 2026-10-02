@@ -8,7 +8,9 @@
 //! that far (`Ctrl+C`, `Ctrl+S`, `Ctrl+L`, the help popup's close keys).
 
 use super::{MAX_SAVE_DEFER, POLL_INTERVAL, POLL_INTERVAL_PENDING_INDEX};
-use crate::input::{handle_insert_key, handle_normal_key, handle_overlay_key, handle_visual_key};
+use crate::input::{
+    handle_insert_key, handle_normal_key, handle_overlay_key, handle_sidebar_key, handle_visual_key,
+};
 use crate::state::{App, Mode};
 use crate::theme::Theme;
 use crate::view::render_app;
@@ -191,6 +193,20 @@ pub(super) fn event_loop(
             }
             app.refresh_workspace();
             app.status = "refreshed".into();
+            continue;
+        }
+
+        // Global chrome: the sidebar / backlinks chords, and every
+        // keystroke routed while the sidebar holds focus — before
+        // mode dispatch, so `Ctrl+E` works from Normal, Insert, and
+        // Visual alike (mirrors the desktop's `Global` bindings,
+        // which fire even with a picker open). The chrome itself
+        // declines to route keystrokes while an overlay or the help
+        // popup owns the keyboard.
+        if handle_sidebar_key(&mut app, key)? {
+            // The sidebar can append ops (`d` + `y` deletes a page),
+            // so this path reaches the plugin hook point too.
+            app.run_plugin_op_hooks();
             continue;
         }
 
