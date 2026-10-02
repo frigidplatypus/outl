@@ -78,11 +78,19 @@ See `outl-core/CLAUDE.md` → "Actor id is device-local, and the workspace canno
   Its drift check asks `outl_actions::content_lines_missing_from` before offering a page for re-projection, because the sidecar hash gate proves the sidecar agrees with the bytes on disk and **not** that those bytes came from the log.
   A page holding unlogged content is reported and withheld from the plan, so the read-only listing never promises a repair `--repair` then refuses (invariant 4 below).
   `theme.rs` — warns when a `[theme]` pair's `preset` holds a dark palette or `preset_dark` holds a light one (`Palette::is_light()`), checked for every `mode` (RFC 0022).
-  It reads the **global** `~/.config/outl/config.toml` (`outl_config::load().theme`), not the per-workspace `cfg` this module also reads (`outl_ws::layout::Config` — actor id only, no theme section).
+  It reads the **global** `~/.config/outl/config.toml` (`outl_config::load_result()`), not the per-workspace `cfg` this module also reads (`outl_ws::layout::Config` — actor id only, no theme section).
   `collect_internal` takes `theme: &outl_config::ThemeCfg` as a parameter for the same test-isolation reason it takes `store: &DeviceStore`.
   A config with no `preset_dark` (every pre-RFC-0022 config) is silently skipped, never a finding.
-  `repair.rs` — the `--repair` pass.
-  `mod.rs` — report types + orchestration.
+  An unreadable global `config.toml` is reported in `mod.rs` itself, before the `[theme]` check (issue #284) — one `b.warn` of the sentence `outl_config::Loaded::notice` produced, so this report and the TUI's boot line cannot describe the same file differently.
+  `collect_internal` takes it as `config_notice: Option<String>`, a parameter for the same reason `theme` and `store` are: resolved inside the pass, every finding count in the battery would depend on whether the developer's own config parses.
+  Ordered first because when it fires, `theme` is a default nobody chose.
+  `repair/` — the `--repair` pass.
+  `device_store.rs` — the actor bindings, the one subject that is not in this workspace at all.
+  `gate.rs` — what takes a planned page write back *out* of the plan: a damaged op log (invariant 3) and a deletion past the ceilings (invariant 5).
+  Both withhold, neither is silent, and `RepairScope` lives there because the gate is the only code that reads it.
+  `report.rs` — the vocabulary the checks write into (`Severity`, `Finding`, `Builder`, `DoctorReport`); no check lives there, which is what keeps a new check a function taking `&mut Builder`.
+  `print.rs` — the human listing, the `--json` envelope, the exit code each implies.
+  `mod.rs` — the pass: which checks run, and in what order.
 
   Two invariants for anyone touching this:
 
@@ -217,6 +225,12 @@ Each handler returns a `serde_json::Value` so the same code path serves both the
   CLI + MCP (`outl_asset_add`) share the `cmd::asset::add_asset` handler so they can't drift.
 - `outl search "<query>" [--in=blocks|pages|all] [--limit=N]`
 - `outl query [--tag=…] [--not-tag=… …] [--priority=…] [--since=…d] [--kind=…] [--prop key[=value] …] [--not-prop key[=value] …]`
+- `outl trash list|restore` — read deletions back.
+  Delete is `Move(node, TRASH_ROOT)` (invariant 6), so this is the half that makes "preserves history" actionable.
+  Glue only: `outl_actions::trash` owns what an entry is, and `refusal_for` owns whether a restore would work — `list` reports that verdict rather than deriving its own, so the listing cannot offer a restore the mutation then refuses.
+  `restore` re-projects the landing page (`ctx.commit`), because the `.md` otherwise keeps saying the block is gone.
+  Each refusal carries its own stable code so an agent can tell them apart without parsing prose (see [`docs/cli.md`](../../docs/cli.md#trash) for the table — a count written here would be a second copy of its length).
+  **No `trash empty`** — the only destroying operation here, so it belongs with `outl compact` (#110), and retention is a stated policy in [`docs/cli.md`](../../docs/cli.md#trash) rather than an inferred one.
 - `outl backlinks page|block|embed`
 - `outl tag list|pages`
 - `outl prop set|get|list`
@@ -311,7 +325,7 @@ This is the **CLI** `--json` shape.
 MCP shares the handlers, not the wire format: a successful `tools/call` is content-only, and an error keeps the envelope in `structuredContent`.
 [`docs/cli.md`](../../docs/cli.md#commands-by-domain) owns that fact; the [MCP](#mcp) section below says why the projection exists.
 
-Stable error codes live in `output::codes` (`NO_WORKSPACE`, `PAGE_NOT_FOUND`, `BLOCK_NOT_FOUND`, `INVALID_BLOCK_ID`, `INVALID_DATE`, `CONFIRM_REQUIRED`, `CYCLE_REJECTED`, `SLUG_CONFLICT`, `PROP_NOT_FOUND`, `INTERNAL`, `INVALID_ARG`).
+Stable error codes live in `output::codes` (`NO_WORKSPACE`, `PAGE_NOT_FOUND`, `BLOCK_NOT_FOUND`, `INVALID_BLOCK_ID`, `INVALID_DATE`, `CONFIRM_REQUIRED`, `CYCLE_REJECTED`, `SLUG_CONFLICT`, `PROP_NOT_FOUND`, `INTERNAL`, `INVALID_ARG`, `NOT_TRASHED`, `TRASH_PAGE_UNSUPPORTED`, `TRASH_PARENT_TRASHED`, `TRASH_PARENT_MISSING`, `TRASH_ORIGIN_UNKNOWN`, `PAGE_MARKDOWN_AHEAD_OF_LOG`).
 Add new codes by appending — never renumber existing ones (LLMs cache them).
 
 Exit codes follow:
@@ -340,16 +354,7 @@ src/
 │   │   ├── mod.rs         #   watcher half + wiring
 │   │   └── projection.rs  #   tree → .md sweep, throttle, change-only reporter
 │   ├── sync_supervisor.rs # outl serve — deferential endpoint lease loop
-│   ├── doctor/            # outl doctor — one file per class of check
-│   │   ├── mod.rs         #   report types + orchestration
-│   │   ├── oplog.rs       #   raw .jsonl sweep, snapshots, offset indexes
-│   │   ├── files.rs       #   .md ↔ sidecar, parse warnings, conflicts
-│   │   ├── tree.rs        #   trash, unmaterialized ops, projection drift
-│   │   ├── ops_guard.rs   #   restores ops/ byte-for-byte after the run
-│   │   ├── theme.rs       #   [theme] pair validation (global config)
-│   │   └── repair/        #   the --repair pass
-│   │       ├── mod.rs     #     page re-projection, sidecars, backups
-│   │       └── snapshots.rs #   boot-cache drops, re-judged at write time
+│   ├── doctor/            # outl doctor — per-file list in the `outl doctor` entry above
 │   ├── reconcile.rs       # outl reconcile
 │   ├── recover.rs         # outl recover — op-log-side text recovery
 │   ├── theme.rs           # outl theme

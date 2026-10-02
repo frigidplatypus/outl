@@ -47,6 +47,70 @@ pub fn sidecar_can_answer(blocks: &[SidecarBlock]) -> bool {
     blocks.is_empty() || blocks.iter().any(|b| !b.text.is_empty())
 }
 
+/// Lines of `disk`'s YAML frontmatter fence that `rendered` would not
+/// write back — `0` when there is nothing to lose.
+///
+/// The fence travels a **different channel** from block text: the op log
+/// holds it as one `Op::SetProp` on the page root
+/// ([`crate::frontmatter::PAGE_FRONTMATTER_KEY`]), so
+/// [`content_lines_missing_from`] cannot see it — its reference is a block
+/// list, and skips the fence for exactly that reason. This is the same
+/// "would this write delete bytes" question asked of the channel that can
+/// answer it, and it is why both live in this module rather than one
+/// growing a second meaning.
+///
+/// Two shapes count as a loss:
+///
+/// - **`rendered` has no fence at all.** The tree does not know the
+///   channel exists, which is the state a workspace is in between
+///   upgrading to a binary that reads the fence and that page's first
+///   reconcile: the log holds the fence as bullets from the older parser,
+///   the render therefore has none, and writing it back is the
+///   [issue #281] rewrite happening once more.
+/// - **`rendered` carries a *different* fence and `disk` is not what outl
+///   last wrote** (`last_synced_hash` does not match it). The fence was
+///   edited on disk after the last agreement, so the log has never seen
+///   the disk version, and a post-mutation projection that runs before
+///   the orphan reconcile would replace it with the tree's older one.
+///
+/// A differing fence over bytes outl **did** write last is not a loss: the
+/// fence on disk is the one the log held at the last agreement (reconcile
+/// logs it before stamping the hash, and a projection renders it from the
+/// log), so the render differs only because a peer edited the frontmatter.
+/// That is a legitimate remote change and no more a loss than a remote
+/// block edit; refusing it would freeze the page, which is issue #166
+/// with the blame moved (see [`content_lines_missing_from`]).
+///
+/// The sidecar keeps no copy of the fence, so the hash is the witness for
+/// "the log held this fence", exactly as the sidecar's blocks are the
+/// witness for block text. Fences are compared by body, so a CRLF file, a
+/// BOM or a `...` closing delimiter never reads as an edit.
+///
+/// `outl reconcile --ahead-of-log` — the recovery
+/// `ActionError::PageMarkdownAheadOfLog` already names — re-reads the
+/// fence into the log and clears both shapes.
+///
+/// [issue #281]: https://github.com/outlmd/outl/issues/281
+pub fn frontmatter_lines_missing_from(disk: &str, rendered: &str, last_synced_hash: &str) -> usize {
+    let lines = crate::frontmatter::frontmatter_line_count(disk);
+    if lines == 0 {
+        return 0;
+    }
+    if crate::frontmatter::frontmatter_line_count(rendered) == 0 {
+        return lines;
+    }
+    if crate::sidecar::file_hash(disk) == last_synced_hash {
+        return 0;
+    }
+    let (on_disk, _) = crate::frontmatter::split_frontmatter(disk);
+    let (in_render, _) = crate::frontmatter::split_frontmatter(rendered);
+    if on_disk == in_render {
+        0
+    } else {
+        lines
+    }
+}
+
 /// The content lines in `disk` that **no block the op log knows** can
 /// account for.
 ///
@@ -172,8 +236,42 @@ pub fn content_lines_missing_from_texts<'a>(
         }
     }
 
+    // Skip a leading YAML frontmatter fence. Its lines are page-level
+    // metadata the log holds as one `Op::SetProp` on the page root (see
+    // `frontmatter::PAGE_FRONTMATTER_KEY`), never as a block's `text`, so
+    // comparing them against block texts would flag every page that has a
+    // fence — the same reason `disk_line` skips a `key:: value` line.
+    //
+    // A false positive here is the expensive direction: it withholds
+    // `last_synced_hash` and refuses re-projection, so every page of an
+    // Obsidian vault would be frozen in both directions with nothing wrong
+    // with it. `frontmatter_line_count` is the same scan `parse` uses to
+    // decide the region is metadata, so the two cannot disagree about
+    // which lines these are — and an unterminated fence counts as `0`
+    // there, which leaves its lines as the content they are.
+    //
+    // **"Cannot disagree" is a property of one shared scan**, not of two
+    // written alike, and it was false in exactly one class of file:
+    // `scan_fence` did not skip a UTF-8 BOM and `parse` did. So
+    // `\u{feff}---` was frontmatter to the parser and no fence at all
+    // here, the skip came back `0`, every line of the fence was reported
+    // as unlogged, and the page froze in both directions — permanently,
+    // since the projection that would have rewritten the BOM is the same
+    // projection being refused. `strip_bom` moved next to `scan_fence` so
+    // one function answers for both.
+
+    // Read the file from the same first byte the parser did, for the same
+    // reason. U+FEFF is not whitespace, so nothing downstream trims it:
+    // left in, it stays glued to the first `- ` and that line matches no
+    // block the log holds — a `.md` a Windows editor wrote reads as
+    // carrying one unlogged line whether or not it has a fence. This
+    // cannot hide real content: it removes three bytes from the file's
+    // very first line, and those bytes are in no block's text because
+    // `parse` dropped them before the log ever saw the page.
+    let disk = crate::frontmatter::strip_bom(disk);
     let mut missing = Vec::new();
-    for raw in disk.lines() {
+    let skip = crate::frontmatter::frontmatter_line_count(disk);
+    for raw in disk.lines().skip(skip) {
         let Some(line) = disk_line(raw) else { continue };
         // Try the stripped form first, then the line as written.
         //
