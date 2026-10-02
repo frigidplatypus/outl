@@ -6335,7 +6335,7 @@ dependencies = [
 
 [[package]]
 name = "outl-actions"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -6355,7 +6355,7 @@ dependencies = [
 
 [[package]]
 name = "outl-cli"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "anyhow",
  "chrono",
@@ -6393,7 +6393,7 @@ dependencies = [
 
 [[package]]
 name = "outl-config"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "anyhow",
  "dirs 7.0.0",
@@ -6405,7 +6405,7 @@ dependencies = [
 
 [[package]]
 name = "outl-core"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "chrono",
  "criterion",
@@ -6429,7 +6429,7 @@ dependencies = [
 
 [[package]]
 name = "outl-desktop"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "anyhow",
  "chrono",
@@ -6470,7 +6470,7 @@ dependencies = [
 
 [[package]]
 name = "outl-exec"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "anyhow",
  "boa_engine",
@@ -6491,7 +6491,7 @@ dependencies = [
 
 [[package]]
 name = "outl-import"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "chrono",
  "outl-actions",
@@ -6508,7 +6508,7 @@ dependencies = [
 
 [[package]]
 name = "outl-md"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "chrono",
  "comrak",
@@ -6530,7 +6530,7 @@ dependencies = [
 
 [[package]]
 name = "outl-mobile"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "chrono",
  "dirs 7.0.0",
@@ -6572,7 +6572,7 @@ dependencies = [
 
 [[package]]
 name = "outl-plugins"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "boa_engine",
  "chrono",
@@ -6594,7 +6594,7 @@ dependencies = [
 
 [[package]]
 name = "outl-shortcuts"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "serde",
  "serde_json",
@@ -6602,7 +6602,7 @@ dependencies = [
 
 [[package]]
 name = "outl-sync-iroh"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -6633,7 +6633,7 @@ dependencies = [
 
 [[package]]
 name = "outl-tauri-shared"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -6661,7 +6661,7 @@ dependencies = [
 
 [[package]]
 name = "outl-theme"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "serde",
  "serde_json",
@@ -6669,7 +6669,7 @@ dependencies = [
 
 [[package]]
 name = "outl-tui"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "anyhow",
  "arboard",
@@ -6703,7 +6703,7 @@ dependencies = [
 
 [[package]]
 name = "outl-ws"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "anyhow",
  "chrono",
@@ -12731,7 +12731,7 @@ checksum = "0637d3a5566a82fa5214bae89087bc8c9fb94cd8e8a3c07feb691bb8d9c632db"
 
 [[package]]
 name = "xtask"
-version = "0.12.0"
+version = "0.12.0-dev"
 dependencies = [
  "clap",
  "serde_json",
