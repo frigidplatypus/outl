@@ -1,0 +1,72 @@
+name: Check branch divergence
+
+# Prompt, not gate: the long-lived fork branches (dev, experimental) drift
+# apart silently until a backport becomes a 288-file hand-composed merge —
+# dev->experimental 2026-10-02. Daily dry-run merge (git merge-tree, no
+# working tree) plus a dual-touch scan (paths both sides edited since the
+# merge base, the semantic-fork class git reports as clean). On divergence:
+# open or refresh one issue with the file lists; on healthy: close it.
+# See .github/scripts/check-branch-divergence.sh for the checks and local
+# reproduction commands.
+
+on:
+  schedule:
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: check-branch-divergence
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # A neutral checkout ref; the job compares remote branches, never a
+          # working tree of either.
+          ref: refs/heads/main
+
+      - name: Fetch fork branches
+        run: |
+          set -euo pipefail
+          git fetch origin 'refs/heads/*:refs/remotes/origin/*'
+
+      - name: Dry-run merge + dual-touch scan
+        id: diverge
+        continue-on-error: true
+        env:
+          DUAL_TOUCH_MIN: '20'
+        run: |
+          set -euo pipefail
+          ./.github/scripts/check-branch-divergence.sh \
+            origin/dev origin/experimental /tmp/divergence-body.md
+
+      - name: Open, refresh, or close the divergence issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIVERGE_OUTCOME: ${{ steps.diverge.outcome }}
+        run: |
+          set -euo pipefail
+          title='Branch divergence: dev vs experimental needs a backport'
+          existing=$(gh issue list --state open --search "in:title \"$title\"" \
+            --json number --jq '.[0].number // empty')
+          if [ "$DIVERGE_OUTCOME" = "success" ]; then
+            # Healthy: resolve the tracker if one is open.
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" \
+                --comment 'Divergence check passed — branches merge cleanly and the dual-touch list is under threshold. Closing.'
+            fi
+            exit 0
+          fi
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file /tmp/divergence-body.md
+          else
+            gh issue create --title "$title" --body-file /tmp/divergence-body.md
+          fi
