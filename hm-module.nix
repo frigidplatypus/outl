@@ -29,7 +29,7 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = flake.packages.${pkgs.system}.outl;
+      default = flake.packages.${pkgs.stdenv.hostPlatform.system}.outl;
       defaultText = lib.literalMD "the upstream `outl` package from this flake";
       description = ''
         The outl package to use. The flake default builds the upstream release;
@@ -40,7 +40,7 @@ in
 
     desktopPackage = lib.mkOption {
       type = lib.types.package;
-      default = flake.packages.${pkgs.system}.outl-desktop;
+      default = flake.packages.${pkgs.stdenv.hostPlatform.system}.outl-desktop;
       defaultText = lib.literalMD "the upstream `outl-desktop` package from this flake";
       description = ''
         The outl-desktop package to use. The flake default builds the upstream
@@ -455,7 +455,7 @@ in
       # Packages are only built for Linux (see flake.nix). On other platforms
       # we still generate the config file below, but install nothing — users
       # there provide outl themselves (e.g. the official installer).
-      home.packages = lib.optionals pkgs.stdenv.isLinux (
+      home.packages = lib.optionals pkgs.stdenv.hostPlatform.isLinux (
         [
           cfg.package
         ]
