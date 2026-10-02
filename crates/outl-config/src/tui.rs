@@ -24,7 +24,7 @@ pub struct TuiCfg {
     pub mouse_capture: bool,
 
     /// How a standalone pipe table is framed in the pretty view. Read
-    /// once at boot in `runtime.rs`; a pure display preference (same
+    /// once at boot in `runtime/mod.rs`; a pure display preference (same
     /// never-converges-between-devices policy as `theme.preset`, root
     /// `CLAUDE.md` invariant #7), so it never goes through the op log.
     /// Default [`TableStyle::Open`].

@@ -31,7 +31,9 @@ The only thing a default run writes is its own stdout.
 
 - **Trash contents.**
   Deletion is `Move(node, TRASH_ROOT)`, never a physical removal, so deleted blocks are still in the graph — invisible to every view.
-  Doctor reports the total block count in the trash, how many top-level deletions produced it, and a text preview of each one.
+  Doctor reports the total block count in the trash, how many top-level deletions produced it, a text preview of each one, and how many of them `outl trash restore` would accept.
+  That last count comes from the same verdict the command itself uses (`outl_actions::trash::refusal_for`), so the doctor cannot promise a restore that then refuses.
+  See [`docs/cli.md`](cli.md#trash) for the command and what it declines.
 - **Unmaterialized ops** — node ids the op log touches that never landed in the tree, i.e. `Edit` / `SetProp` / `SetCollapsed` whose effect you will never see.
 - **Projection drift** — every page in the op log compared against its `.md` on disk: missing files, stale projections, missing sidecars.
 - **`.md` content that never reached the op log** — a page whose sidecar agrees with the bytes on disk (so it looks like a merely *stale* projection) but which holds lines that exist in no op.
@@ -78,6 +80,14 @@ The only thing a default run writes is its own stdout.
   The rule — and, more to the point, everything it refuses to touch — is under [The device store's stale actor bindings](#the-device-stores-stale-actor-bindings).
 
 **Global preferences (`~/.config/outl/config.toml`), not this workspace.**
+
+- **A `config.toml` that cannot be read.**
+  A TOML syntax error, a type mismatch, or a file outl cannot open at all.
+  Every preference is running on defaults, so the warning names the parse error with its line and says the file has *not* been overwritten — no client will write over a config it could not read, so your values are still in it.
+  Fix the file and the next run is quiet; until then, changing a setting from any client fails with the same reason instead of replacing the file with defaults ([issue #284](https://github.com/outlmd/outl/issues/284)).
+  The `outl-tui` status line carries the same sentence on its first frame after launch.
+  A warning, never an error: your workspace is intact, and preferences are not worth ranking beside a torn op log.
+  A *missing* file is never flagged — that is a first launch.
 
 - **A `[theme]` pair whose sides are not one light and one dark.**
   `preset` is meant to be the light side and `preset_dark` the dark side, but nothing enforces that when you set them, so a warning names whichever slot holds the wrong kind of palette.

@@ -514,11 +514,11 @@ pub fn toggle_todo(ctx: &mut WsCtx, id_str: &str) -> Result<Value, ApiError> {
 /// Return the block plus the recursive outline of its descendants.
 pub fn tree(ctx: &WsCtx, id_str: &str) -> Result<Value, ApiError> {
     let id = parse_id(id_str)?;
-    let text = ctx.workspace.block_text(id).ok_or_else(|| {
-        ApiError::new(
-            codes::BLOCK_NOT_FOUND,
-            format!("block `{id_str}` not found"),
-        )
+    // A page root has no text (title is `title::`); a deleted page is reached by id only.
+    let in_tree = ctx.workspace.tree().contains(id).then(String::new);
+    let text = ctx.workspace.block_text(id).or(in_tree).ok_or_else(|| {
+        let message = format!("block `{id_str}` not found");
+        ApiError::new(codes::BLOCK_NOT_FOUND, message)
     })?;
     let (todo, body) = split_todo(&text);
     let children = project_outline(&ctx.workspace, id);
