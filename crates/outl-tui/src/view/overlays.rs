@@ -1057,6 +1057,7 @@ fn help_tab_body(tab: usize, theme: &Theme, icons: &crate::icons::IconSet) -> Ve
             Line::from("  y           yank selected blocks"),
             Line::from("  Tab / S-Tab indent / outdent the range"),
             Line::from("  Ctrl+B      toggle the backlinks panel"),
+            Line::from("  Ctrl+E      toggle the sidebar (visibility only here)"),
         ],
         "Sidebar" => vec![
             Line::from(Span::styled("Open / close", theme.help_title)),
