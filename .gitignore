@@ -91,5 +91,6 @@ devenv.local.yaml
 # pre-commit
 .pre-commit-config.yaml
 
-# Nix build result symlink
-result
+# Nix build result symlinks; multi-output flakes (`.#a .#b`) emit result-1…N too.
+/result
+/result-*
