@@ -26,8 +26,13 @@ name: Release
 #      repo has Immutable Releases turned on
 #      (`target_commitish cannot be changed when release is immutable`).
 #   2. Once a release is published + immutable, assets cannot be added.
-#      Draft releases accept uploads freely; we only publish after
-#      every artifact landed.
+#      Draft releases accept uploads freely; we only publish after every
+#      artifact job *finished*, which is not the same as every artifact
+#      landing. `build_android` is best-effort, so the draft flips with or
+#      without the APK — and because the release is immutable by then,
+#      re-running that job can never attach it. The only recovery is a new
+#      beta; `build_android`'s upload step says so rather than letting
+#      `gh` answer with a bare 422.
 
 on:
   push:
@@ -670,9 +675,40 @@ jobs:
         # Pin the same NDK the project builds against locally. Export both
         # names Tauri/cargo-ndk look for so `cargo tauri android build`
         # finds the toolchain without a local.properties.
+        #
+        # The runner image does not ship 27.1, so every run downloads ~700 MB
+        # and a truncated transfer is a routine outcome: beta.207 died on
+        # `An error occurred while preparing SDK package NDK (Side by side)
+        # 27.1.12297006: Error reading Zip content from a SeekableByteChannel`
+        # at 33%. `sdkmanager` logs that as a *Warning* and still exits 1, so
+        # it reads like a pinned-version problem and is a bad download.
+        #
+        # Retrying only helps if the partial zip goes with it, hence the
+        # `rm -rf` of both the half-unzipped target and sdkmanager's download
+        # scratch. The success gate is the clang `cargo-ndk` will invoke, not
+        # the exit code: a package that unzipped partially can still leave
+        # `source.properties` behind and claim to be installed.
         run: |
-          sdkmanager --install "ndk;27.1.12297006"
-          NDK="${ANDROID_SDK_ROOT}/ndk/27.1.12297006"
+          set -euo pipefail
+          # Checked before the `rm -rf` below reaches for it: `set -u` catches
+          # an unset variable but not an empty one, and an empty prefix turns
+          # the cleanup into `rm -rf /ndk/...`.
+          : "${ANDROID_SDK_ROOT:?unset; android-actions/setup-android did not run}"
+          NDK_VERSION=27.1.12297006
+          NDK="${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}"
+          CLANG="${NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+          for attempt in 1 2 3; do
+            if sdkmanager --install "ndk;${NDK_VERSION}" && [[ -x "${CLANG}" ]]; then
+              break
+            fi
+            if [[ "${attempt}" -eq 3 ]]; then
+              echo "::error::NDK ${NDK_VERSION} did not install after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::NDK install attempt ${attempt} left no usable toolchain; discarding the partial download and retrying"
+            rm -rf "${NDK}" "${ANDROID_SDK_ROOT}/.downloadIntermediates"
+            sleep $(( attempt * 15 ))
+          done
           echo "NDK_HOME=${NDK}" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=${NDK}" >> "$GITHUB_ENV"
 
@@ -761,8 +797,25 @@ jobs:
       - name: Upload APK to draft release
         env:
           GH_TOKEN: ${{ github.token }}
+        # Two decisions meet here and close the recovery path, so the step
+        # has to name it. A release takes assets only while it is a draft
+        # (header, failure mode 2), and this job is best-effort, so
+        # `publish_release` flips the draft whether or not the APK landed.
+        # "Re-run failed jobs" after an Android failure therefore arrives at
+        # a published, immutable release and gets a bare `HTTP 422: Cannot
+        # upload assets to an immutable release` — which reads like a token
+        # scope problem and actually means "too late, cut a new beta".
+        #
+        # Same `isDraft` probe `create_release` already makes; that job owns
+        # the check on a fresh run but does not re-run alongside this one.
         run: |
+          set -euo pipefail
           TAG='${{ needs.prepare.outputs.tag }}'
+          IS_DRAFT=$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft)
+          if [[ "${IS_DRAFT}" != "true" ]]; then
+            echo "::error::${TAG} is already published, and an immutable release accepts no new assets — re-running this job cannot attach the APK. Push again to cut a new beta that carries it."
+            exit 1
+          fi
           gh release upload "${TAG}" \
             outl-android-arm64.apk \
             outl-android-arm64.apk.sha256 \
@@ -805,7 +858,20 @@ jobs:
     # Only beta releases for now. GA bumps `Formula/outl.rb` and the
     # GA cask by hand the first time; after that we can add a
     # similar job for GA.
-    if: needs.publish_release.result == 'success' && needs.prepare.outputs.prerelease == 'true'
+    #
+    # `!cancelled()` is here for the same reason `publish_release` carries
+    # it, one level further down. A job's implicit `success()` reads the
+    # whole ancestor tree, not just its direct `needs`, so a failed
+    # `build_android` skipped this job even though `publish_release` had
+    # already flipped the draft. Three releases shipped that way
+    # (beta.207 among them) with the tap left on the previous version, so
+    # `brew upgrade outl-beta` kept serving the old binary and no job went
+    # red to say so. The explicit condition below is unchanged: this still
+    # only runs on a release that actually got published.
+    if: >-
+      !cancelled() &&
+      needs.publish_release.result == 'success' &&
+      needs.prepare.outputs.prerelease == 'true'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: write
@@ -830,7 +896,22 @@ jobs:
         # the rest of the workflow stays green.
         run: |
           set -euo pipefail
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.sha256' --dir shas
+          # A bare `HTTP 500` on one asset killed the beta.202 bump and left
+          # the tap a version behind, which is the same user-visible outcome
+          # as the skip this job's `if` now guards against. `--clobber` so a
+          # retry overwrites whatever the failed attempt already wrote.
+          for attempt in 1 2 3; do
+            if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+                 --pattern '*.sha256' --dir shas --clobber; then
+              break
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "::error::could not download the .sha256 sidecars from $TAG after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::release download attempt $attempt failed; retrying"
+            sleep $(( attempt * 5 ))
+          done
 
           F=Formula/outl-beta.rb
           sed -i "s|^  version .*|  version \"$VERSION\"|" "$F"

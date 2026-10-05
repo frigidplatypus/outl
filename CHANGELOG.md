@@ -239,6 +239,29 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Fixed
 
+- **A flaky NDK download took the Homebrew tap down with it, four releases deep, and only one of the four went red.**
+  v0.12.0-beta.207's `build_android` job died in `Install Android NDK`, at 33% of a ~700 MB download the runner image does not ship.
+  The line was `An error occurred while preparing SDK package NDK (Side by side) 27.1.12297006: Error reading Zip content from a SeekableByteChannel`.
+  `sdkmanager` logs that as a *Warning* and still exits 1, so it reads like a bad pin and is a truncated transfer.
+  The install retries three times now, deleting the half-unzipped package and sdkmanager's download scratch between attempts — a retry that reuses the corrupt zip fails identically.
+  It gates on the `clang` binary `cargo-ndk` will invoke rather than on the exit code, because a partial unzip leaves `source.properties` behind and claims to be installed.
+
+  The interesting part is everything that failure reached.
+
+  **"Re-run failed jobs" could never have worked.**
+  `build_android` is best-effort, so `publish_release` waits for it without requiring its success and flips the draft either way.
+  A published release is immutable, so the re-run two days later built a clean APK and got `HTTP 422: Cannot upload assets to an immutable release` — which reads like a token scope problem and means "too late".
+  The upload step probes `isDraft` first now, the same probe `create_release` already makes, and says the recovery is a new beta.
+  The workflow header had claimed we "only publish after every artifact landed"; it now says what `publish_release` actually waits for, which is every artifact *job*.
+
+  **And `update_tap` was never reached.**
+  A job's implicit `success()` reads the whole ancestor tree, not its direct `needs`, so a failed `build_android` skipped the tap bump through a `publish_release` that had succeeded.
+  beta.207, beta.196 and beta.194 all published with `Formula/outl-beta.rb` and `Casks/outl-desktop-beta.rb` left on the previous version, so `brew upgrade outl-beta` served the old binary and no job went red to say so.
+  `update_tap` carries `!cancelled()` now, the guard `publish_release` already had for the same reason and one level up.
+
+  beta.202 is the fourth, and it failed rather than skipped: a bare `HTTP 500` on one asset in `gh release download`.
+  That one retries too.
+
 - **A page whose only block is empty stopped syncing the moment a peer wrote into it ([#332](https://github.com/outlmd/outl/issues/332)).**
   Reported from iOS against a Linux `outl serve`: journal days written on a laptop showed as a single empty bullet on the phone while other days synced fine, and typing into that bullet made the whole day appear at once.
   The op log and the tree were both correct; only the `.md` the view reads was stale, which is issue [#166](https://github.com/outlmd/outl/issues/166) mirrored, surviving the fix for it.
