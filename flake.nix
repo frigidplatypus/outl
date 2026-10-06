@@ -104,7 +104,7 @@
             gdk-pixbuf
             glib
             dbus
-            openssl_3
+            openssl
             libsoup_3
             librsvg
             libappindicator-gtk3
@@ -299,10 +299,13 @@
                 # terminal. Omit it and the lookup falls through to the brand
                 # PNG sizes installed above.
 
-                wrapProgram $out/bin/outl-desktop \
-                  --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_PATH" \
-                  --prefix GI_TYPELIB_PATH : "$GI_TYPELIB_PATH" \
-                  --prefix PATH : "${pkgs.desktop-file-utils}/bin:${pkgs.xdg-utils}/bin"
+                # makeWrapper errors on empty --prefix sources; $GST_PLUGIN_PATH
+                # and $GI_TYPELIB_PATH are only populated when the matching
+                # hooks/inputs are present, so pass them conditionally.
+                wrapArgs=( --prefix PATH : "${pkgs.desktop-file-utils}/bin:${pkgs.xdg-utils}/bin" )
+                [ -n "$GI_TYPELIB_PATH" ] && wrapArgs+=( --prefix GI_TYPELIB_PATH : "$GI_TYPELIB_PATH" )
+                [ -n "$GST_PLUGIN_PATH" ] && wrapArgs+=( --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_PATH" )
+                wrapProgram $out/bin/outl-desktop "''${wrapArgs[@]}"
               '';
 
               doCheck = false;
