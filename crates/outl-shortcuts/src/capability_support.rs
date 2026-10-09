@@ -30,6 +30,16 @@ mod why {
         "Restoring a deleted block isn't in the app yet — run `outl trash list` in a terminal \
          to see what was deleted, then `outl trash restore <id>`.";
 
+    /// Every client renders a table (`outl_md::table` is shared), and
+    /// only the terminal has nowhere to put one that does not fit: the
+    /// outline wraps a long line rather than scrolling it sideways, so
+    /// the rows are all still there and the columns stop lining up.
+    /// The GUI clients scroll the grid inside the block.
+    pub const TUI_TABLE_NO_SCROLL: &str =
+        "A table wider than the pane wraps instead of scrolling sideways — every row is still \
+         there, the columns just stop lining up. Widen the terminal, or open the page in the \
+         desktop app.";
+
     /// The TUI has no marketplace UI at all — installing an
     /// unlisted or registry plugin from inside the terminal client
     /// goes through the CLI, not a browse-and-tap surface.
@@ -127,21 +137,6 @@ mod why {
         "The desktop can host a pairing (show the QR / ticket) but has no camera to scan one — \
          to join an existing workspace from a desktop, run `outl peer pair` in a terminal.";
 
-    /// The block's rows are stored and shown either way; only the TUI
-    /// and the desktop lay them into an aligned grid. Mobile prints
-    /// the raw `| … |` text until it grows a table renderer, so the
-    /// nudge points at the clients that draw the grid rather than
-    /// implying the data is missing.
-    pub const TABLE_GRID_NOT_DRAWN_HERE: &str =
-        "Tables show as their raw `| … |` rows here for now — the aligned grid is drawn in the \
-         TUI and the desktop, and every row is still saved in full.";
-
-    /// The desktop grids a block that is *only* a table; a table run
-    /// inside other text (or nested under a bullet) still shows raw
-    /// pipe lines, which the TUI grids too.
-    pub const DESKTOP_TABLE_RUNS_STAY_RAW: &str =
-        "Tables that sit inside other text show as their raw `| … |` rows here — the desktop \
-         grids a table only when a whole block is one; every row is still saved in full.";
 }
 
 /// Per-client support for every capability in the catalog.
@@ -303,6 +298,17 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
         // were already there (`doctor` walks the trash, restore is a
         // `Move`); a surface in each client is the follow-up. Recorded
         // here rather than discovered by a user hunting for a recycle bin.
+        // All three read the grid through `outl_md::table`, so the
+        // cells and the alignment cannot disagree. The desktop and
+        // mobile hand them to `<table>` inside an `overflow-x-auto`
+        // wrapper (`MarkdownTable.tsx`); the TUI pads the columns and
+        // paints `│` separators with a drawn rule row
+        // (`view/table.rs`), and has no sideways scroll to offer.
+        Capability::TableRendering => ClientSupport {
+            tui: Partial(why::TUI_TABLE_NO_SCROLL),
+            desktop: Full,
+            mobile: Full,
+        },
         Capability::Trash => ClientSupport {
             tui: Missing(why::NO_TRASH_SURFACE),
             desktop: Missing(why::NO_TRASH_SURFACE),
@@ -327,17 +333,6 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
             tui: NotApplicable(why::NO_TUI_FILE_HANDOFF),
             desktop: Full,
             mobile: Missing(why::NO_MOBILE_SHARE_TARGET),
-        },
-        // The TUI draws an aligned grid (`view/table.rs`, reached from
-        // the pretty-render branch of `emit_block_lines`). Both GUI
-        // clients keep the same stored rows but print them as raw pipe
-        // text — the storage is identical, only the render differs, so
-        // this is `Missing` (a renderer not yet built) and not
-        // `NotApplicable`.
-        Capability::MarkdownTable => ClientSupport {
-            tui: Full,
-            desktop: Partial(why::DESKTOP_TABLE_RUNS_STAY_RAW),
-            mobile: Missing(why::TABLE_GRID_NOT_DRAWN_HERE),
         },
     }
 }

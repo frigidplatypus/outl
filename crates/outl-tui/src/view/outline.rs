@@ -322,37 +322,17 @@ pub(crate) fn emit_block_lines(
             | RenderMode::Pretty { .. }
             | RenderMode::Transformed { .. }
     );
+    // A table block is re-emitted column-padded before it is split into
+    // rows, so the `│` separators line up down the grid. Only when
+    // painting pretty: the cursor modes render the raw source, because a
+    // column of padding the user never typed would put the caret on the
+    // wrong character.
+    let grid = pretty
+        .then(|| crate::view::table::aligned_grid(text))
+        .flatten();
+    let is_table_grid = grid.is_some();
+    let text = grid.as_deref().unwrap_or(text);
     let rows = block_to_rows(text, indent, cursor_char);
-
-    // Where a pipe table run starts inside this block's lines, and how long
-    // it is (RFC 0329). Only a pretty-rendered block gets a grid; a selected
-    // / edited table keeps its raw source so the cursor columns stay
-    // byte-aligned, and embeds / transforms keep their decoration. A run may
-    // be the whole block (a standalone table, `carries_bullet`) or a slice
-    // of it (a mid-prose or nested table, no bullet of its own). `None` at
-    // every index — the common case — leaves the prose loop untouched.
-    let line_texts: Vec<&str> = rows.iter().map(|r| r.text).collect();
-    let grid_at: Vec<Option<usize>> = if !pretty {
-        Vec::new()
-    } else {
-        let is_prose =
-            |kind: &BlockRowKind| matches!(kind, BlockRowKind::Bullet | BlockRowKind::Continuation);
-        rows.iter()
-            .enumerate()
-            .map(|(i, r)| {
-                if !is_prose(&r.kind) {
-                    return None;
-                }
-                let len = outl_md::table_run_len(&line_texts, i)?;
-                // The run must not reach into a code fence: a table is a
-                // run of prose-kind rows only.
-                rows[i..i + len]
-                    .iter()
-                    .all(|r| is_prose(&r.kind))
-                    .then_some(len)
-            })
-            .collect()
-    };
 
     // Is this block an ATX header? The level drives both the level
     // glyph in the bullet slot and the `#{n} ` prefix we strip in
@@ -365,32 +345,7 @@ pub(crate) fn emit_block_lines(
     // (multi-line ones would have the icon floating above body text).
     let single_line_pretty = pretty && rows.len() == 1;
 
-    let mut i = 0;
-    while i < rows.len() {
-        // A table run starting on this row renders as one aligned grid,
-        // consuming every row of the run. It carries the block's bullet only
-        // when it is the block's first line (a standalone table); a mid-prose
-        // run draws under the content column with no bullet of its own.
-        if let Some(len) = *grid_at.get(i).unwrap_or(&None) {
-            if let Some(table) = outl_md::parse_table_block(&line_texts[i..i + len].join("\n")) {
-                crate::view::table::emit_table_lines(
-                    indent,
-                    bullet_style,
-                    has_auto_run,
-                    fold,
-                    i == 0,
-                    &table,
-                    &app.theme,
-                    &app.icons,
-                    out,
-                    text_width,
-                    app.box_tables,
-                );
-                i += len;
-                continue;
-            }
-        }
-        let row = &rows[i];
+    for row in &rows {
         // The line is built in three parts so word-wrap can keep the
         // prefix on the first visual row and re-indent continuations:
         //   - `guides`  : the `│ ` indent rails (repeated on every wrap row)
@@ -427,7 +382,9 @@ pub(crate) fn emit_block_lines(
             }
             BlockRowKind::Continuation
             | BlockRowKind::CodeFenceMarker
-            | BlockRowKind::CodeFenceBody => {
+            | BlockRowKind::CodeFenceBody
+            | BlockRowKind::TableRow
+            | BlockRowKind::TableRule => {
                 push_body_indent(&mut head, has_auto_run, &app.icons);
             }
         }
@@ -473,6 +430,14 @@ pub(crate) fn emit_block_lines(
                 BlockRowKind::CodeFenceBody if pretty => {
                     content.push(Span::styled(display.to_string(), app.theme.code));
                 }
+                BlockRowKind::TableRule if pretty => {
+                    content.extend(crate::view::table::render_rule(row.text, &app.theme));
+                }
+                BlockRowKind::TableRow | BlockRowKind::Bullet if pretty && is_table_grid => {
+                    content.extend(crate::view::table::render_row(
+                        row.text, &app.theme, &app.index, &app.icons,
+                    ));
+                }
                 BlockRowKind::Bullet if single_line_pretty => {
                     // Single owner for the bullet's pretty render: it
                     // strips TODO/DONE + `"> "` markers in either
@@ -506,7 +471,6 @@ pub(crate) fn emit_block_lines(
         // `text_width` of 0 (headless render) is still the "don't wrap"
         // sentinel for every row, cursor or not.
         push_wrapped(guides, head, content, text_width, cursor_cell, out);
-        i += 1;
     }
 }
 

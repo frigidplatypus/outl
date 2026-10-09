@@ -114,6 +114,88 @@ fn arb_fence_block() -> impl Strategy<Value = String> {
         })
 }
 
+/// A pipe table, generated as a unit because its lines only mean
+/// anything together — a header, a delimiter row, and a body.
+///
+/// Generated rather than literal for the reason this whole file exists:
+/// a table is the one construct recognised by **shape** instead of by a
+/// marker, so it can swallow a line meant for something else, and the
+/// three shapes that did (a bullet-looking delimiter row, a `key:: value`
+/// row, a fence-opening row) were found by probing rather than by
+/// anybody enumerating them. Without a generator here, nothing crosses
+/// `outl_md::table` on the way through these properties.
+///
+/// Cells avoid `|` and `\` so the generator cannot accidentally write a
+/// row with a different column count than the header — that is a
+/// *parser* question, pinned in `table/tests.rs`, not a roundtrip one.
+fn arb_table_block() -> impl Strategy<Value = String> {
+    let cell = prop_oneof![
+        4 => "[a-z]{1,6}".prop_map(String::from),
+        1 => Just("[[ref]]".to_string()),
+        1 => Just("**b**".to_string()),
+        1 => Just(String::new()),
+    ];
+    let rule = prop_oneof![
+        Just("---"),
+        Just(":--"),
+        Just(":-:"),
+        Just("--:"),
+        Just("-"),
+    ];
+    (
+        proptest::collection::vec(cell.clone(), 1..4),
+        proptest::collection::vec(rule, 1..4),
+        proptest::collection::vec(proptest::collection::vec(cell, 1..4), 0..3),
+        // Outer pipes are optional in the dialect, so both forms have to
+        // round-trip.
+        any::<bool>(),
+    )
+        .prop_map(|(header, rules, rows, outer)| {
+            let cols = header.len();
+            // Two shapes need the outer pipes, and the generator found
+            // both on its first runs — which is the argument for having
+            // it rather than a list of literals:
+            //
+            // - **one column**, which with no outer pipes carries no `|`
+            //   at all, so it is not a table in this dialect: it is a
+            //   line of prose followed by `-`, which is a bullet;
+            // - **a leading `-` rule** (`- | ---`), which with no outer
+            //   pipes *starts* with `- ` and so is a bullet too. That is
+            //   the shape `table::is_row` now refuses, and it belongs in
+            //   `arb_any_text` as a literal rather than here, because a
+            //   `- ` line splits the block in two — an exclusion this
+            //   file already documents.
+            let outer = outer || cols == 1 || rules.first().is_some_and(|r| *r == "-");
+            let line = |cells: &[String]| -> String {
+                let mut cells: Vec<String> = cells.to_vec();
+                cells.resize(cols, String::new());
+                let inner = cells.join(" | ");
+                let line = if outer { format!("| {inner} |") } else { inner };
+                // An empty cell at either end with no pipe beside it
+                // leaves the line padded, and the continuation grammar
+                // trims — one of this file's documented normalisations,
+                // and not something a hand-written table carries.
+                // `split_cells` trims the row anyway, so trimming here
+                // changes nothing about which cells the parser reads.
+                line.trim().to_string()
+            };
+            let mut out = vec![line(&header)];
+            let mut rules: Vec<String> = rules.iter().map(|r| (*r).to_string()).collect();
+            rules.resize(cols, "---".to_string());
+            out.push(line(&rules));
+            for row in &rows {
+                out.push(line(row));
+            }
+            out.join("\n")
+        })
+        // A header of only empty cells with no outer pipes is a line of
+        // bare spaces: the renderer normalises it, which is property 2's
+        // business and not property 1's.
+        .prop_filter("the header carries something", |t| {
+            t.lines().next().is_some_and(|l| !l.trim().is_empty())
+        })
+}
+
 /// A continuation line, which unlike the first line may carry its own
 /// leading indentation — `render::write_block_text` writes the levels it
 /// added and `parse::strip_indent_levels` takes back exactly those, so
@@ -169,6 +251,7 @@ fn arb_block_text() -> impl Strategy<Value = String> {
                 6 => arb_continuation(),
                 2 => Just(String::new()),
                 3 => arb_fence_block(),
+                3 => arb_table_block(),
             ],
             0..5,
         ),
@@ -218,6 +301,7 @@ fn arb_block_text() -> impl Strategy<Value = String> {
 fn arb_any_text() -> impl Strategy<Value = String> {
     prop_oneof![
         8 => arb_block_text(),
+        2 => arb_table_block(),
         1 => Just("\tleading tab".to_string()),
         1 => Just("has\rcarriage".to_string()),
         1 => Just("trailing blanks\n\n".to_string()),
@@ -233,6 +317,15 @@ fn arb_any_text() -> impl Strategy<Value = String> {
         1 => Just("a\nkey:: v".to_string()),
         1 => Just("a\n```\nunclosed".to_string()),
         1 => Just("~~~\n- a\n~~~".to_string()),
+        // The three lines a table must not swallow, each a line another
+        // construct of the grammar already owns. All three used to make
+        // the document change shape on a later save; the first also made
+        // `content_lines_missing_from` report a line the log does hold,
+        // which freezes the page. See `table::is_row`.
+        1 => Just("a | b\n- | -\n1 | 2".to_string()),
+        1 => Just("| a | b |\n| - | - |\nstatus:: x | y".to_string()),
+        1 => Just("| a | b |\n| - | - |\n```| x |".to_string()),
+        1 => Just("| a |\n| - |\n- item | pipe".to_string()),
     ]
 }
 
@@ -303,6 +396,61 @@ proptest! {
             missing,
             rendered
         );
+    }
+
+    /// Property 4. The gate every write path asks must never refuse a
+    /// page whose own log wrote it — the freeze direction.
+    ///
+    /// Property 3 pins the comparison; this pins the predicate layered on
+    /// it. Mutation-checked: reverting the gate to `sidecar_can_answer`
+    /// alone fails here, shrunk to `text = "\n"` (a page whose only block
+    /// is empty, which is issue #332 at its smallest). The named cases in
+    /// `tests/unlogged_vouching.rs` pin the shapes someone enumerated;
+    /// this pins the ones nobody did.
+    #[test]
+    fn a_rendered_page_is_always_vouched_for_by_its_own_log(text in arb_any_text()) {
+        let rendered = render(&page_of(&text));
+        prop_assert!(
+            outl_md::unlogged::sidecar_can_vouch_for(&rendered, &blocks_of(&rendered)),
+            "a faithful page was refused, freezing it in both directions\
+             \n--- rendered ---\n{}",
+            rendered
+        );
+    }
+
+    /// Property 5. The loss direction, and the teeth of the second arm:
+    /// vouching on a reference that records no text means the file really
+    /// holds no text.
+    ///
+    /// This is the only mechanical guard that the second arm cannot go
+    /// blind. Mutation-checked: stubbing it to `true` fails here on
+    /// `["a"]` while property 4 still passes, so the two are not
+    /// redundant — one catches re-narrowing the gate, this one catches
+    /// widening it, and widening is the direction that deletes bytes.
+    #[test]
+    fn vouching_on_a_text_less_reference_implies_nothing_to_lose(text in arb_any_text()) {
+        let rendered = render(&page_of(&text));
+        // The pre-0.11 shape: one entry per block, every text dropped.
+        let text_less: Vec<SidecarBlock> = blocks_of(&rendered)
+            .iter()
+            .map(|b| SidecarBlock::from_text(NodeId::new(), b.line, b.indent, ""))
+            .collect();
+        if outl_md::unlogged::sidecar_can_vouch_for(&rendered, &text_less) {
+            let back = parse(&rendered);
+            let held: Vec<&str> = back
+                .blocks
+                .iter()
+                .map(|b| b.text.as_str())
+                .filter(|t| !t.trim().is_empty())
+                .collect();
+            prop_assert!(
+                held.is_empty(),
+                "vouched for a page holding text no text-less sidecar can \
+                 account for: {:?}\n--- rendered ---\n{}",
+                held,
+                rendered
+            );
+        }
     }
 }
 

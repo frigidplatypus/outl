@@ -85,15 +85,19 @@ pub enum Capability {
     /// client, so any of them can import a path it is given. What
     /// differs is whether the platform ever hands one over.
     OpenExternalFile,
-    /// Seeing a pipe table (`| a | b |` with its `|:--|--:|` rule) drawn
-    /// as an aligned grid, columns padded and truncated to the pane.
+    /// Rendering a markdown table a user wrote as a table, rather
+    /// than as the pipe rows it is on disk.
     ///
-    /// Every client *keeps* the table's content — the block stores its
-    /// rows verbatim — but only the TUI turns those rows into a grid;
-    /// the GUI clients show the raw pipe text until they grow a table
-    /// renderer. This tracks the **render**, not the storage, which is
-    /// identical everywhere (RFC 0329).
-    MarkdownTable,
+    /// Every client **models** one — `outl_md::table` is shared, so
+    /// the cells and the alignment are read identically everywhere
+    /// (issue #329). What differs is what the client can do with a
+    /// table too wide for the space it has.
+    ///
+    /// Not about *editing* a table: no client has add-row /
+    /// add-column, by design, and the block's raw markdown is what
+    /// gets edited on all three. A capability every client lacks
+    /// equally would be a row that says nothing.
+    TableRendering,
     /// Reading the trash back: listing what has been deleted and
     /// putting a block back where it was deleted from (issue #287).
     ///
@@ -126,7 +130,7 @@ impl Capability {
         Capability::NestedPages,
         Capability::ToolbarOrderLock,
         Capability::OpenExternalFile,
-        Capability::MarkdownTable,
+        Capability::TableRendering,
         Capability::Trash,
     ];
 }
@@ -153,7 +157,7 @@ mod tests {
             Capability::NestedPages => "NestedPages",
             Capability::ToolbarOrderLock => "ToolbarOrderLock",
             Capability::OpenExternalFile => "OpenExternalFile",
-            Capability::MarkdownTable => "MarkdownTable",
+            Capability::TableRendering => "TableRendering",
             Capability::Trash => "Trash",
         }
     }

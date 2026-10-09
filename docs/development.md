@@ -42,7 +42,7 @@ Press `?` inside the TUI for the keymap.
 | `outl-mobile` (iOS app) | macOS + Xcode 15+ + Bun (`curl -fsSL https://bun.sh/install \| bash`) |
 | `outl-desktop` (Tauri 2) | Bun + the Tauri prerequisites for your OS (Linux: `webkit2gtk-4.1`, `libgtk-3-dev`; Windows: WebView2 runtime) |
 | Frontend tests (`crates/outl-mobile/src/**`, `crates/outl-desktop/src/**`, `crates/outl-frontend-shared/**`) | Bun + `bun run test` |
-| Bench job locally | `cargo install hyperfine --locked` for the CLI side; criterion ships with `cargo bench` |
+| Bench job locally | `cargo install hyperfine --version 1.20.0 --locked` (1.21+ needs a newer rustc than the pinned toolchain) for the CLI side; criterion ships with `cargo bench` |
 
 The CI containers don't install GTK, so `outl-mobile` and `outl-desktop` are **excluded from the workspace `cargo clippy/test/doc` runs** (see [CI walkthrough](#9-ci-walkthrough)).
 That means a clean `cargo test --workspace` does not exercise those two crates.
@@ -76,8 +76,10 @@ crates/outl-desktop/
 ├── package.json / tsconfig*.json / vite.config.ts / vitest.config.ts / index.html
 ├── src/                       # frontend (Solid)
 │   ├── index.tsx  App.tsx (Onboarding/AppShell gate)  styles.css  setup.test.ts
-│   ├── components/            # AppShell, Sidebar, OutlineView (owns BlockCallbacks),
-│   │                         #   BlockRow (+CodeFenceView), BacklinksPanel, Picker,
+│   ├── components/            # AppShell, Sidebar, OutlineView (impl BlockCallbacks),
+│   │                         #   BlockRow (chrome) → BlockBody (read) / BlockEditor
+│   │                         #     (textarea) / block-suggest / block-callbacks /
+│   │                         #     CodeFenceView / SuggestPopups, BacklinksPanel, Picker,
 │   │                         #   SettingsModal, ChromeToggleBar, SyncIndicator,
 │   │                         #   PropertyEditor (key:: value chips + create/delete),
 │   │                         #   Onboarding, WorkspacePicker
@@ -688,6 +690,12 @@ cargo test -p outl-actions --release --test composite_write_bench -- --ignored -
 | [`release.yml`](../.github/workflows/release.yml) | Push to `main` (beta), `v*` tag (GA), manual | Computes version from `Cargo.toml`, builds CLI + TUI matrix, builds the desktop bundles (universal macOS dmg, Linux AppImage/deb/rpm, Windows NSIS installer), drafts release, uploads assets, publishes, bumps Homebrew tap (`Formula/outl-beta.rb` + `Casks/outl-desktop-beta.rb`), publishes `@outl/plugin-sdk` to npm and the embedder lib crates to crates.io. | n/a |
 | [`testflight.yml`](../.github/workflows/testflight.yml) | `Mobile` workflow completing successfully | Downloads the signed `.ipa`, uploads to App Store Connect via `xcrun altool`, sets "What to Test" notes via App Store Connect API. | n/a |
 | [`cleanup-tags.yml`](../.github/workflows/cleanup-tags.yml) | Cron | Garbage-collects stale beta tags. | n/a |
+
+### Action pinning
+
+Every `uses:` points at a full commit SHA with the release tag in a comment (`actions/checkout@<sha> # v7.0.1`), so a moved or hijacked tag can't change what runs next to the release secrets.
+Don't hand-edit a SHA back to a tag: `.github/dependabot.yml` bumps the GitHub Actions pins weekly in one grouped PR, along with Cargo and Bun.
+To pin a new action, resolve the tag with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>` and, when that returns a `tag` object, follow it to the commit.
 
 ### Runner sizing
 

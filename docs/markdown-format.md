@@ -259,47 +259,55 @@ Query blocks auto-run on every page load — no `gx` or `auto-run::` needed.
 
 Full syntax reference, examples, and architecture: [Query code blocks](query.md).
 
-### Pipe tables
+### Tables
 
-A GitHub-flavoured pipe table that sits at the top level (column 0, not under a bullet) is **one block**, not one block per line:
+A pipe-delimited table is **one block**, whose text carries the rows.
+Same shape as a fenced code block and a `> ` quote: the dialect stays one-block-per-bullet and the op log never learns a new kind.
 
-```
-| state | owner |
-|:------|------:|
-| open  | avel  |
-| done  | joao  |
-```
-
-The parser recognises it (a header row, a `|:--|--:|` delimiter row beneath it, then at least one data row — all at column 0) and collapses the whole run into a single block whose `text` is the rows joined by `\n`, exactly the shape a fenced code block already uses.
-No `UnrecognizedBlockMarker` warning is raised: a table is recognised syntax, not a line the grammar failed to place.
-Before this, a nine-row table became nine orphan blocks with nine warnings, and the TUI drew a wall of `!` glyphs where a grid should sit.
-
-**The bytes are stored verbatim; only the render reads them as a grid.**
-`text` holds the pipe rows as typed (trimmed of leading indent, `\|` left as-is), so the block round-trips as a unit and the op log never sees a rewrite of alignment — alignment is derived from the delimiter row at draw time, never written back (invariant 8).
-The collapse is a **fixpoint** because it reuses the continuation path: the first parse (a raw import) reads each row at column 0, the renderer writes the first row after `- ` and the rest one level deeper, and every later parse reassembles those continuation lines into the same trimmed, `\n`-joined text.
-A table glued to a bullet (`- | a | b |`), a table nested under a block, or a prose paragraph whose second line happens to contain a `|` is **not** a table for these purposes — it stays ordinary block text (the second case is recovered permissively, exactly as before), so recognition is conservative and never hijacks a paragraph.
-Cells may be ragged: a short row is padded and a long one truncated to the header's column count, so a malformed-but-recognised table survives rather than being refused and split back into one block per line.
-
-**A table inside a block is still ordinary block text — but the TUI draws its rows as a grid.**
-Not collapsed into its own block, no id, no fold: a table sitting mid-prose or under a parent bullet stays the block's continuation text, exactly as above.
-At draw time, though, `outl_md::table_run_len` finds the table run among those lines and the TUI projects a grid over it, leaving the surrounding prose as prose.
-So a table at column 0 and a table buried in a block look the same on screen, and differ only in storage (whether the collapse made it one block).
-The one shape that stays literal is a table sharing a *single line* with other text (`prose | a | b | tail`) — there is no row axis inside one inline span.
-
-The grid is owned by [`outl_md::table`] (`parse_table_block` → `Table { alignments, header, rows }`); the outline grammar calls it in the depth-0 arm of `parse`, and each client decides whether to draw it.
+On disk, written as a bullet with continuation lines:
 
 ```
-| client | renders the grid? |
-|--------|-------------------|
-| TUI | ✅ aligned columns, padded and truncated to the pane, `│` rails in the theme's dim colour |
-| desktop / mobile | ❌ the raw `| … |` rows for now — every row is still saved in full |
+- | Route   | Pax | Owner      |
+  | ------- | --: | :--------- |
+  | SP → RJ | 1203 | [[avelino]] |
+  | BH      |   12 |             |
 ```
 
-Per-client coverage is recorded as [`Capability::MarkdownTable`](client-parity.md) (`Full` on the TUI, `Missing` on the two GUI clients until they grow a table renderer).
-The TUI additionally frames a **standalone** table when `[tui] table_style = "box"` (default `open`): a top border, a `│` wall on each side of every row, and a bottom border, all in the dim colour. A table nested inside prose stays open regardless, so no wall lands on its parent's text. See [config.md → `[tui]`](config.md#tui).
-See [`outl_md::table`] for the recognition predicate and column model, and [RFC 0329](rfcs/0329-markdown-pipe-tables.md) for the parse/render split.
+Written (or pasted) **without** a bullet, the parser claims the rows as one block and raises **no warning** — a table is understood, not recovered:
 
-[`outl_md::table`]: ../crates/outl-md/src/table.rs
+```
+| Route | Pax |
+| --- | --: |
+| SP    | 1203 |
+```
+
+The next save normalises it to the bulleted form above.
+That is the only change it makes: outl **never reformats the columns** of a table you wrote.
+Alignment is a render decision (the TUI pads when it paints, the GUI clients hand the cells to `<table>`), so a hand-written table keeps its bytes and produces no `Op::Edit` churn.
+
+What counts as a table:
+
+- A row carrying an unescaped `|`, then a **delimiter row** (`| --- |`, `| :-- |`, `| :-: |`, `| --: |`), then every row after it.
+  Outer pipes are optional (`a | b` works).
+  Two lines is the minimum — a header with a rule under it and no body is a table you are still typing.
+- The delimiter row is what declares the intent.
+  Two pipe-carrying lines with no rule between them are prose, keep today's `unrecognized_block_marker` warning, and are not painted as a grid.
+- **A line another construct already owns is never a row**, whatever pipes it carries. A bullet (`- item | with a pipe`), a `key:: value` property (`status:: x | y`), and a fence opener all stay themselves — including in the **delimiter** position, so `- | -` is a bullet and not a rule.
+- `\|` is a literal pipe inside a cell. It splits nothing and renders as `|`.
+
+A cell carries ordinary inline markdown — `[[refs]]`, `#tags`, `**bold**`, `` `code` ``, `((blk-…))` — rendered exactly as it is anywhere else.
+The backend tokenizes each cell (`outl_md::tokenize_table`) and ships the result in `BlockNode.table`, so no client splits the pipes for itself.
+
+Two deliberate departures from GFM, both in the same direction:
+
+- **A surplus cell is kept.**
+  GFM truncates a row wider than its header; outl widens the table instead.
+  A cell you can see in your editor and not in outl is the loss this dialect exists to prevent.
+- **A short row is padded, not dropped.**
+
+Editing is editing the markdown.
+There is no add-row / add-column UI on any client, by design — see [issue #329](https://github.com/outlmd/outl/issues/329).
+Per-client rendering differences are recorded as `Capability::TableRendering` in [client parity](client-parity.md); pasting tabular data from a spreadsheet is in [Paste](paste.md).
 
 ### Block properties
 
@@ -510,6 +518,7 @@ The `@`-prefixed link text is what makes the rendered reference visually a menti
 ### Permissive parsing & warnings
 
 A hand-written or imported `.md` may contain lines that don't fit the dialect — typically a leading `# heading`, a paragraph, or an HTML snippet.
+(A **table** used to be in that list. It is modelled now — see [Tables](#tables) — so it raises no warning; only a table-looking run with no delimiter row still does.)
 The parser is **permissive at every depth, not just the top level**.
 Such a line is preserved verbatim as a recovered block — a sibling at depth 0, a child of the block above it when indented with no open continuation to absorb it — and the recovery is recorded in `ParsedPage.warnings: Vec<ParseWarning>`.
 

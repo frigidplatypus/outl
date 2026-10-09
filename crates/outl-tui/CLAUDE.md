@@ -208,14 +208,11 @@ TUI-specific contracts worth remembering:
   The chrome lives in **`view::inline::render_pretty_block_text_impl`** and is the **only owner** of the bar + checkbox + token rendering pipeline;
   the outline view's `BlockRowKind::Bullet if single_line_pretty` branch delegates to it directly (one owner, every caller wraps).
   The bar composes with the task checkbox (`│ ☐ foo`) and `view::inline::split_block_prefixes` accepts the prefixes in **either order**, so `"> TODO foo"` and `"TODO > foo"` render the same.
-- **A pipe table renders as an aligned grid in the pretty view** (`view::table.rs`), reached from the `RenderMode::Pretty` branch of `emit_block_lines` — so the selected/editing block keeps its raw `| … |` source (cursor columns still map 1:1), and only the non-focused pretty view draws the grid.
-  `emit_block_lines` walks the block's `block_to_rows` output and asks `outl_md::table_run_len` where a table run starts (only rows of `Bullet`/`Continuation` kind — a run never reaches into a code fence); a run renders as one grid and consumes its rows, every other row falls through to ordinary inline rendering, so prose is never hijacked.
-  This covers both a **standalone** table (the run is the whole block, `carries_bullet: true` so it takes the bullet head) and a **mid-prose / nested** table (the run is a slice, `carries_bullet: false` so it draws under the block's content column and borrows no second bullet).
-  A table sharing a single *line* with other text stays literal — there is no row axis in the inline `Span` pipeline.
-  `view::table::emit_table_lines` **builds `Line`s directly and bypasses `push_wrapped`**: a grid has fixed column widths, so per-cell truncation (`…`) beats word wrap, and column widths come from `fit_widths` (equal-share cap, min 1) against `text_width`.
-  Column rails are `│` in `theme.dim`, the header row `theme.heading`, the delimiter row's `:colons` mark alignment; no new colour token (invariant 13).
-  With `[tui] table_style = "box"` a **standalone** table is additionally framed with a top border (`┌ ┬ ┐`), side walls (`│`) on every row and a bottom border (`└ ┴ ┘`), all in `theme.dim`; a mid-prose / nested run stays open regardless, so a wall never lands on the carrying block's content column. The flag is `app.box_tables`, read once at boot from `outl_config::TableStyle` — view state, never an op.
-  Per-client coverage is `outl_shortcuts::Capability::MarkdownTable` (TUI `Full`, desktop/mobile `Missing`).
+- **A block whose whole text is a markdown table draws as a grid** (`view/table.rs`).
+  The block is re-emitted through `outl_md::render_table` before `block_to_rows` splits it, so every column is padded to its widest cell and the `│` separators line up down the grid; the delimiter row is drawn as `├────┼────┤` (dim) by substituting one character per input character, which is what keeps its junctions under the row above.
+  Cell contents go through the inline tokenizer, so a `[[ref]]` or `**bold**` inside a cell renders like it does anywhere else, and `\|` shows as `|` (via `outl_md::unescape_cell`, the shared owner of that decision).
+  **Pretty only** — the cursor modes render the raw source, because padding the user never typed would put the caret on the wrong character, the same rule `render_markdown_inline` follows.
+  A table wider than the pane wraps instead of scrolling sideways; that gap is recorded as `Capability::TableRendering` → `Partial` in `outl_shortcuts::capability_support`, with the wording the user sees.
 - **Task states draw as `☐` (TODO), `◐` (DOING), `☑` (DONE).**
   DOING shares `theme.todo_open`'s colour rather than claiming a third palette entry — it is unfinished work and the glyph already says which kind.
   Only DONE dims and strikes the body.
@@ -364,6 +361,7 @@ src/
 │   ├── outline.rs       # outline rendering (render_outline, render_block, emit_block_lines)
 │   ├── row_chrome.rs    # what a block draws around its text: fold slot, ⚡, the body pad, `key:: value` rows
 │   ├── embed.rs         # `!((blk-X))` expansion: the read-only subtree a block draws below itself
+│   ├── table.rs         # the pretty reading of a table block: column padding, `│` separators, a drawn rule row
 │   ├── wrap.rs          # width-aware word wrap of styled spans (push_wrapped)
 │   ├── table.rs         # pretty pipe table → aligned grid (emit_table_lines; bypasses push_wrapped)
 │   ├── overlays.rs      # every modal popup

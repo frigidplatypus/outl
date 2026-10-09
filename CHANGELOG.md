@@ -5,16 +5,46 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ## [Unreleased]
 
+### Fixed
+
+- **Imported data carrying a backslash no longer gains a column.**
+  `escape_cell` turned `|` into `\|` and left `\` alone, so a spreadsheet cell holding `foo\|bar` — sed/grep alternation, ordinary data — became `foo\\|bar`: an even backslash run, which the parser reads as a real delimiter. Three cells where the user had two, with every later value under the wrong header, written to the op log. The producer now doubles a literal backslash and `unescape_cell` collapses it, so the two are a real pair. The same bug reached the TypeScript side through a `<code>` cell, since Turndown escapes `\` in a text node but deliberately not inside code.
+
+- **Mobile: a nested block could not paste with formatting, and a property chip edited nothing.**
+  Two props were declared on `BlockRow` and never forwarded — optional, so omitting them compiled. `onSetProperty` never reached `<BlockBody />`, so tapping a `key:: value` chip was a no-op on *every* block; and the recursive `<BlockRow />` dropped both it and `onPasteMarkdown`, so any block below the top level fell back to the browser's literal splice. Found while closing [#329](https://github.com/outlmd/outl/issues/329): it is what made pasting a spreadsheet range into a nested block produce a wall of tabs instead of a table.
+
+  `BlockRow.recursion.test.ts` now fails on the next one. It reads the JSX and asserts every declared prop is either forwarded or listed with a reason, because that is the defect's actual shape — rendering this component needs haptics, a Tauri bridge and a WKWebView-shaped textarea, and a test mocking all three would pin the mocks.
+
 ### Added
 
 - **The TUI sidebar opens *focused* from any mode — `Ctrl+E` is event-loop chrome now.**
   The chords used to be duplicated inside the Normal and Visual keymaps, so Insert mode could not reach them and an opened sidebar was visibility-only: its keystrokes were dispatched inside the Normal handler, so stealing focus from an insert buffer or a visual range would draw a sidebar the keyboard could not navigate. Both chords and all sidebar keystroke routing moved to one event-loop handler (`input::sidebar`) that runs before mode dispatch — the TUI counterpart of the desktop's `Global`-scope bindings. While focus sits in the sidebar it owns the keyboard: unlisted keys are swallowed in Insert / Visual (a stray `x` cannot touch the buffer or shrink the range) and fall through in Normal (`?`, `q`, chords keep working). `Esc` hands the keyboard back with the buffer/range untouched; `Enter` on a Pinned/Recent row opens the page and lands in Normal, since the old page's buffer/range is stale once the view switches (Calendar's `Enter` stays a no-op).
-- **Markdown pipe tables render as grids — the TUI collapses and draws them, the desktop draws a block that is one whole table as an HTML grid.**
-  A column-0 table now collapses into **one** block on parse, reusing the continuation path a table's rows already took, so the collapse is a render fixpoint and no `UnrecognizedBlockMarker` is raised — a table is recognised syntax, not a failed line ([#329](https://github.com/outlmd/outl/issues/329), [RFC 0329](docs/rfcs/0329-markdown-pipe-tables.md)).
-  The column model — widest-cell widths, `:---:` alignment, CJK wide and combining cells counting 2 — has exactly one owner, `outl_md::table`; a client that wants the grid calls `parse_table_block` rather than writing a parser.
-  **The desktop ships that grid** (`<TableGrid />` + a TypeScript port of the column model in `@outl/shared/markdown`), and the port is pinned against a shared JSON corpus (`crates/outl-md/tests/corpus/table_grid.json`) that the Rust test regenerates: the vitest side fails the moment the two parsers disagree, so the drawer and the port cannot drift.
-  The desktop's `Partial` is deliberate and stays open until it mirrors `table_run_len`: a table sitting *inside* other text still shows its raw `| … |` rows there, while the TUI projects a grid over mid-prose and nested runs too. `Capability::MarkdownTable` now reads `Full` / `Partial` / `Missing` (TUI / desktop / mobile), each nudge saying the rows are saved in full.
-  `[tui] table_style` grew a second reader: the desktop hydrates the same `open` / `box` pick into its Settings modal's "Table style" select and maps it to JSX framing — `box` a rounded card border, `open` a header rule — the same intent, rendered per medium. Still pure display state, never an op.
+- **Markdown tables render as tables, on all three clients — and tabular data pasted from anywhere becomes one.**
+  A pipe table used to arrive as a wall of `|` characters plus one `unrecognized_block_marker` warning *per row*, because the parser had no table in its grammar and kept each line verbatim ([#329](https://github.com/outlmd/outl/issues/329)). The content was safe; it just wasn't readable, and the warnings made a correct file look broken.
+
+  ```
+  - | Route   | Pax | Owner       |
+    | ------- | --: | :---------- |
+    | SP → RJ | 1203 | [[avelino]] |
+  ```
+
+  A table is **not a new block kind** and there is no `Op::Table`. It is a block whose text carries the rows, exactly like a fenced code block and a `> ` quote, so the op log never learns a new shape and the existing continuation grammar already round-trips it. The parser claims the rows as one block and raises no warning — a table is understood, not recovered. The TUI pads the columns and draws `│` separators with a `├───┼───┤` rule row; the desktop and mobile hand the cells to an HTML `<table>` that scrolls sideways inside the block, so a wide grid doesn't stretch the outline on a phone.
+
+  **Cells carry ordinary inline markdown** — `[[refs]]`, `#tags`, `**bold**`, `((blk-…))` — because the backend tokenizes each one (`outl_md::tokenize_table` → `BlockNode.table`). A client that split the pipes for itself would have no tokenizer, and a cell's `[[ref]]` would render as literal text; that is the same bargain `BlockNode.tokens` already made one construct down.
+
+  **Paste**: copy a range out of Excel, Sheets, Numbers, a Notion database, `psql`, or an HTML table on a web page, and it lands as an outl table. Three clipboard shapes, one destination — a `<table>` in `text/html` (Turndown ships no table rule, so `@outl/shared/paste::tableElementToMarkdown` is it), tab-separated `text/plain`, and a markdown table copied from a README or an assistant's reply. All three converge on the same markdown before anything is written, so there is one table reader rather than three. Comma-separated text is deliberately **not** tabular (prose carries commas), and neither is tab-indented code or an outline — that gate also requires no line to *start* with a tab, which is what separates a grid from indentation.
+
+  **A table is recognised by shape rather than by a marker**, which makes it the one construct that can swallow a line meant for something else. Three did, and all three were found by running shapes through `parse → render → parse` rather than by anybody enumerating them: a bullet-looking delimiter row (`- | -`), a `key:: value` row under a table, and a row opening a code fence. Each made the file change on a later save; the first also made the unlogged-content check report a line the op log *does* hold, which withholds `last_synced_hash` and freezes a page with nothing wrong with it — invariant 8's false-positive direction. So `is_row` now refuses every line another part of the grammar owns, and `table_span` asks it of the delimiter row too (a delimiter-shape check alone accepts `- | -`). The lasting fix is the **generator**: `tests/block_text_roundtrip_properties.rs` grew `arb_table_block`, so these three properties now cross the table code on every run instead of relying on someone having thought of the shape.
+
+  **Two deliberate departures from GFM, both in the same direction.** GFM truncates a row wider than its header; outl widens the table and keeps the cell. A short row pads instead of dropping. A cell you can see in your editor and cannot see in outl is the loss this crate exists to prevent.
+
+  **The upgrade path is handled.** A sidecar written before this shipped holds one block *per row*, so the pass that consolidates them into one table block orphans every one of them — on a page that is mostly the table, 100% of its known blocks, which `OrphanGuard` refuses. Unfixed, that freezes the page in both directions and the user sees a repeating reconcile error. It is exempt from the bulk-delete **count** only, through the same `match_blocks_guarded_except` hook the pre-frontmatter migration uses, and with the same kind of predicate: positive evidence, not a bypass. The orphan's text has to *be* a line of a table on disk right now, so a truncated `.md` — the thing the guard exists for — gets no discount, and a row whose cell the user also edited still counts. The rows are still trashed and logged, and `outl trash restore` reaches them.
+
+  **A table is capped at 65,536 materialised cells**, because `columns()` is the widest row and every row pads to it — so a *ragged* table costs `columns × rows`. Measured before the cap: a 17 KB block holding a 4,000-cell header over 400 one-cell rows produced 1.6M cell vectors, a 4 MB wire payload, and a 9 MB string the TUI rebuilt **every repaint**; at 109 KB it is gigabytes. The `.md` arrives over iroh / iCloud / Syncthing from another device, so opening the page was the whole interaction. Past the cap the block keeps its text and falls back to `tokens` — the pipe rows render verbatim, which is what every client did before tables were modelled.
+
+  **outl never reformats a table you wrote.** Re-emitting every table column-padded on read is a whitespace-only rewrite of a hand-written file, and the reconcile that follows turns it into an `Op::Edit` per table — churn in the log for a space nobody typed. Alignment is a *render* decision; `render_table` is for where outl **creates** a table.
+
+  Editing is editing the markdown: no add-row / add-column UI on any client, by design. The one real per-client difference is recorded rather than left to be discovered — `Capability::TableRendering` is `Partial` on the TUI (a table wider than the pane wraps instead of scrolling; every row is still there, the columns stop lining up) and `Full` on desktop and mobile, with the wording the user sees living in the catalog (invariant 12).
 - **`outl trash list` and `outl trash restore <id>` — deleted blocks are readable and recoverable.**
   Invariant 6 makes delete a `Move(node, TRASH_ROOT)`, "simplifies the algorithm and preserves history". The preserving half has worked since day one; the reading half did not exist, so on a real workspace `outl doctor` could report 683 blocks across 393 deletions and nothing else could name one of them ([#287](https://github.com/outlmd/outl/issues/287)). What the invariant bought was "the bytes are still on disk", which is a much weaker promise than "you can get it back" — the difference between a recycle bin and a deleted file on a drive you have not overwritten yet.
 
@@ -256,6 +286,74 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   Reasoning and rejected alternatives: [RFC 0329](docs/rfcs/0329-markdown-pipe-tables.md).
 
 ### Fixed
+
+- **A flaky NDK download took the Homebrew tap down with it, four releases deep, and only one of the four went red.**
+  v0.12.0-beta.207's `build_android` job died in `Install Android NDK`, at 33% of a ~700 MB download the runner image does not ship.
+  The line was `An error occurred while preparing SDK package NDK (Side by side) 27.1.12297006: Error reading Zip content from a SeekableByteChannel`.
+  `sdkmanager` logs that as a *Warning* and still exits 1, so it reads like a bad pin and is a truncated transfer.
+  The install retries three times now, deleting the half-unzipped package and sdkmanager's download scratch between attempts — a retry that reuses the corrupt zip fails identically.
+  It gates on the `clang` binary `cargo-ndk` will invoke rather than on the exit code, because a partial unzip leaves `source.properties` behind and claims to be installed.
+
+  The interesting part is everything that failure reached.
+
+  **"Re-run failed jobs" could never have worked.**
+  `build_android` is best-effort, so `publish_release` waits for it without requiring its success and flips the draft either way.
+  A published release is immutable, so the re-run two days later built a clean APK and got `HTTP 422: Cannot upload assets to an immutable release` — which reads like a token scope problem and means "too late".
+  The upload step probes `isDraft` first now, the same probe `create_release` already makes, and says the recovery is a new beta.
+  The workflow header had claimed we "only publish after every artifact landed"; it now says what `publish_release` actually waits for, which is every artifact *job*.
+
+  **And `update_tap` was never reached.**
+  A job's implicit `success()` reads the whole ancestor tree, not its direct `needs`, so a failed `build_android` skipped the tap bump through a `publish_release` that had succeeded.
+  beta.207, beta.196 and beta.194 all published with `Formula/outl-beta.rb` and `Casks/outl-desktop-beta.rb` left on the previous version, so `brew upgrade outl-beta` served the old binary and no job went red to say so.
+  `update_tap` carries `!cancelled()` now, the guard `publish_release` already had for the same reason and one level up.
+
+  beta.202 is the fourth, and it failed rather than skipped: a bare `HTTP 500` on one asset in `gh release download`.
+  That one retries too.
+
+- **A page whose only block is empty stopped syncing the moment a peer wrote into it ([#332](https://github.com/outlmd/outl/issues/332)).**
+  Reported from iOS against a Linux `outl serve`: journal days written on a laptop showed as a single empty bullet on the phone while other days synced fine, and typing into that bullet made the whole day appear at once.
+  The op log and the tree were both correct; only the `.md` the view reads was stale, which is issue [#166](https://github.com/outlmd/outl/issues/166) mirrored, surviving the fix for it.
+
+  `apply_page_md_with_sidecar_if_stale` gated the re-projection on `sidecar_can_answer`, which asks whether a sidecar's blocks can say what the op log held.
+  A sidecar written before 0.11 carries `text: ""` on every block and cannot, and the gate exists so its empty verdict is never read as "nothing at risk" (invariant 8).
+  But **a page nobody has written in yet has exactly that shape too.**
+  A fresh journal day, every page created for a `[[link]]` that was never filled, and both pages `outl init` leaves behind all carry one block with no text, so each was treated as a page nothing could vouch for and refused for good.
+
+  Nothing said so.
+  `Ok(None)` is what `reproject_stale_md` reads as success, so no banner reached the view.
+  `outl serve`'s sweep folded the page into the arm commented *"nothing here is a page that silently stopped converging"*.
+  And `outl doctor` called it a sidecar "written before 0.11", which was a claim about provenance it could not make.
+  The argument for staying quiet was that the orphan scan's reconcile rewrites such a sidecar *with* text, which arms the real check.
+  That holds for a pre-0.11 sidecar and not for an empty page, and being queued was never the difference: the page observed on a real workspace carried `pipeline_version` 4 against a current 5, so it *was* queued.
+  Its blocks are genuinely empty, so each reconcile rewrote the same `text: ""` and the next open refused it again.
+  The self-healing cannot reach this class at all, which is why the gate has to tell it apart up front.
+
+  **The question is about the bytes on disk, not the sidecar's shape**, and one of the three callers already paired it that way: `collect_ahead`, behind `outl reconcile --ahead-of-log`, asked "is anything actually on disk" inline.
+  Only the gate, though — its verdict then counted those same empty entries as lines ahead of the log, so that half moved with the rest (below).
+  That pairing is `outl_md::unlogged::sidecar_can_vouch_for` now, the single owner of "can this sidecar vouch for the `.md` on disk", asked by the write path, the survey's classifier and `outl reconcile`'s `collect_ahead` alike.
+  Three owners of one fact, where two were wrong and the difference was recorded nowhere.
+  Measured on a 2,874-page workspace: one page frozen in that state, and **zero** genuine pre-0.11 sidecars, so every refusal the narrow gate produced there was a page with nothing at risk.
+
+  **The same conflation sat one layer below the gate, in three counters, and the write path was the only one the gate alone fixed.**
+  A bare `-` normalises to the empty string, so it matches nothing in a reference whose blocks hold text and was counted as a line a re-projection would delete — a line holding no bytes.
+  In `lines_removed_by` that cost the most.
+  `lines_removed > 0` routes a page to the sweep's `withheld` arm *before* the write arm, so `outl serve` left the commonest #332 page at one bare bullet every 30 seconds, for good, while `outl doctor` reported a content loss that could not happen.
+  That page is a peer **typing into** a journal's seed bullet rather than appending beside it, which is what the reporter's laptop did, and it is pinned by `the_sweep_converges_a_page_whose_only_empty_block_a_peer_typed_into`.
+  `classify` had it too, and there it made the listing contradict the writing pass: `AheadOfLog { sample: "" }` sent the user to `outl reconcile --ahead-of-log` for a page `apply.rs` was about to write.
+  `collect_ahead` had it in its own count, putting a false row in that command's pick list.
+  The writer's own refusal, `unlogged_content_error`, had it as well: an answerable sidecar under a `.md` with one surplus bare bullet was refused with an empty sample, for a page the listing and `outl reconcile --ahead-of-log` both reported clean (`if_stale_reprojects_over_a_surplus_bare_bullet_on_an_answerable_sidecar`).
+  All four count only non-empty lines now; `the_sweep_still_counts_a_real_line_a_reprojection_would_remove` pins that a real removal is still withheld.
+
+  **This narrows which pages are refused, never which content is protected.**
+  A pre-0.11 sidecar over a `.md` holding real text still declines and the bytes still survive, phrased by the same `unlogged_content_error`.
+  Two proptests over the existing generator carry that mechanically, and each catches the mutation the other misses.
+  Reverting the gate to `sidecar_can_answer` fails `a_rendered_page_is_always_vouched_for_by_its_own_log`, shrunk to a page whose only block is empty.
+  Stubbing the second arm to `true` fails `vouching_on_a_text_less_reference_implies_nothing_to_lose`.
+  The frontmatter channel was checked separately and survives both ways: a fence the log does not know is still refused with `PageMarkdownAheadOfLog`, and one it does know is re-emitted from the log.
+  Both directions are pinned: `unlogged_vouching.rs` for the predicate, and as pairs in `if_stale.rs` and `survey/tests.rs` for the two decision points.
+  Fixing the write path alone would leave the sweep and the doctor blind to the same pages.
+
+  Root cause, the repro and the fix shape are [@davclark](https://github.com/davclark)'s.
 
 - **Desktop showed a `🖼️ name` chip where an inline image should have been ([#322](https://github.com/outlmd/outl/issues/322)).**
   `MarkdownInline`'s `variant` flag was answering two questions with one value.

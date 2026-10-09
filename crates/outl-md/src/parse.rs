@@ -214,17 +214,15 @@ fn parse_block_list(
             if indent != 0 {
                 return blocks;
             }
-            // A top-level pipe table is one block, not one per line. The
-            // helper advances `i` itself; on `None` it leaves it untouched
-            // and the verbatim recovery below runs unchanged. See
-            // `crate::table` for why a whole table is a single node and
-            // why the collapse is a fixpoint.
-            if let Some(text) = crate::table::consume_table_block(lines, i) {
-                blocks.push(OutlineNode {
-                    text,
-                    properties: Vec::new(),
-                    children: Vec::new(),
-                });
+            // A table is the one unrecognized shape that spans several
+            // lines and means one thing, so it is claimed whole rather
+            // than recovered row by row. The dialect models it as a
+            // block whose text carries the pipe rows (see
+            // `crate::table`), which the continuation grammar below
+            // already round-trips — so no warning: this is not a
+            // recovery, the parser understood it.
+            if let Some(block) = crate::table::take_table(lines, i, 0) {
+                blocks.push(block);
                 continue;
             }
             warnings.push(ParseWarning {
@@ -406,6 +404,14 @@ fn parse_block_list(
                     }
                     node.text.push_str(next_stripped);
                     *i += 1;
+                } else if let Some(table) = crate::table::take_table(lines, i, indent + 1) {
+                    // Same claim as the depth-0 arm: a table under a
+                    // block whose continuation has already closed (a
+                    // blank line, a child) is one child block, not one
+                    // recovered child per row. Imported vaults write
+                    // exactly this shape.
+                    accepting_continuation = false;
+                    node.children.push(table);
                 } else {
                     // A line the grammar cannot place, and the arm the
                     // module doc's rule exists for.
@@ -501,7 +507,7 @@ fn parse_block_list(
 /// A line shallower than `levels` is returned with its leading
 /// whitespace removed and nothing else — there is no negative indent to
 /// preserve.
-fn strip_indent_levels(line: &str, levels: usize) -> &str {
+pub(crate) fn strip_indent_levels(line: &str, levels: usize) -> &str {
     let mut budget = levels * INDENT_WIDTH;
     let mut cut = 0usize;
     for b in line.bytes() {

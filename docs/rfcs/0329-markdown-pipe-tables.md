@@ -2,13 +2,20 @@
 
 | | |
 |---|---|
-| **Status** | Accepted (TUI + desktop whole-block shipped; mobile renderer and desktop mid-block open) |
+| **Status** | Superseded in implementation (2026-10-09, see [Supersession](#supersession-2026-10-09)); the one-block storage decision still stands |
 | **Issue** | [#329](https://github.com/outlmd/outl/issues/329) |
 | **PR** | desktop whole-block grid (this change) |
 | **Date** | 2026-09-27 |
 | **Reference doc** | [markdown-format.md → Pipe tables](../markdown-format.md#pipe-tables); `crates/outl-md/CLAUDE.md` → "Pipe tables"; `crates/outl-tui/CLAUDE.md` → the table-render bullet |
 | **Invariant** | root `CLAUDE.md` invariants 1, 2, 8, 12, 13 |
 | **Guarded by** | see [Guarded by](#how-it-cannot-regress) |
+
+## Supersession (2026-10-09)
+
+Upstream `main` (table work culminating in d27b98c) shipped its own table rendering and replaced this RFC's implementation wholesale: `outl_md::table` is now `parse_table` / `tokenize_table` / `render_table` / `table_span`, recognition reaches the GUIs through the materialized `BlockNode.table` DTO, `<MarkdownTable />` in `@outl/shared/markdown` draws it, and `Capability::TableRendering` replaced `Capability::MarkdownTable`.
+What died with it: `looks_like_table_start` / `consume_table_block` collapse, `parse_table_block` + `table_run_len` run-walking, the `view::table` grid, the `[tui] table_style = "open" | "box"` knob (and its home-manager / desktop-settings mirrors), and the `markdown/table.ts` TypeScript port pinned by `table_grid.json`.
+What survives: the storage decisions — a whole table is one block, rows stored verbatim, alignment is display-time only, no new `Op`, `.md` stays clean pipe text.
+The sections below describe the replaced implementation and are kept as the decision record.
 
 ## Why
 

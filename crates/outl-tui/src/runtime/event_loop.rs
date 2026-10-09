@@ -37,7 +37,6 @@ pub(super) fn event_loop(
     shared_workspace: bool,
     backlinks_newest_first: bool,
     icon_style: outl_config::TuiIconStyle,
-    box_tables: bool,
     config_warning: Option<String>,
 ) -> Result<()> {
     let mut app = App::new(
@@ -52,7 +51,6 @@ pub(super) fn event_loop(
     // only feeds the render path, so setting it post-construction is
     // enough and keeps it out of `App::new`'s already-long signature.
     app.backlinks_newest_first = backlinks_newest_first;
-    app.box_tables = box_tables;
     // An unreadable global config, on the first frame. Set post-construction
     // for the same reason as the line above, and last so it wins over
     // whatever `App::new` left in the status line.

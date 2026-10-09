@@ -1,4 +1,5 @@
 export { MarkdownInline, type EmbedMap } from "./MarkdownInline";
+export { MarkdownTable, type MarkdownTableProps } from "./MarkdownTable";
 export { EmbeddedSubtree } from "./EmbeddedSubtree";
 export {
   QUOTE_PREFIX,
@@ -14,13 +15,3 @@ export {
   remindRule,
   type PropertyChip,
 } from "./properties";
-export {
-  isDelimiterRow,
-  isTableRow,
-  parseTableBlock,
-  splitRow,
-  tableRunLen,
-  type Align,
-  type Table,
-} from "./table";
-export { TableGrid, type TableGridProps, type TableStyle } from "./TableGrid";

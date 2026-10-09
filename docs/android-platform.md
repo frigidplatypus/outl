@@ -199,7 +199,24 @@ Failures are logged and swallowed, matching `attach_mdns`: a device with no `Wif
 It is **debug-signed** — the build is a release build, only the signature is a throwaway key; a real upload keystore and a Play track are tracked in [issue #171](https://github.com/outlmd/outl/issues/171).
 The job is best-effort: `publish_release` waits for it but does not require its success, so a broken Android build never blocks the desktop/CLI release.
 
+**What best-effort costs, which took three releases to notice.**
+The draft flips to published with or without the APK, and a published release is immutable, so "Re-run failed jobs" on the Android job arrives too late to attach anything.
+It used to answer with a bare `HTTP 422: Cannot upload assets to an immutable release`, which reads like a token problem; the upload step now checks `isDraft` first and says what it actually means.
+The only route to an APK on the release is a new beta, and since a push to `main` cuts one, that is usually the next commit.
+
+Worse, a job's implicit `success()` reads the whole ancestor tree rather than its direct `needs`, so a failed Android build also skipped `update_tap` — through a `publish_release` that had succeeded.
+v0.12.0-beta.207 shipped that way and left `Formula/outl-beta.rb` on `.206`, so `brew upgrade outl-beta` served the previous binary and nothing went red.
+`update_tap` carries `!cancelled()` now, the same guard `publish_release` already had for the same reason.
+
+`cleanup-tags.yml` is the third thing standing on that decision and is deliberately left alone.
+It gates on `workflow_run.conclusion == 'success'`, so an Android failure skips the prune too, but its prune recomputes "keep the 2 newest betas per base version" from scratch, so the next green release catches up.
+A tap bump does not recompute: it patches the version of the release that triggered it, and a release it sat out stays skipped.
+
 The NDK is pinned to `27.1.12297006` in CI, matching what the project builds against locally.
+The runner image does not ship that revision, so every run downloads ~700 MB, and a truncated transfer is routine.
+beta.207 died at 33% on `Error reading Zip content from a SeekableByteChannel`, which `sdkmanager` logs as a *Warning* before exiting 1.
+The install retries three times, deleting the half-unzipped package and the download scratch between attempts.
+It gates on the `clang` binary `cargo-ndk` will invoke, not on the exit code: a partial unzip still leaves `source.properties` behind and claims to be installed.
 Version comes from the workspace `Cargo.toml`, injected via `cargo tauri android build --config`.
 Tauri's mobile path does not fall back to `Cargo.toml` on its own — the same trap as iOS, see [`crates/outl-mobile/CLAUDE.md`](../crates/outl-mobile/CLAUDE.md).
 

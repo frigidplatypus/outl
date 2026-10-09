@@ -24,15 +24,6 @@ Treat matching with the same paranoia as the CRDT.
   **What the parser preserves (blank lines, own indentation, a leading newline, both fence characters, a BOM), and the four shapes that are known-unfixed on purpose: [`docs/markdown-format.md`](../../docs/markdown-format.md#what-the-parser-preserves-and-what-it-still-gets-wrong).**
   Getting any of them wrong is the issue #210 producer, measured at 41 pages / 387 lines on a real workspace and 0 after the fix.
 
-- **Pipe tables** (`table.rs`) — recognition + the column model, not a GFM engine.
-  `looks_like_table_start` / `consume_table_block` collapse a top-level (column-0) pipe table into **one** `OutlineNode` whose `text` is the rows `\n`-joined — reusing the continuation path, so the collapse is a fixpoint and no `UnrecognizedBlockMarker` is raised (a table is recognised syntax, not a placed-failed line).
-  `parse_table_block(text) → Option<Table>` (with `alignments`, `header`, `rows`) recovers the grid **at render time** from a block that is a pure table; anything else (prose, a fence, a table glued to a bullet, an indented table) is `None` and renders as ordinary content.
-  Storage is byte-verbatim — alignment is never written back (invariant 8).
-  Ragged rows are padded/truncated to the header's width rather than refused.
-  **Collapse scope is top-level (column-0) tables only** — a mid-block or indented table is never given its own node.
-  `table_run_len(lines, start) → Option<usize>` is a second, indent-agnostic recognizer for *renderers*: it finds a table run *inside* a block's stored (already-unindented) lines so a client can project a grid over it without collapsing it (the TUI's mid-prose / nested-table draw).
-  Recognition stays one owner — the collapse and the render-time run share `is_table_row` / `is_delimiter_row` and the same header + delimiter + data triad.
-  Per-client draw is `outl_shortcuts::Capability::MarkdownTable` (TUI `Full`, GUI clients `Missing`).
 - Render outline AST → `.md` (clean, no IDs).
   Each line in `OutlineNode.text` after the first is emitted at `indent + 1`; the renderer **does not invent** prefixes on continuation lines — whatever the user (or the parser) put in `text` round-trips as-is.
   Block-kind markers (`TODO `, `DOING `, `DONE `, `> `) are owned by `outl-actions` (`todo.rs`, `quote.rs`); this crate only preserves them verbatim, which is why `DOING ` needed no parser change.
@@ -114,6 +105,17 @@ Treat matching with the same paranoia as the CRDT.
 - **External wiki-link rewriting** (`wikilink.rs`) — `rewrite_wikilinks` / `clean_wikilink_target` collapse `[[Note|alias]]` / `[[Note#heading]]` / `[[Note^block-id]]` / `[[folder/Note]]` to canonical `[[Note]]`;
   `convert_image_links` / `is_image_target` turn image wiki-links and embeds (`![[img.png]]`, `[[a/b.jpeg|cap]]`) into standard CommonMark links with the folder path preserved.
   Pure text → text; no vault layout or routing policy.
+- **Tables** (`table.rs`) — the pipe-delimited table, which is **not a new block kind**: a block whose text carries the rows, like a fence or a `> ` quote, so the op log never learns a new shape.
+  `table_span` answers "do the lines starting here form a table" (what lets `parse` claim pasted rows as **one** block instead of one recovered block per row, with no warning); `parse_table` decomposes a block's whole text into cells + `ColumnAlign`; `tokenize_table` is the same reading with every cell through `tokenize_owned`, shipped to clients as `BlockNode.table` so none of them splits pipes for itself (a client that did would have no tokenizer and would render a cell's `[[ref]]` as literal text).
+  `render_table` writes the canonical column-padded form, `tsv_to_markdown` / `from_delimited` read a spreadsheet's clipboard, and `unescape_cell` is the single owner of "what does a cell *show*" (`\|` → `|`), asked by both the TUI's grid and `tokenize_table`.
+  **The parser does not reformat.**
+  Re-emitting a hand-written table through `render_table` on read is a whitespace-only rewrite that the reconcile turns into an `Op::Edit` per table — churn for a space nobody typed.
+  Alignment is a render decision; `render_table` is for where outl *creates* a table (a tabular paste, the TUI painting a grid).
+  **Nothing is dropped**: GFM truncates a row wider than its header, `Table::columns` widens instead, and a short row pads.
+  **A table is recognised by shape, not by a marker**, which makes it the one construct that can swallow a line meant for something else — so `is_row` refuses every line another part of the grammar already owns (a bullet, a `key:: value` property, a fence opener), and `table_span` asks it of the **delimiter row too**, not only the header and body.
+  `is_delimiter_row` answers a narrower question (is every cell a rule) and `- | -` satisfies it, so the two are not interchangeable: reading a table around that bullet renders it back at `indent + 1`, where the next parse makes it a *child* — and `content_lines_missing_from` then reports a line the log does hold, which withholds `last_synced_hash` and freezes a page with nothing wrong with it (invariant 8).
+  Pinned by `a_bullet_shaped_delimiter_row_is_not_a_delimiter_row` / `a_property_line_is_not_a_body_row` / `a_fence_opener_is_not_a_body_row` (`table/tests.rs`), the `table_bullet_rule.md` and `table_then_property.md` corpus files, and `arb_table_block` in `tests/block_text_roundtrip_properties.rs` — **the generator is the part that matters**: all three shapes were found by probing, none by a hand-written case.
+  User-facing spec: [`docs/markdown-format.md` → Tables](../../docs/markdown-format.md#tables).
 - **Tag predicates** (`tag.rs`) — boundary-correct "does this text mention `#tag`?", built on the tokenizer.
   `#tag-longer` / `#tagged` never match `tag`; a `#tag` inside a `` `code` `` span is not a tag.
   Consumers must use these instead of `text.contains("#tag")` (the substring form is the false-positive bug this module deleted from the CLI, and then from the ` ```query ` DSL).
@@ -301,14 +303,13 @@ src/
 ├── ast.rs          # OutlineNode, ParsedPage, ParseWarning(Kind) — re-exported by parse
 ├── property.rs     # `key:: value` line + the page-property header run (private mod)
 ├── fence.rs        # fenced code: literal capture while the outline grammar is suspended
-├── table.rs        # pipe tables: collapse a top-level table to one block + recover its grid + find a render-time run inside a block
 ├── render.rs       # AST → md (clean)
 ├── sidecar.rs      # read/write .outl JSON; sidecar/{payload,paths,digest}.rs
 ├── matching.rs     # 3-level matching algorithm
 ├── matching/
 │   └── guard.rs    # match_blocks_guarded — volume guard over level-3 orphans (OrphanGuard, OrphanVolume)
 ├── similarity.rs   # level-2 scoring + global-confidence assignment (private to the crate)
-├── unlogged.rs     # content_lines_missing_from, sidecar_can_answer, frontmatter_lines_missing_from — "does the op log know this"
+├── unlogged.rs     # content_lines_missing_from, sidecar_can_answer, sidecar_can_vouch_for, frontmatter_lines_missing_from — "does the op log know this"
 ├── diff.rs         # AST diff → Op sequence (takes old_blocks to preserve ref_handle)
 ├── inline.rs       # the scan: tokenize / tokenize_owned, match_one precedence, inline_to_source
 ├── token.rs        # InlineTok (Plain/Bold/.../BlockRef/Embed/Emoji), owned InlineToken, RefTarget
@@ -343,7 +344,7 @@ tests/
 ├── similarity_contention.rs  # two new blocks claim one old entry: confidence decides, not index order
 ├── mixed_version_sidecar.rs  # shipped v2 binary + current one over one folder: no dup, no handle rotation
 ├── multiline_block_roundtrip.rs  # render → parse roundtrip for multi-line/blank-line/indented/leading-newline block text (issue #210 producer)
-├── block_text_roundtrip_properties.rs  # the corpus gate's three properties, generated (proptest) over block text
+├── block_text_roundtrip_properties.rs  # the corpus gate's three properties, generated (proptest) over block text — incl. `arb_table_block`
 └── corpus_gate.rs            # the three properties over tests/corpus/
 
 benches/
@@ -414,13 +415,17 @@ Normalise either and the file still passes while pinning nothing.
    **Enforced, not just followed.**
    `reconcile_md` asks `unlogged::content_lines_missing_from` before writing the sidecar and, when it returns anything, writes an empty `last_synced_hash` instead of the real one so the page is looked at again next pass.
    `ReconcileReport.unlogged_lines` carries the count for callers to surface.
-   `unlogged.rs` lives here (not `outl-actions`) so the producer can ask the same question its consumers ask; `outl_actions::content_lines_missing_from` / `sidecar_can_answer` are re-exports.
+   `unlogged.rs` lives here (not `outl-actions`) so the producer can ask the same question its consumers ask; `outl_actions::content_lines_missing_from` / `sidecar_can_answer` / `sidecar_can_vouch_for` are re-exports.
+   **A write caller gates on `sidecar_can_vouch_for`, not `sidecar_can_answer`.**
+   The second answers a question about the *sidecar* ("can these blocks say what the log held"); the first answers the one about the *file* ("is anything here at risk").
+   They come apart for every page whose blocks are all empty: a pre-0.11 sidecar and a page nobody has written in yet have the same shape, and refusing the second froze it ([issue #332](https://github.com/outlmd/outl/issues/332)).
    Pinned by `tests/multiline_block_roundtrip.rs` (`the_hash_is_still_advanced_for_every_shape_a_real_workspace_holds` and siblings).
    The bulk-delete half has the same shape: `reconcile_md_with_guard` refuses the whole pass (`ReconcileError::BulkDelete`) instead of trashing an oversized orphan list — see "Second hard rule" under the matching algorithm.
 
    **A block list cannot answer for the frontmatter fence**: it rides `Op::SetProp`, so `content_lines_missing_from` skips the region and `frontmatter_lines_missing_from` asks the render instead, with `last_synced_hash` as the witness that the log held the disk fence (a fence edited on disk since then is a loss, a peer's edit is not).
    Two channels, neither interchangeable; pinned by `tests/frontmatter_roundtrip.rs`.
    The migration off a pre-fence sidecar (YAML lines recorded as blocks) is exempt from the bulk-delete **count** only, via `match_blocks_guarded_except` + `frontmatter::is_legacy_fence_block`, and only when the `.md` still has a fence carrying those lines.
+   **The pre-table sidecar is the same shape** (issue #329): one block per table row, consolidated into one table block, so a page that is mostly the table orphans 100% of its known blocks and the guard would refuse the migrating pass forever. `table::TableLines` is its predicate (an occurrence-counted multiset: each line on disk exempts at most one orphan), and like the fence one it is positive evidence — the orphan's text has to *be* a line of a table on disk right now, so a truncated `.md` gets no discount and a row whose cell the user also edited still counts. Pinned in both directions by `consolidating_a_tables_rows_is_not_a_bulk_delete` / `a_truncated_file_gets_no_discount_from_the_table_exemption` / `a_row_the_user_also_edited_is_not_exempt`.
 
 ## Things to never do here
 

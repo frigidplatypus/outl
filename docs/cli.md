@@ -96,7 +96,7 @@ A **success** reply is content-only: `content[].text` carries the payload as com
 Those two flatten because their payload is `{slug, md}` and you supplied the slug.
 The journal reads (`outl_daily_today`, `outl_daily_get`) stay JSON on purpose: their `outline` carries the block ids, a rendered `.md` has none, and `outl_block_update` / `_move` / `_delete` / `_toggle_todo` all need one.
 There is no `structuredContent` on success — the text already carries the full payload as JSON, so an envelope around it is a duplicate.
-The MCP copy also drops fields only a GUI renderer reads (an outline node's `tokens`, and default-valued `collapsed` / `todo` / empty `properties`); the CLI's own `--json` output keeps them.
+The MCP copy also drops fields only a GUI renderer reads (an outline node's `tokens` and `table`, and default-valued `collapsed` / `todo` / empty `properties`); the CLI's own `--json` output keeps them.
 That pruning applies only to outline nodes carrying an `id`, so `outl_export_json`'s parser AST comes back exactly as the parser produced it.
 An **error** reply is the deliberate exception: it sets `isError: true` and keeps `structuredContent: { ok: false, error }`.
 That lets a caller read `error.data` — e.g. `PAGE_MARKDOWN_AHEAD_OF_LOG`'s `path` / `lines` / `sample` / `recovery_command` — instead of parsing prose.
@@ -491,7 +491,9 @@ outl reconcile [<path>] [--ahead-of-log] [--allow-bulk-delete]
 
 **Pages it could not judge are counted and named.**
 There are three states, not two: a page can be reconciled, read and found clean, or never read at all.
-An `.md` that exists and will not open, a sidecar that will not parse, and a sidecar that records no block text are all the third.
+An `.md` that exists and will not open, a sidecar that will not parse, and a sidecar that records no block text *over a `.md` holding lines that need vouching for* are all the third.
+A sidecar with no text whose page holds nothing but bare bullets is read as clean instead, because nothing on disk could be outside the log.
+Reporting those made the list mostly empty pages, which teaches you to skim past the entries that mean something ([issue #332](https://github.com/outlmd/outl/issues/332)).
 Each used to be dropped without a line of output, so a workspace where *every* page was skipped printed `no page holds content outside the op log` and exited `0` — a refusal that never reached the user, on the command you run precisely because a silent refusal already cost you content ([invariant 8](../CLAUDE.md)).
 Both writing modes now end with the list:
 

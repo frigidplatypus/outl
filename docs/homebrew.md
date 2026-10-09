@@ -129,6 +129,12 @@ No PAT, no extra secret to manage.
 
 ## Troubleshooting
 
+**A release published but the formula never moved** — check whether `update_tap` ran at all, not whether it failed.
+A job's implicit `success()` reads the whole ancestor tree rather than its direct `needs`, so any failed job upstream of `publish_release` skipped this one, even with `publish_release` green.
+`build_android` is best-effort and did exactly that three times; v0.12.0-beta.207 published while the formula stayed on `.206`, and no job went red to say so.
+`update_tap` carries `!cancelled()` now, so what keeps it out is its own condition — a release that never published, or a GA tag — and no longer a failure somewhere else in the run.
+Any new job added upstream needs the same guard, or it inherits the same silence.
+
 **Tap update commits but `brew install` still pulls the old version** — run `brew update` first; Homebrew caches tap state.
 
 **`brew install outl-beta` fails with `SHA256 mismatch`** — the formula on `main` drifted from the release asset.

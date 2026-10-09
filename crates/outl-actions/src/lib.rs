@@ -125,7 +125,7 @@ pub use journal::{
     apply_page_md_with_sidecar_guarded, apply_page_md_with_sidecar_if_absent,
     apply_page_md_with_sidecar_if_stale, content_lines_missing_from, journals_dir, mutate_page_md,
     page_md_path, pages_dir, remove_page_projection, render_block_md, render_page_md,
-    sidecar_can_answer, write_md_atomic, ProjectionFailure, ProjectionSweep,
+    sidecar_can_answer, sidecar_can_vouch_for, write_md_atomic, ProjectionFailure, ProjectionSweep,
 };
 pub use namespace::{descendants as namespace_descendants, NamespaceChild};
 pub use outl_md::parse::{ParseWarning, ParseWarningKind};
@@ -143,8 +143,8 @@ pub use page::{
 pub use page_repair_namespaces::{repair_namespaced_titles, NamespaceTitleRepair};
 pub use page_repair_titles::repair_doubled_journal_titles;
 pub use paste::{
-    looks_like_outline, normalize_external_syntax, paste_markdown, paste_plain, PasteAnchor,
-    PasteOutcome,
+    looks_like_outline, looks_like_table, looks_like_tabular, looks_structured,
+    normalize_external_syntax, paste_markdown, paste_plain, PasteAnchor, PasteOutcome,
 };
 pub use person::{search_persons, PERSON_TYPE, TYPE_KEY};
 pub use property::{is_date_like_key, known_keys, KNOWN_DATE_KEYS};

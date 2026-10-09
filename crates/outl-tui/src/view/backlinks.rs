@@ -297,6 +297,7 @@ mod tests {
             header_level: None,
             properties,
             tokens: Vec::new(),
+            table: None,
             children: Vec::new(),
         }
     }

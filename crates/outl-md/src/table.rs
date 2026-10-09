@@ -1,463 +1,564 @@
-//! Pipe tables in the outl dialect.
+//! Pipe-delimited markdown tables in the outl dialect.
 //!
-//! A top-level GFM pipe table is **not** an outline: it has no `- ` marker
-//! and no `key:: value`, so the grammar cannot place it. Before this
-//! module, each of its lines fell through to the depth-0 recovery arm in
-//! [`mod@crate::parse`] and became one verbatim block *per line*, each with an
-//! `UnrecognizedBlockMarker` warning — a nine-row table was nine orphan
-//! blocks and nine warnings, and the TUI drew a wall of `!` glyphs where a
-//! grid should sit.
+//! A table is **not** a new block kind, and there is no `Op::Table`.
+//! It is a block whose `text` carries the pipe rows, exactly like a
+//! fenced code block and a `> ` quote: the dialect stays
+//! one-block-per-bullet and the op log never learns a new shape, so
+//! nothing here can disagree with [`mod@crate::parse`] about what a block
+//! is. On disk a table reads
 //!
-//! This module owns two things:
+//! ```text
+//! - | Name | Age |
+//!   | ---- | --: |
+//!   | Ana  |  30 |
+//! ```
 //!
-//! - **Recognition** (`looks_like_table_start`, `is_table_row`,
-//!   `is_delimiter_row`): the predicate the parser uses to decide whether
-//!   a run of lines is a table and should collapse.
-//! - **Structure** (`Table`, `Align`, [`parse_table_block`]): the column
-//!   grid a renderer draws, recovered from a block's stored text.
+//! and the block's text is the three rows joined by `\n` — which the
+//! existing continuation grammar already round-trips.
 //!
-//! ## One block, not one per line
+//! ## What this module owns
 //!
-//! The parser collapses a whole table into a single [`OutlineNode`] whose
-//! `text` is the pipe rows joined by `\n` — exactly the shape a fenced
-//! code block already uses, and for the same reason: the bytes belong to
-//! one block so they round-trip as a unit.
+//! - **Recognition.** [`table_span`] answers "do the lines starting
+//!   here form a table", which is what lets [`mod@crate::parse`] claim a
+//!   pasted table as one block instead of one recovered block per row.
+//! - **Decomposition.** [`parse_table`] turns a block's text into
+//!   cells plus per-column alignment, so every client renders the same
+//!   grid from the same reading.
+//! - **Emission.** [`render_table`] writes the canonical, column-padded
+//!   form. Used where outl *creates* a table (a tabular paste), never
+//!   to reformat what the user typed — see the note below.
+//! - **Import.** [`from_delimited`] reads the tab-separated text a
+//!   spreadsheet puts on the clipboard.
 //!
-//! The collapse is a **fixpoint** because it is the continuation path
-//! doing the round-trip, not a new one. The first parse (a raw import)
-//! reads the table at column 0 and stores each row trimmed; the renderer
-//! writes the first row after `- ` and the rest at `indent + 1`; every
-//! later parse reassembles those indented continuation lines back into the
-//! same trimmed, `\n`-joined text. Storage stays byte-verbatim — alignment
-//! is derived only at render time (invariant 8: the projection never
-//! rewrites what the op log holds).
+//! ## Why the parser does not reformat
 //!
-//! ## Deliberately not a full GFM table parser
+//! [`parse_table`] keeps the user's bytes. Re-emitting every table
+//! through [`render_table`] on read would be a whitespace-only rewrite
+//! of a file the user hand-wrote, and the reconcile that follows turns
+//! that into an `Op::Edit` per table — churn in the log for a space
+//! nobody typed (the same reasoning as `pending_blanks` in
+//! [`mod@crate::parse`]). Alignment is a **render** decision: the TUI pads
+//! to a grid when it paints, the GUI clients hand the cells to
+//! `<table>`, and the bytes on disk stay the ones that were written.
 //!
-//! Recognition is conservative on purpose: it collapses only when the
-//! header, delimiter and first data row are all at column 0 and the
-//! delimiter row's every cell is `:?-+:?`. A paragraph whose second line
-//! happens to contain a `|` is never mistaken for a table, because that
-//! line is not a delimiter row. A malformed-but-recognised table (a blank
-//! delimiter cell, a ragged row) is accepted and survives as verbatim
-//! block text rather than being refused — refusing would split it back
-//! into one block per line, which is the loss this module exists to
-//! prevent. Cells may be ragged; [`parse_table_block`] pads short rows and
-//! truncates long ones to the header's column count.
+//! ## Nothing is dropped
 //!
-//! ## Mid-block and nested tables (render time)
-//!
-//! [`table_run_len`] is a second, indent-agnostic recognizer for renderers.
-//! The parser only collapses a *standalone* column-0 table into its own
-//! node; a table that sits *inside* another block — under a parent bullet,
-//! or between prose lines — arrives as that block's continuation text, so
-//! its rows are already unindented. A renderer walks the block's lines,
-//! asks [`table_run_len`] where each table run starts and how long it is,
-//! and draws that run with [`parse_table_block`], leaving the surrounding
-//! lines as ordinary prose. Recognition stays one owner: the collapse and
-//! the render-time run share [`is_table_row`] / [`is_delimiter_row`] and the
-//! same header-plus-delimiter-plus-data triad.
+//! GFM truncates a row that carries more cells than the header. This
+//! module does not: [`Table::columns`] is the widest row, short rows
+//! pad with empty cells, and a surplus cell keeps its content. A cell
+//! the user can see in their editor and cannot see in outl is the
+//! failure mode this crate exists to prevent.
 
-use crate::parse::OutlineNode;
+use serde::{Deserialize, Serialize};
 
-/// Horizontal alignment of a table column, read from its delimiter
-/// cell. The `lowercase` serde spelling matches the TypeScript port's
-/// `Align` union in `outl-frontend-shared`, so
-/// `tests/corpus/table_grid.json` is one fixture both suites read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Align {
-    /// No colons, or a leading colon (`:---`).
+mod import;
+mod render;
+
+pub use import::{from_delimited, tsv_to_markdown};
+pub use render::{render_table, render_table_with};
+
+/// Most cells a table may materialise before it stops being read as a
+/// grid.
+///
+/// **A cap, because `Table::columns` is the widest row and every other
+/// row pads to it.** That is the deliberate "nothing is dropped" choice
+/// (see the module doc), and it costs `columns × rows` — so a *ragged*
+/// table is quadratic in a way a rectangular one is not. Measured: a
+/// 17 KB block holding a 4,000-cell header over 400 one-cell rows
+/// materialises 1.6M `Vec<InlineToken>`, a 4 MB wire payload, and a 9 MB
+/// string that the TUI rebuilds **every repaint**. At 109 KB it is
+/// gigabytes. The `.md` arrives over iroh / iCloud / Syncthing from
+/// another device, so opening the page is the whole interaction, and it
+/// re-triggers on every projection.
+///
+/// Refusing here is **lossless and already a defined outcome**: the
+/// block's text is untouched (`table_span` / `take_table` still claim
+/// it as one block), and a `None` from [`parse_table`] is what every
+/// consumer already handles — the client falls back to `tokens` and
+/// shows the pipe rows verbatim, which is what it did before tables
+/// were modelled.
+///
+/// 65,536 is far past any hand-written table (16 columns × 4,096 rows)
+/// and far below where the padding hurts.
+const MAX_TABLE_CELLS: usize = 65_536;
+
+/// Per-column alignment, read off the delimiter row's colons.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColumnAlign {
+    /// `---` — no colon. Renderers use their own default (left, in
+    /// every client outl ships); kept distinct from [`Self::Left`] so
+    /// [`render_table`] re-emits the delimiter the user wrote.
+    #[default]
+    None,
+    /// `:---`
     Left,
-    /// Colons on both sides (`:---:`).
+    /// `:---:`
     Center,
-    /// A trailing colon (`---:`).
+    /// `---:`
     Right,
 }
 
-/// A pipe table recovered from a block's stored text.
+/// A markdown table decomposed into cells.
 ///
-/// [`Self::header`] and each row in [`Self::rows`] have exactly
-/// [`Self::alignments`] entries: short rows are padded with empty cells,
-/// long rows truncated to the header's width. A cell has already been
-/// unescaped (`\|` → `|`, `\\` → `\`) and trimmed.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// Cell strings are **trimmed but otherwise verbatim**: an escaped
+/// pipe stays `\|` so [`render_table`] re-emits the source form, and
+/// inline markdown inside a cell (`[[ref]]`, `**bold**`) is left for
+/// [`crate::tokenize_owned`] — this module does not tokenize.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Table {
-    /// One alignment per column, taken from the delimiter row.
-    pub alignments: Vec<Align>,
-    /// The header row's cells.
+    /// Header cells, in column order.
     pub header: Vec<String>,
-    /// The data rows, in source order.
+    /// Alignment per column, from the delimiter row. May be shorter
+    /// than [`Self::columns`] when a body row is wider than the header.
+    pub aligns: Vec<ColumnAlign>,
+    /// Body rows. A row may be shorter or longer than the header —
+    /// see the module doc on why neither is truncated.
     pub rows: Vec<Vec<String>>,
 }
 
-/// Leading spaces of a line (the outline's two-space indent unit; tabs are
-/// not used by the renderer, and a tab here simply is not a leading space,
-/// so it does not count as indentation and the row is left as content).
-fn leading_indent(line: &str) -> usize {
-    line.len() - line.trim_start().len()
+impl Table {
+    /// Column count: the widest of the header, the delimiter row and
+    /// every body row.
+    pub fn columns(&self) -> usize {
+        let widest_row = self.rows.iter().map(Vec::len).max().unwrap_or(0);
+        self.header.len().max(self.aligns.len()).max(widest_row)
+    }
+
+    /// Alignment of column `col`, [`ColumnAlign::None`] past the end
+    /// of the delimiter row.
+    pub fn align(&self, col: usize) -> ColumnAlign {
+        self.aligns.get(col).copied().unwrap_or_default()
+    }
 }
 
-/// A row of a pipe table: non-empty once trimmed, and carrying a `|`.
-pub fn is_table_row(line: &str) -> bool {
-    let t = line.trim();
-    !t.is_empty() && t.contains('|')
-}
-
-/// One cell of a delimiter row: optional surrounding spaces and colons
-/// around one or more `-`.
-fn is_delimiter_cell(cell: &str) -> bool {
-    let c = cell.trim();
-    let core = c.trim_start_matches(':').trim_end_matches(':');
-    !core.is_empty() && core.chars().all(|ch| ch == '-')
-}
-
-/// The table's alignment row (`|---|:--:|--:|`).
+/// Whether `line` could be a table row: non-blank, carrying an
+/// unescaped `|`, and **not already claimed by another construct of
+/// the outline grammar**.
 ///
-/// A run of one-or-more dashes per cell, optionally fenced with colons,
-/// with a `|` somewhere in the line. The check is strict on cells: once a
-/// leading and trailing pipe are stripped, every remaining cell must be a
-/// delimiter cell, so a header row (`|a|b|`) never reads as a delimiter.
-pub fn is_delimiter_row(line: &str) -> bool {
-    let t = line.trim();
-    if !t.contains('|') {
+/// That last clause is the whole function. A table is recognised by
+/// shape rather than by a marker, so it is the one construct that can
+/// swallow a line meant for something else — and every such line is a
+/// line the next parse reads differently from the one that wrote it.
+/// Three of them, each found by running shapes through
+/// `parse → render → parse`:
+///
+/// - **A bullet.** `- item | with a pipe` written under a table is a
+///   sibling block. Absorbed, it renders back at `indent + 1`, where
+///   the next parse reads it as a *child* — so the user's block moves
+///   inside the table and the file keeps changing on every save.
+/// - **A property.** `status:: x | y` is a `key:: value` line. Absorbed
+///   into the text, the reparse lifts it into `properties`, so the
+///   block's text differs from the one that was written and the
+///   reconcile emits an `Op::Edit` plus a `SetProp` for a line nobody
+///   touched.
+/// - **A fence opener.** A row starting with ```` ``` ```` opens a
+///   fence in the continuation grammar, and the render appends a
+///   closing fence on every pass — unbounded growth.
+///
+/// The first of those is also an **invariant 8** bug, not just churn:
+/// `- | -` passes as a delimiter row, and once the table is read with
+/// the bullet inside it, `content_lines_missing_from` reports a line
+/// the log *does* hold. That withholds `last_synced_hash` and freezes a
+/// page with nothing wrong with it — the exact false positive the
+/// corpus gate's third property exists to catch.
+///
+/// So the rule is: **ask this of the delimiter row too**, not only of
+/// the header and the body. `is_delimiter_row` answers a question about
+/// a cell's shape (`-`, `:-`, `-:`) and `- | -` satisfies it, which is
+/// why the two checks are not interchangeable.
+fn is_row(line: &str) -> bool {
+    let trimmed = line.trim();
+    // Cheapest and most discriminating first: almost no line in a
+    // workspace carries a pipe, and `block_to_rows` asks this of every
+    // visible block on every frame. `parse_property_line` allocates two
+    // `String`s when it matches, so running it ahead of this allocated
+    // on every `collapsed::` and `remind::` line the outline drew.
+    if !has_unescaped_pipe(trimmed) {
         return false;
     }
-    let inner = t.strip_prefix('|').unwrap_or(t);
-    let inner = inner.strip_suffix('|').unwrap_or(inner);
-    if inner.trim().is_empty() {
+    if trimmed == "-" || trimmed.starts_with("- ") {
         return false;
     }
-    inner.split('|').all(is_delimiter_cell)
+    if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+        return false;
+    }
+    crate::parse::parse_property_line(trimmed).is_none()
 }
 
-/// Split a header or data row into cells, honouring `\|` as a literal pipe
-/// and `\\` as a literal backslash (both unescaped), and trimming each cell.
-/// Leading and trailing pipes are the row's fences, not cells.
-pub(crate) fn split_row(line: &str) -> Vec<String> {
-    let t = line.trim();
-    let inner = t.strip_prefix('|').unwrap_or(t);
-    let inner = inner.strip_suffix('|').unwrap_or(inner);
+fn has_unescaped_pipe(s: &str) -> bool {
+    let mut escaped = false;
+    for ch in s.chars() {
+        match ch {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            '|' => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Whether `line` is a table's delimiter row (`| --- | :-: |`).
+///
+/// Requires at least one cell and every cell to be a rule: optional
+/// leading / trailing colon around one or more dashes. A row of plain
+/// text is not one, which is what makes [`table_span`] refuse to read
+/// two unrelated pipe-carrying lines as a table.
+pub fn is_delimiter_row(line: &str) -> bool {
+    let cells = split_cells(line);
+    !cells.is_empty() && cells.iter().all(|cell| align_of_rule(cell).is_some())
+}
+
+/// Alignment a delimiter cell declares, `None` when it is not a rule.
+fn align_of_rule(cell: &str) -> Option<ColumnAlign> {
+    let cell = cell.trim();
+    let left = cell.starts_with(':');
+    let right = cell.ends_with(':') && cell.len() > 1;
+    let dashes = &cell[usize::from(left)..cell.len() - usize::from(right)];
+    if dashes.is_empty() || !dashes.bytes().all(|b| b == b'-') {
+        return None;
+    }
+    Some(match (left, right) {
+        (true, true) => ColumnAlign::Center,
+        (true, false) => ColumnAlign::Left,
+        (false, true) => ColumnAlign::Right,
+        (false, false) => ColumnAlign::None,
+    })
+}
+
+/// How many lines starting at `start` form a table, `None` when they
+/// do not.
+///
+/// A table is a row, a delimiter row, then every following row until
+/// the first line that is not one. Two lines is therefore the minimum
+/// — a header with a rule under it and no body is still a table, and
+/// the user is mid-typing.
+///
+/// Called by [`mod@crate::parse`] at the point where a line carries no
+/// bullet, so the header line is never a block marker; every other line
+/// — the delimiter row included — is re-checked (see `is_row`).
+pub fn table_span(lines: &[&str], start: usize) -> Option<usize> {
+    if !is_row(lines.get(start)?) {
+        return None;
+    }
+    // Both questions, not just the second: see `is_row`'s doc for the
+    // three lines a delimiter-shape check alone lets through, and why
+    // `- | -` is the one that reaches invariant 8.
+    let rule = lines.get(start + 1)?;
+    if !is_row(rule) || !is_delimiter_row(rule) {
+        return None;
+    }
+    let mut span = 2;
+    while lines.get(start + span).is_some_and(|line| is_row(line)) {
+        span += 1;
+    }
+    Some(span)
+}
+
+/// Claim a markdown table starting at `lines[*i]` as one block,
+/// advancing the cursor past it. `None` when the lines are not a table.
+///
+/// `levels` is the indentation the renderer will put back in front of
+/// each row (see `crate::render::write_block_text`), so it is
+/// stripped here — storing it inside the text makes the renderer write
+/// it *after* its own marker, which is how a block's text grows an
+/// indent per save.
+///
+/// Every row is **trimmed**, which is the one place this departs from
+/// the verbatim recovery around it. It has to: the continuation arm
+/// trims (`node.text.push_str(next_stripped)`), so a row stored with
+/// its trailing whitespace would come back different on the next parse
+/// and the file would never reach a fixpoint. The first save normalises
+/// trailing space inside a table; every save after it is a no-op.
+///
+/// A table whose rows arrive **over-indented before their parent
+/// bullet** is deliberately not claimed here — that arm cannot tell a
+/// consistently-indented grid from three unrelated lines, so those rows
+/// keep today's one-verbatim-block-per-row recovery. Pinned by
+/// `an_over_indented_table_falls_back_to_verbatim_recovery`.
+pub(crate) fn take_table(
+    lines: &[&str],
+    i: &mut usize,
+    levels: usize,
+) -> Option<crate::parse::OutlineNode> {
+    let span = table_span(lines, *i)?;
+    let text = lines[*i..*i + span]
+        .iter()
+        .map(|line| crate::parse::strip_indent_levels(line, levels).trim())
+        .collect::<Vec<_>>()
+        .join("\n");
+    *i += span;
+    Some(crate::parse::OutlineNode {
+        text,
+        properties: Vec::new(),
+        children: Vec::new(),
+    })
+}
+
+/// Read a block's whole `text` as a table, `None` when it is not one.
+///
+/// Every line must take part: a block whose text is a table plus a
+/// trailing sentence is not a table, because rendering it as one would
+/// drop the sentence. Leading and trailing blank lines are ignored —
+/// they carry no cells either way.
+pub fn parse_table(text: &str) -> Option<Table> {
+    // Cheap reject before the line split allocates. Every block a
+    // projection walks asks this question, and almost none of them
+    // carry a pipe at all.
+    if !text.contains('|') {
+        return None;
+    }
+    let lines: Vec<&str> = text
+        .lines()
+        .skip_while(|line| line.trim().is_empty())
+        .collect();
+    let body_len = lines
+        .iter()
+        .rposition(|line| !line.trim().is_empty())
+        .map(|last| last + 1)?;
+    let lines = &lines[..body_len];
+    if table_span(lines, 0)? != lines.len() {
+        return None;
+    }
+    let table = Table {
+        header: split_cells(lines[0]),
+        aligns: split_cells(lines[1])
+            .iter()
+            .map(|cell| align_of_rule(cell).unwrap_or_default())
+            .collect(),
+        rows: lines[2..].iter().map(|line| split_cells(line)).collect(),
+    };
+    // Splitting the cells is linear; **materialising** them is not, so
+    // the cap is checked once here, in the single owner of the reading,
+    // rather than in each of the four consumers. See `MAX_TABLE_CELLS`.
+    if table.columns().saturating_mul(table.rows.len() + 1) > MAX_TABLE_CELLS {
+        return None;
+    }
+    Some(table)
+}
+
+/// Split one table row into its cells, trimmed.
+///
+/// Outer pipes are optional (GFM allows `a | b`); an escaped `\|`
+/// splits nothing and keeps its backslash, so the cell re-emits as the
+/// user wrote it.
+pub fn split_cells(line: &str) -> Vec<String> {
+    let trimmed = line.trim();
+    if !has_unescaped_pipe(trimmed) {
+        return Vec::new();
+    }
+    let body = strip_outer_pipes(trimmed);
     let mut cells = Vec::new();
     let mut cur = String::new();
-    let mut chars = inner.chars().peekable();
-    while let Some(ch) = chars.next() {
+    let mut escaped = false;
+    for ch in body.chars() {
+        if escaped {
+            cur.push('\\');
+            cur.push(ch);
+            escaped = false;
+            continue;
+        }
         match ch {
-            '\\' if chars.peek() == Some(&'\\') => {
-                cur.push('\\');
-                chars.next();
-            }
-            '\\' if chars.peek() == Some(&'|') => {
-                cur.push('|');
-                chars.next();
-            }
-            '|' => {
-                cells.push(cur.trim().to_string());
-                cur.clear();
-            }
+            '\\' => escaped = true,
+            '|' => cells.push(std::mem::take(&mut cur).trim().to_string()),
             _ => cur.push(ch),
         }
+    }
+    if escaped {
+        // A trailing lone backslash is content, not an escape.
+        cur.push('\\');
     }
     cells.push(cur.trim().to_string());
     cells
 }
 
-/// Alignment a delimiter cell declares.
-fn cell_align(cell: &str) -> Align {
-    let c = cell.trim();
-    match (c.starts_with(':'), c.ends_with(':')) {
-        (true, true) => Align::Center,
-        (false, true) => Align::Right,
-        _ => Align::Left,
+fn strip_outer_pipes(trimmed: &str) -> &str {
+    let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
+    match inner.strip_suffix('|') {
+        // `a\|` ends with an escaped pipe — that is a cell's last
+        // character, not the row's closing delimiter.
+        Some(without) if !without.ends_with('\\') => without,
+        _ => inner,
     }
 }
 
-/// Whether `lines[start]` opens a top-level table the parser should
-/// collapse: a header row, a delimiter row beneath it, and at least one
-/// data row after that, all at column 0.
-pub(crate) fn looks_like_table_start(lines: &[&str], start: usize) -> bool {
-    let Some(header) = lines.get(start) else {
-        return false;
-    };
-    if leading_indent(header) != 0 || !is_table_row(header) || is_delimiter_row(header) {
-        return false;
-    }
-    let Some(delim) = lines.get(start + 1) else {
-        return false;
-    };
-    if leading_indent(delim) != 0 || !is_delimiter_row(delim) {
-        return false;
-    }
-    let Some(first_data) = lines.get(start + 2) else {
-        return false;
-    };
-    leading_indent(first_data) == 0 && is_table_row(first_data) && !is_delimiter_row(first_data)
-}
-
-/// Consume a top-level table starting at `*i` into one block's text.
+/// A cell as it should be **shown**: the escape in front of a literal
+/// pipe is syntax, not content.
 ///
-/// Advances `*i` past every column-0 row containing a `|` and returns the
-/// rows, trimmed and `\n`-joined, or `None` when `*i` does not open a
-/// table (leaving `*i` untouched so the caller's normal arm runs). The
-/// caller has already gated with [`looks_like_table_start`]; re-checking
-/// here keeps the helper safe to call on its own.
-pub(crate) fn consume_table_block(lines: &[&str], i: &mut usize) -> Option<String> {
-    if !looks_like_table_start(lines, *i) {
-        return None;
+/// One owner, because both renders ask it — the TUI while it walks an
+/// aligned row, and [`tokenize_table`] before it hands a cell to the
+/// tokenizer. A client that showed `a \| b` where the other showed
+/// `a | b` is invariant 13's shape one construct over.
+pub fn unescape_cell(cell: &str) -> String {
+    if !cell.contains('\\') {
+        return cell.to_string();
     }
-    let mut end = *i;
-    while let Some(line) = lines.get(end) {
-        if leading_indent(line) != 0 || !is_table_row(line) {
-            break;
+    let mut out = String::with_capacity(cell.len());
+    let mut escaped = false;
+    for ch in cell.chars() {
+        if escaped {
+            // Ours to consume: the pipe's escape, and a doubled
+            // backslash (the producer writes `\\` so a literal `\` in
+            // imported data cannot escape the pipe's escape — see
+            // `import::escape_cell`). Everything else belongs to
+            // whatever reads the cell's markdown, `\n` included.
+            if ch != '|' && ch != '\\' {
+                out.push('\\');
+            }
+            out.push(ch);
+            escaped = false;
+            continue;
         }
-        end += 1;
+        if ch == '\\' {
+            escaped = true;
+        } else {
+            out.push(ch);
+        }
     }
-    let text = lines[*i..end]
-        .iter()
-        .map(|line| line.trim())
-        .collect::<Vec<_>>()
-        .join("\n");
-    *i = end;
-    Some(text)
+    if escaped {
+        out.push('\\');
+    }
+    out
 }
 
-/// Length of the pipe table starting at `lines[start]`, or `None` if no
-/// table starts there.
+/// A table whose cells are pre-tokenized inline markdown, for a client
+/// that renders from tokens instead of from text.
 ///
-/// A table starts at `start` when `lines[start]` is a header row (a row
-/// that is not a delimiter), `lines[start + 1]` is a delimiter row, and at
-/// least one data row follows; the run absorbs every immediately following
-/// row that is itself a table row. Unlike `looks_like_table_start` this
-/// reads no column-0 assumption — the caller has already trimmed the
-/// block's stored text, so the rows arrive unindented regardless of the
-/// depth the table sits at. The TUI uses it to find a table run *inside* a
-/// block (mid-prose, or nested under a bullet) where the whole block is not
-/// a pure table and [`parse_table_block`] would refuse it.
+/// Same bargain as [`crate::parse::OutlineNode`]'s `tokens`: the
+/// backend runs the one canonical tokenizer so no client keeps a second
+/// one. Without it a GUI would have to split the pipes itself and would
+/// render a cell's `[[ref]]` as literal text — the cell is the one place
+/// inline markdown would otherwise stop working.
 ///
-/// The run is the same triad-gated shape [`parse_table_block`] expects, so
-/// `&lines[start..start + len]` joined by `\n` always parses.
-pub fn table_run_len(lines: &[&str], start: usize) -> Option<usize> {
-    let header = *lines.get(start)?;
-    if !is_table_row(header) || is_delimiter_row(header) {
-        return None;
-    }
-    let delim = *lines.get(start + 1)?;
-    if !is_delimiter_row(delim) {
-        return None;
-    }
-    let mut end = start + 2;
-    while lines.get(end).is_some_and(|line| is_table_row(line)) {
-        end += 1;
-    }
-    // Header + delimiter is not yet a table: it needs one data row.
-    if end < start + 3 {
-        return None;
-    }
-    Some(end - start)
+/// **Rectangular**: every row and the header are padded to
+/// [`Table::columns`], and `aligns` with it, so a renderer can emit
+/// `<tr>`s without counting. [`Table`] keeps the ragged reading, which
+/// is what preserves a surplus cell.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TableView {
+    /// Alignment per column, one entry per column.
+    pub aligns: Vec<ColumnAlign>,
+    /// Header cells, tokenized.
+    pub header: Vec<Vec<crate::InlineToken>>,
+    /// Body rows, tokenized.
+    pub rows: Vec<Vec<Vec<crate::InlineToken>>>,
 }
 
-/// Recover the column grid from a block's stored `text`.
+/// Read a block's text as a [`TableView`], `None` when it is not a
+/// table.
 ///
-/// Returns `None` unless the text is a whole table: three or more lines
-/// whose first is a header row, second a delimiter row, and every line
-/// after a data row. This is the [`OutlineNode`] a collapsed table becomes
-/// (see the module doc); a block that is not a pure table — prose, a fence,
-/// a table glued to a bullet — is `None`, and the caller renders its text
-/// as ordinary content.
-pub fn parse_table_block(text: &str) -> Option<Table> {
-    let lines: Vec<&str> = text.lines().collect();
-    if lines.len() < 3 {
-        return None;
-    }
-    let header = lines[0];
-    if !is_table_row(header) || is_delimiter_row(header) {
-        return None;
-    }
-    if !is_delimiter_row(lines[1]) {
-        return None;
-    }
-    if !lines[2..].iter().all(|line| is_table_row(line)) {
-        return None;
-    }
-
-    let header_cells = split_row(header);
-    let delim_cells = split_row(lines[1]);
-    let width = header_cells.len();
-
-    let alignments = (0..width)
-        .map(|idx| match delim_cells.get(idx).map(String::as_str) {
-            Some(cell) if !cell.is_empty() => cell_align(cell),
-            _ => Align::Left,
-        })
-        .collect();
-
-    let header = header_cells;
-    let rows = lines[2..]
-        .iter()
-        .map(|line| {
-            let mut cells = split_row(line);
-            cells.resize(width, String::new());
-            cells
-        })
-        .collect();
-
-    Some(Table {
-        alignments,
-        header,
-        rows,
+/// The one call a DTO needs: it answers "is this block a table" and
+/// "what does a renderer draw" together, so no caller decides for
+/// itself which cells exist.
+pub fn tokenize_table(text: &str) -> Option<TableView> {
+    let table = parse_table(text)?;
+    let cols = table.columns();
+    let row = |cells: &[String]| -> Vec<Vec<crate::InlineToken>> {
+        (0..cols)
+            .map(|col| {
+                let cell = cells.get(col).map(String::as_str).unwrap_or("");
+                crate::tokenize_owned(&cell_for_tokenizer(cell))
+            })
+            .collect()
+    };
+    Some(TableView {
+        aligns: (0..cols).map(|col| table.align(col)).collect(),
+        header: row(&table.header),
+        rows: table.rows.iter().map(|cells| row(cells)).collect(),
     })
 }
 
-/// Whether an [`OutlineNode`]'s text is a whole table.
+/// A cell's source as the tokenizer should read it.
 ///
-/// Convenience over [`parse_table_block`] for a renderer walking the AST,
-/// so it can branch on "grid or prose" without discarding the grid it just
-/// parsed. The TUI calls this once per visible block, then hands the
-/// [`Table`] to its grid drawer.
-pub fn table_from_node(node: &OutlineNode) -> Option<Table> {
-    parse_table_block(&node.text)
+/// [`unescape_cell`] everywhere except inside a code span, where a
+/// backslash is literal: there only the pipe's own escape is consumed
+/// (GFM does the same), so `` `C:\\server` `` keeps both backslashes.
+/// The span boundaries mirror `emphasis::try_code`: one backtick, closed
+/// by the next one, non-empty.
+fn cell_for_tokenizer(cell: &str) -> String {
+    if !cell.contains('`') {
+        return unescape_cell(cell);
+    }
+    let mut out = String::with_capacity(cell.len());
+    let mut rest = cell;
+    while let Some(open) = rest.find('`') {
+        let after = &rest[open + 1..];
+        match after.find('`') {
+            Some(close) if close > 0 => {
+                out.push_str(&unescape_cell(&rest[..open]));
+                out.push('`');
+                out.push_str(&after[..close].replace("\\|", "|"));
+                out.push('`');
+                rest = &after[close + 1..];
+            }
+            _ => break,
+        }
+    }
+    out.push_str(&unescape_cell(rest));
+    out
+}
+
+/// Every line of every table in `blocks`, counted, for reconcile's
+/// bulk-delete guard.
+///
+/// A sidecar written before tables were modelled holds each row as its
+/// own block, so the pass consolidating them orphans every one; on a
+/// page that is mostly the table, `OrphanGuard` would refuse forever.
+/// The exemption is positive evidence: an orphan's text has to be a
+/// table line on disk right now, consumed once per occurrence.
+///
+/// Uses [`table_span`] rather than [`parse_table`]: the rendering cap
+/// says nothing about whether a line is on disk, and applying it here
+/// refused the migration of exactly the tables `take_table` still
+/// consolidates.
+#[derive(Debug, Default)]
+pub(crate) struct TableLines(std::cell::RefCell<std::collections::HashMap<String, usize>>);
+
+impl TableLines {
+    pub(crate) fn from_blocks(blocks: &[crate::parse::OutlineNode]) -> Self {
+        fn walk(
+            blocks: &[crate::parse::OutlineNode],
+            counts: &mut std::collections::HashMap<String, usize>,
+        ) {
+            for block in blocks {
+                if block.text.contains('|') {
+                    let lines: Vec<&str> = block.text.lines().collect();
+                    if !lines.is_empty() && table_span(&lines, 0) == Some(lines.len()) {
+                        for line in lines {
+                            let line = line.trim();
+                            if !line.is_empty() {
+                                *counts.entry(line.to_string()).or_default() += 1;
+                            }
+                        }
+                    }
+                }
+                walk(&block.children, counts);
+            }
+        }
+        let mut counts = std::collections::HashMap::new();
+        walk(blocks, &mut counts);
+        Self(std::cell::RefCell::new(counts))
+    }
+
+    /// Whether `text` is a table line on disk not yet claimed by
+    /// another orphan. Each line on disk exempts at most one orphan, so
+    /// one row cannot vouch for a thousand deleted duplicates.
+    pub(crate) fn consume(&self, text: &str) -> bool {
+        let needle = text.trim();
+        if needle.is_empty() {
+            return false;
+        }
+        let mut counts = self.0.borrow_mut();
+        match counts.get_mut(needle) {
+            Some(n) if *n > 0 => {
+                *n -= 1;
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn node(text: &str) -> OutlineNode {
-        OutlineNode {
-            text: text.to_string(),
-            properties: Vec::new(),
-            children: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn delimiter_row_is_recognised_and_header_is_not() {
-        assert!(is_delimiter_row("|---|---|"));
-        assert!(is_delimiter_row("| :--- | :---: | ---: |"));
-        assert!(is_delimiter_row("---|---"));
-        assert!(!is_delimiter_row("|a|b|"), "a header is not a delimiter");
-        assert!(!is_delimiter_row("|---|x|"), "one bad cell rejects the row");
-        assert!(!is_delimiter_row("a paragraph with | a pipe"));
-        assert!(!is_delimiter_row("||"), "no cells");
-    }
-
-    #[test]
-    fn split_row_unescapes_pipes_and_trims() {
-        assert_eq!(split_row("| a | b |"), vec!["a", "b"]);
-        assert_eq!(split_row("a | b"), vec!["a", "b"]);
-        assert_eq!(
-            split_row(r"| x \| y | z |"),
-            vec!["x | y", "z"],
-            "an escaped pipe is a literal, not a column break"
-        );
-        assert_eq!(
-            split_row(r"| a \\| b |"),
-            vec!["a \\", "b"],
-            "a literal backslash does not escape the following column separator"
-        );
-    }
-
-    #[test]
-    fn parse_reads_header_delimiter_and_alignment() {
-        let t = parse_table_block("| a | b |\n|:--|--:|\n| 1 | 2 |").expect("a table");
-        assert_eq!(t.header, vec!["a", "b"]);
-        assert_eq!(t.alignments, vec![Align::Left, Align::Right]);
-        assert_eq!(t.rows, vec![vec!["1".to_string(), "2".to_string()]]);
-    }
-
-    #[test]
-    fn parse_pads_short_rows_and_truncates_long_ones() {
-        let t = parse_table_block("| a | b | c |\n|---|---|---|\n| 1 |\n| 1 | 2 | 3 | 4 |")
-            .expect("a table");
-        assert_eq!(t.rows[0], vec!["1", "", ""]);
-        assert_eq!(t.rows[1], vec!["1", "2", "3"]);
-    }
-
-    #[test]
-    fn parse_rejects_anything_that_is_not_a_whole_table() {
-        assert!(parse_table_block("just prose").is_none());
-        assert!(
-            parse_table_block("| a |\n|---|").is_none(),
-            "needs a data row"
-        );
-        assert!(
-            parse_table_block("| a |\n|---|\nprose after").is_none(),
-            "a trailing prose line means this is not a pure table"
-        );
-    }
-
-    #[test]
-    fn center_alignment_needs_colons_both_sides() {
-        let t = parse_table_block("| a |\n|:-:|\n| 1 |").expect("a table");
-        assert_eq!(t.alignments, vec![Align::Center]);
-    }
-
-    #[test]
-    fn table_from_node_rounds_trip_with_the_parser_shape() {
-        // The text the parser stores for a collapsed table is exactly what
-        // the renderer must recover a grid from.
-        let collapsed = node("| a | b |\n|---|---|\n| 1 | 2 |");
-        let t = table_from_node(&collapsed).expect("the collapsed block is a table");
-        assert_eq!(t.header, vec!["a", "b"]);
-        assert!(table_from_node(&node("a bullet's prose")).is_none());
-    }
-
-    #[test]
-    fn consume_advances_only_over_a_real_table() {
-        let table = ["| a | b |", "|---|---|", "| 1 | 2 |", "- next"];
-        let mut i = 0;
-        let text = consume_table_block(&table, &mut i).expect("a table");
-        assert_eq!(text, "| a | b |\n|---|---|\n| 1 | 2 |");
-        assert_eq!(i, 3, "stopped before the bullet");
-
-        let mut j = 0;
-        assert!(
-            consume_table_block(&["free text", "more text"], &mut j).is_none(),
-            "prose is not a table"
-        );
-        assert_eq!(j, 0, "a rejected line is left for the caller");
-    }
-
-    #[test]
-    fn run_len_spans_a_whole_table_and_stops_at_prose() {
-        let lines = ["intro", "| a | b |", "|---|---|", "| 1 | 2 |", "outro"];
-        assert_eq!(
-            table_run_len(&lines, 0),
-            None,
-            "prose does not open a table"
-        );
-        assert_eq!(
-            table_run_len(&lines, 1),
-            Some(3),
-            "header + delimiter + one data row"
-        );
-        assert_eq!(table_run_len(&lines, 4), None, "trailing prose");
-    }
-
-    #[test]
-    fn run_len_absorbs_consecutive_data_rows() {
-        let lines = ["| a |", "|---|", "| 1 |", "| 2 |", "| 3 |"];
-        assert_eq!(table_run_len(&lines, 0), Some(5));
-    }
-
-    #[test]
-    fn run_len_needs_a_data_row_after_the_delimiter() {
-        // Header + delimiter alone is not a table.
-        assert_eq!(table_run_len(&["| a |", "|---|"], 0), None);
-    }
-
-    #[test]
-    fn run_len_is_indent_agnostic() {
-        // A nested table's lines are already stored unindented (the
-        // continuation path trims each row), so depth never shows here.
-        let lines = ["parent", "| a |", "|---|", "| 1 |"];
-        assert_eq!(table_run_len(&lines, 1), Some(3));
-    }
-
-    #[test]
-    fn run_len_rejects_a_pipe_in_prose() {
-        // A paragraph line that merely carries a `|` is not a table header
-        // unless a delimiter row follows it — the triad gate.
-        assert_eq!(table_run_len(&["a | b", "c | d", "e"], 0), None);
-    }
-}
+mod tests;
