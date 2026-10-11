@@ -55,6 +55,12 @@ crates/outl-frontend-shared/
     ├── onboarding/
     │   ├── index.ts        # first-run copy (STORAGE_STEP, SYNC_STEP, FINISH_CTA) — plain data, no invoke
     │   └── onboarding.test.ts
+    ├── mock/
+    │   ├── index.ts        # installMockBackend + wantsMock: `?mock=1` runs a client in a plain browser (dev only)
+    │   ├── backend.ts      # command name → reply, from an in-memory fixture workspace
+    │   ├── workspace.ts    # the fixture pages; not a CRDT, no op log
+    │   ├── tokenize.ts     # tiny stand-in for outl_md::tokenize_owned (refs, tags, bold, code)
+    │   └── presets.json    # every outl_theme preset; outl-theme's presets_fixture test keeps it current
     ├── journal/
     │   ├── index.ts        # parseJournalSlug, formatJournalSlug, journalSlugToDate, daysInMonth, MONTH_NAMES, DAY_LABELS*, mondayIndex, prev/nextMonth
     │   └── journal.test.ts
