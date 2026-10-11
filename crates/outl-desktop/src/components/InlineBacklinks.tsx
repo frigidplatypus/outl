@@ -8,7 +8,8 @@ import {
 } from "@outl/shared/api/commands";
 import { MarkdownInline, MarkdownTable } from "@outl/shared/markdown";
 import { sameCrumbTrail } from "@outl/shared/outline";
-import type { Backlink } from "@outl/shared/api/types";
+import type { Backlink, PageKind } from "@outl/shared/api/types";
+import { PageGlyph } from "@outl/shared/icons";
 
 import { appState, setAppState, setOutline } from "../lib/store";
 
@@ -124,21 +125,22 @@ export function InlineBacklinks() {
   function groupedBySource(): Array<{
     key: string;
     title: string;
-    icon: string;
+    icon?: string;
+    kind?: PageKind;
     entries: Backlink[];
   }> {
     const groups = new Map<
       string,
-      { key: string; title: string; icon: string; entries: Backlink[] }
+      { key: string; title: string; icon?: string; kind?: PageKind; entries: Backlink[] }
     >();
     for (const b of appState.backlinks) {
       const key = b.source_page?.slug ?? "__orphan__";
       const title = b.source_page?.title ?? "(orphan)";
-      const fallback = b.source_page?.kind === "journal" ? "📅" : "📄";
-      const icon = b.source_page?.icon || fallback;
+      const icon = b.source_page?.icon;
+      const kind = b.source_page?.kind;
       const existing = groups.get(key);
       if (existing) existing.entries.push(b);
-      else groups.set(key, { key, title, icon, entries: [b] });
+      else groups.set(key, { key, title, icon, kind, entries: [b] });
     }
     return [...groups.values()];
   }
@@ -188,7 +190,7 @@ export function InlineBacklinks() {
                   }
                   class="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left text-sm font-semibold hover:bg-(--color-outl-fg)/5"
                 >
-                  <span aria-hidden="true">{group.icon}</span>
+                  <PageGlyph icon={group.icon} kind={group.kind} class="self-center" />
                   <span>{group.title}</span>
                   <span class="text-xs opacity-50">{group.entries.length}</span>
                 </button>

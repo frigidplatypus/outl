@@ -1,3 +1,5 @@
+import { journalHeading } from "@outl/shared/journal";
+
 /**
  * Presentational chrome for the journal / page header.
  *
@@ -22,6 +24,9 @@ export function JournalHeader(props: {
 }) {
   const isToday = () =>
     props.todaySlug !== null && props.todaySlug === props.slug;
+  // "Today" / "Yesterday" / "Thursday", and the full date under it.
+  // The ISO slug is the file name, not what anyone calls the day.
+  const heading = () => journalHeading(props.slug);
   return (
     <div class="min-w-0">
       <div class="flex items-center justify-center gap-1.5">
@@ -34,10 +39,12 @@ export function JournalHeader(props: {
           <ChevronLeft />
         </button>
         <h1
-          class="cursor-pointer whitespace-nowrap text-[17px] font-semibold leading-tight tracking-tight tabular-nums active:opacity-60"
+          class="cursor-pointer whitespace-nowrap text-[17px] font-semibold leading-tight tracking-tight active:opacity-60"
+          classList={{ "text-(--color-outl-accent)": isToday() }}
           onClick={props.onToday}
+          title={props.slug}
         >
-          {props.slug}
+          {heading()?.title ?? props.slug}
         </h1>
         <button
           type="button"
@@ -48,16 +55,10 @@ export function JournalHeader(props: {
           <ChevronRight />
         </button>
       </div>
-      {/* Always rendered (just hidden when not today) so the header
-          keeps the same height across day navigation — otherwise the
-          whole outline below jumps by ~14px every time the user pages
-          past today, which reads as the header "dancing". */}
-      <p
-        class="mt-0.5 text-center text-[11px] font-medium uppercase tracking-[0.08em] text-(--color-outl-accent)"
-        classList={{ invisible: !isToday() }}
-        aria-hidden={!isToday()}
-      >
-        Today
+      {/* The date line is on every day, so the header keeps one height
+          across day navigation and the outline below never jumps. */}
+      <p class="mt-0.5 text-center text-[12px] text-(--color-outl-fg-dim) tabular-nums">
+        {heading()?.date ?? "\u00a0"}
       </p>
     </div>
   );

@@ -2,10 +2,12 @@ import { For, JSX, Show } from "solid-js";
 import type {
   Backlink,
   BacklinksOrder,
+  PageKind,
   TodoState,
 } from "@outl/shared/api/types";
 import { MarkdownInline, MarkdownTable } from "@outl/shared/markdown";
 import { sameCrumbTrail } from "@outl/shared/outline";
+import { PageGlyph } from "@outl/shared/icons";
 
 interface BacklinksSectionProps {
   backlinks: Backlink[];
@@ -40,21 +42,22 @@ export function BacklinksSection(props: BacklinksSectionProps): JSX.Element {
   function groupedBySource(): Array<{
     key: string;
     title: string;
-    icon: string;
+    icon?: string;
+    kind?: PageKind;
     entries: Backlink[];
   }> {
     const groups = new Map<
       string,
-      { key: string; title: string; icon: string; entries: Backlink[] }
+      { key: string; title: string; icon?: string; kind?: PageKind; entries: Backlink[] }
     >();
     for (const b of props.backlinks) {
       const key = b.source_page?.slug ?? "__orphan__";
       const title = b.source_page?.title ?? "untitled";
-      const fallback = b.source_page?.kind === "journal" ? "📅" : "📄";
-      const icon = b.source_page?.icon || fallback;
+      const icon = b.source_page?.icon;
+      const kind = b.source_page?.kind;
       const existing = groups.get(key);
       if (existing) existing.entries.push(b);
-      else groups.set(key, { key, title, icon, entries: [b] });
+      else groups.set(key, { key, title, icon, kind, entries: [b] });
     }
     return [...groups.values()];
   }
@@ -121,7 +124,7 @@ export function BacklinksSection(props: BacklinksSectionProps): JSX.Element {
                   onClick={() => props.onJump(group.entries[0])}
                   class="flex w-full items-center gap-2 px-4 pt-3 pb-1 text-left active:opacity-60"
                 >
-                  <span aria-hidden="true">{group.icon}</span>
+                  <PageGlyph icon={group.icon} kind={group.kind} class="self-center" />
                   <span class="flex-1 text-[13px] font-medium text-(--color-outl-accent)">
                     {group.title}
                   </span>

@@ -40,6 +40,7 @@
     "./drag-drop": "./src/drag-drop/index.ts",
     "./highlight": "./src/highlight/index.ts",
     "./highlight/styles": "./src/highlight/styles.css",
+    "./icons": "./src/icons/index.tsx",
     "./journal": "./src/journal/index.ts",
     "./links": "./src/links/index.ts",
     "./markdown": "./src/markdown/index.ts",

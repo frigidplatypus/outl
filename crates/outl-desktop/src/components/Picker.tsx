@@ -9,6 +9,7 @@ import {
 
 import { openRef, searchPages } from "@outl/shared/api/commands";
 import type { PageMeta, PageView } from "@outl/shared/api/types";
+import { PageGlyph } from "@outl/shared/icons";
 
 import { appState, setAppState } from "../lib/store";
 
@@ -164,12 +165,8 @@ export function Picker(props: { onPicked: (view: PageView) => void }) {
                       : "hover:bg-(--color-outl-fg)/5"
                   }`}
                 >
-                  <div>
-                    {p.icon
-                      ? `${p.icon} `
-                      : p.kind === "journal"
-                        ? "📅 "
-                        : "📄 "}
+                  <div class="flex items-center gap-1.5">
+                    <PageGlyph icon={p.icon} kind={p.kind} class="opacity-70" />
                     {p.title}
                   </div>
                   <div class="font-mono text-[10px] opacity-50">{p.slug}</div>

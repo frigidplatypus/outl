@@ -131,3 +131,33 @@ export function nextMonth(year: number, monthIndex: number): YearMonth {
   if (monthIndex === 11) return { year: year + 1, monthIndex: 0 };
   return { year, monthIndex: monthIndex + 1 };
 }
+
+/** How a journal page names itself in its header. */
+export interface JournalHeading {
+  /** `Today`, `Yesterday`, `Tomorrow`, or the weekday (`Thursday`). */
+  title: string;
+  /** The full date in the user's locale (`October 11, 2026`). */
+  date: string;
+}
+
+/**
+ * Header text for a journal page, relative to `today`. The ISO slug is
+ * a literal (it is the file name), so it stays in the eyebrow in mono;
+ * the title is what a person calls the day. Returns `null` for a slug
+ * that is not a real date, so the caller can fall back to the slug.
+ */
+export function journalHeading(
+  slug: string,
+  today: Date = new Date(),
+  locale?: string,
+): JournalHeading | null {
+  const day = journalSlugToDate(slug);
+  if (!day) return null;
+  const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const offset = Math.round((day.getTime() - midnight.getTime()) / 86_400_000);
+  const relative: Record<number, string> = { [-1]: "Yesterday", 0: "Today", 1: "Tomorrow" };
+  return {
+    title: relative[offset] ?? day.toLocaleDateString(locale, { weekday: "long" }),
+    date: day.toLocaleDateString(locale, { month: "long", day: "numeric", year: "numeric" }),
+  };
+}

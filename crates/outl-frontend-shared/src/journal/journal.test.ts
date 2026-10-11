@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  journalHeading,
   DAY_LABELS,
   DAY_LABELS_MONDAY_FIRST,
   MONTH_NAMES,
@@ -108,5 +109,32 @@ describe("labels + mondayIndex", () => {
     expect(mondayIndex(1)).toBe(0); // Monday
     expect(mondayIndex(0)).toBe(6); // Sunday
     expect(mondayIndex(6)).toBe(5); // Saturday
+  });
+});
+
+describe("journalHeading", () => {
+  const today = new Date(2026, 9, 11, 15, 30);
+
+  it("names the nearby days relative to today", () => {
+    expect(journalHeading("2026-10-11", today, "en-US")?.title).toBe("Today");
+    expect(journalHeading("2026-10-10", today, "en-US")?.title).toBe("Yesterday");
+    expect(journalHeading("2026-10-12", today, "en-US")?.title).toBe("Tomorrow");
+  });
+
+  it("uses the weekday further out and always carries the full date", () => {
+    expect(journalHeading("2026-10-08", today, "en-US")).toEqual({
+      title: "Thursday",
+      date: "October 8, 2026",
+    });
+  });
+
+  it("does not shift across a DST change", () => {
+    // Brazil and the US both move clocks in this window in some years;
+    // the day count must round, not floor.
+    expect(journalHeading("2026-11-02", new Date(2026, 10, 3, 0, 5), "en-US")?.title).toBe("Yesterday");
+  });
+
+  it("returns null for a slug that is not a date", () => {
+    expect(journalHeading("not-a-date", today)).toBeNull();
   });
 });
