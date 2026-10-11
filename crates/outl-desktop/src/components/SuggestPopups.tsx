@@ -36,7 +36,7 @@ function SuggestPopup<T>(props: {
   return (
     <Show when={props.items.length > 0}>
       <ul
-        class={`absolute top-full left-0 z-30 mt-1 max-h-56 overflow-y-auto rounded-md border border-(--color-outl-border) bg-(--color-outl-bg-elev) py-1 text-[13px] shadow-lg ${props.widthClass}`}
+        class={`absolute top-full left-0 z-30 mt-1 max-h-56 overflow-y-auto rounded-pop border border-(--color-outl-border)/60 bg-(--color-outl-bg-elev) p-1 text-[13px] shadow-pop ${props.widthClass}`}
         role="listbox"
       >
         <For each={props.items}>
@@ -49,10 +49,10 @@ function SuggestPopup<T>(props: {
                   props.onPick(item);
                 }}
                 onMouseEnter={() => props.onHover(i())}
-                class={`flex w-full items-center px-2 py-1 text-left ${props.gapClass} ${
+                class={`flex w-full items-center rounded-md px-2 py-1.5 text-left ${props.gapClass} ${
                   i() === props.activeIndex
-                    ? "bg-(--color-outl-accent) text-(--color-outl-bg)"
-                    : "hover:bg-(--color-outl-bg)/50"
+                    ? "bg-(--color-outl-accent)/15 text-(--color-outl-fg)"
+                    : "hover:bg-(--color-outl-fg)/5"
                 }`}
               >
                 {props.row(item)}

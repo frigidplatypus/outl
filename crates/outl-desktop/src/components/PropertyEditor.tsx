@@ -510,7 +510,7 @@ export function PropertyEditor(props: PropertyEditorProps): JSX.Element {
             <ul
               role="listbox"
               aria-label={`${noun()} key suggestions`}
-              class="absolute top-full left-0 z-30 mt-1 max-h-56 min-w-40 overflow-y-auto rounded border border-(--color-outl-border) bg-(--color-outl-bg-elev) py-1 shadow-lg"
+              class="absolute top-full left-0 z-30 mt-1 max-h-56 min-w-40 overflow-y-auto rounded-pop border border-(--color-outl-border)/60 bg-(--color-outl-bg-elev) p-1 shadow-pop"
             >
               <For each={suggestions()}>
                 {(item, i) => (
@@ -554,7 +554,7 @@ export function PropertyEditor(props: PropertyEditorProps): JSX.Element {
                 <ul
                   role="listbox"
                   aria-label={`${noun()} value page suggestions`}
-                  class="absolute top-full left-0 z-30 mt-1 max-h-56 min-w-48 overflow-y-auto rounded border border-(--color-outl-border) bg-(--color-outl-bg-elev) py-1 shadow-lg"
+                  class="absolute top-full left-0 z-30 mt-1 max-h-56 min-w-48 overflow-y-auto rounded-pop border border-(--color-outl-border)/60 bg-(--color-outl-bg-elev) p-1 shadow-pop"
                 >
                   <For each={sug().hits}>
                     {(hit, i) => (
