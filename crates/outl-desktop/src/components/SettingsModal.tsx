@@ -19,7 +19,6 @@ import { SyncPanel } from "./SyncPanel";
 export function SettingsModal() {
   const [draft, setDraft] = createSignal<Settings | null>(null);
   const [busy, setBusy] = createSignal(false);
-  const [windowDecorations, setWindowDecorationsState] = createSignal(true);
   // True when an external config manager (Nix / home-manager) owns the file.
   // Read off the draft the backend sent — the same verdict that blocks Save
   // server-side — never re-derived here.
