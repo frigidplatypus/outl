@@ -36,7 +36,7 @@
 877 crates/outl-core/src/workspace.rs
 725 crates/outl-core/src/workspace/batch.rs
 712 crates/outl-core/tests/tree_unit.rs
-967 crates/outl-desktop/src/components/OutlineView.tsx
+943 crates/outl-desktop/src/components/OutlineView.tsx
 1038 crates/outl-desktop/src/lib/action-handlers.ts
 872 crates/outl-frontend-shared/src/api/commands.ts
 730 crates/outl-frontend-shared/src/api/types.ts
@@ -47,11 +47,11 @@
 2071 crates/outl-mobile/src/components/Journal.tsx
 733 crates/outl-plugins/src/engine.rs
 640 crates/outl-plugins/src/host_tests.rs
-773 crates/outl-shortcuts/src/defaults.rs
-706 crates/outl-shortcuts/src/support.rs
-764 crates/outl-sync-iroh/src/engine_pairing.rs
+786 crates/outl-shortcuts/src/defaults.rs
+703 crates/outl-shortcuts/src/support.rs
+868 crates/outl-sync-iroh/src/engine.rs
+763 crates/outl-sync-iroh/src/engine_pairing.rs
 736 crates/outl-sync-iroh/src/engine_sync.rs
-870 crates/outl-sync-iroh/src/engine.rs
 1245 crates/outl-sync-iroh/src/pairing.rs
 1022 crates/outl-sync-iroh/src/peers.rs
 821 crates/outl-sync-iroh/tests/chaos.rs

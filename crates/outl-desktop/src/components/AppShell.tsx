@@ -369,7 +369,7 @@ export function AppShell() {
         {(h) => <BatchToolbar handlers={h()} />}
       </Show>
       <ChromeToggleBar />
-      <Picker onPicked={applyView} />
+      <Picker onPicked={applyView} handlers={handlers()} />
       <PluginMarketplace />
       <SettingsModal />
       <HelpOverlay />

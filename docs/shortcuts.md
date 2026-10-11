@@ -45,7 +45,7 @@ If a row below disagrees with what you observe in the app, **the code is right a
 
 | Action | TUI | Desktop | Mobile |
 |---|---|---|---|
-| Quick switcher (fuzzy pages + journals) | `Ctrl+P` | `Cmd/Ctrl+P` | tap toolbar |
+| Quick switcher (fuzzy pages + journals) | `Ctrl+P` | `Cmd/Ctrl+P` _(pages, then blocks, then matching actions; type `>` for actions only)_ | tap toolbar |
 | Open today's **j**ournal | `t` / `g j` (chord) | `Cmd/Ctrl+J` | toolbar |
 | Cycle task state on focused or selected block — `(none) → TODO → DOING → DONE → (none)`, one stop per press (T for **t**ask) | `Ctrl+T` / `Ctrl+Enter` | `Cmd/Ctrl+T` / `Cmd/Ctrl+Enter` | tap checkbox |
 | Run code block under cursor / selected block (X for e**x**ecute). TUI: when the block isn't code, `g x` instead opens the markdown link `[text](url)` under the cursor — an asset link in the OS default app, anything else in the browser (issue #183) | `g x` chord / `:run` | `Cmd/Ctrl+Shift+X` (inside a textarea the Insert-mode strikethrough wins — commit first or use the Run button; plain `Cmd+X` is the OS cut / block cut) | tap "Run" button |
@@ -143,7 +143,7 @@ The TUI is vim-style by definition.
 | Redo | `Ctrl+R` | `Ctrl+R` / `Cmd/Ctrl+Shift+Z` | keyboard toolbar |
 | Yank block ref → clipboard (chord) | `y r` | — _(chord is in the catalog, no handler — [#parity](client-parity.md))_ | long-press → "Copy block ref" |
 | Enter Visual | `V` _(the catalog spells this `v`; the TUI binds `V` only — [known divergence](../crates/outl-shortcuts/tests/tui_catalog_divergence.rs))_ | `v` | — |
-| Open command palette | `:` | — _(chord is in the catalog, no handler — [#parity](client-parity.md))_ | — |
+| Open command palette | `:` | `:` / `Cmd/Ctrl+K` _(the quick switcher opened on `>`: actions with their chords)_ | — |
 | Open slash menu | `/` | `/` | `/` |
 
 > **About `a` / `*` / `#` on the desktop.** The desktop's Normal mode has only a selected block id — no character cursor inside the block. So `a` collapses to `i` (the textarea's own caret takes over), and `*` / `#` seed the picker with the first few words of the selected block's text instead of doing a word-under-cursor search. The catalog still ships these chords so muscle memory from the TUI carries over.
