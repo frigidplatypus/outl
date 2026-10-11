@@ -135,7 +135,9 @@ describe("SuggestPopups — per-popup rows", () => {
     expect(host.querySelector('[role="listbox"]')?.className).toContain("w-72");
     const rows = host.querySelectorAll('[role="option"]');
     expect(rows[0].textContent).toContain("2026-09-28");
-    expect(rows[0].textContent).toContain("📅");
+    // No icon:: on the journal, so the line calendar icon, not an emoji.
+    expect(rows[0].querySelector("svg")).not.toBeNull();
+    expect(rows[0].textContent).not.toContain("📅");
     expect(rows[1].textContent).toContain("🧠");
     expect(rows[1].textContent).toContain("notes");
   });

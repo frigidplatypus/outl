@@ -3,6 +3,7 @@ import { For, type JSX, Show } from "solid-js";
 import type { PageMeta, PluginCommand } from "@outl/shared/api/types";
 import type { BlockHit } from "@outl/shared/api/commands";
 import type { EmojiHit } from "@outl/shared/api/commands";
+import { PageGlyph } from "@outl/shared/icons";
 
 /**
  * The floating suggestion lists the desktop shows while the caret sits
@@ -83,9 +84,7 @@ export function RefSuggestPopup(props: {
       gapClass="gap-1.5"
       row={(page) => (
         <>
-          <span aria-hidden="true" class="shrink-0 opacity-70">
-            {page.icon || (page.kind === "journal" ? "📅" : "📄")}
-          </span>
+          <PageGlyph icon={page.icon} kind={page.kind} class="shrink-0 opacity-70" />
           <span class="truncate">
             {page.kind === "journal" ? page.slug : page.title}
           </span>

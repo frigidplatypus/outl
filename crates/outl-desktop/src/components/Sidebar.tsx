@@ -1,5 +1,6 @@
 import {
   For,
+  type JSX,
   Show,
   createEffect,
   createMemo,
@@ -22,6 +23,7 @@ import {
   journalSlugToDate,
   mondayIndex,
 } from "@outl/shared/journal";
+import { CalendarIcon, PageGlyph } from "@outl/shared/icons";
 
 import { appState, setAppState } from "../lib/store";
 
@@ -220,7 +222,7 @@ export function Sidebar(props: {
    *  Shows a hover-only × button when `onDelete` is provided. */
   function Row(props: {
     label: string;
-    icon?: string;
+    icon?: JSX.Element;
     active: boolean;
     onClick: () => void;
     onDelete?: () => void;
@@ -246,7 +248,7 @@ export function Sidebar(props: {
             }
           >
             {props.icon ? (
-              <span class="mr-1.5 opacity-70">{props.icon}</span>
+              <span class="mr-1.5 inline-flex opacity-70">{props.icon}</span>
             ) : null}
             {props.label}
           </span>
@@ -399,7 +401,7 @@ export function Sidebar(props: {
           onClick={props.onToday}
           class="w-full rounded-sm px-2 py-1 text-left text-[12.5px] font-medium text-(--color-outl-fg) hover:bg-(--color-outl-bg-elev)/40"
         >
-          <span class="mr-1.5 opacity-70">📅</span> Today
+          <CalendarIcon class="mr-1.5 opacity-70" /> Today
         </button>
       </div>
 
@@ -408,12 +410,12 @@ export function Sidebar(props: {
       <div class="flex-1 overflow-y-auto px-2 pb-6">
         <Show when={pinned().length > 0}>
           <section class="mb-4 mt-1">
-            <SectionHeader label="⭐ Pinned" />
+            <SectionHeader label="Pinned" />
             <For each={pinned()}>
               {(p) => (
                 <Row
                   label={p.title}
-                  icon={p.icon || (p.kind === "journal" ? "📅" : "📄")}
+                  icon={<PageGlyph icon={p.icon} kind={p.kind} />}
                   active={appState.page?.slug === p.slug}
                   onClick={() => void openSlug(p.slug)}
                   onDelete={
@@ -427,12 +429,12 @@ export function Sidebar(props: {
 
         <Show when={recentMetas().length > 0}>
           <section>
-            <SectionHeader label="🕘 Recent" />
+            <SectionHeader label="Recent" />
             <For each={recentMetas()}>
               {(p) => (
                 <Row
                   label={p.title}
-                  icon={p.icon || (p.kind === "journal" ? "📅" : "📄")}
+                  icon={<PageGlyph icon={p.icon} kind={p.kind} />}
                   active={appState.page?.slug === p.slug}
                   onClick={() =>
                     void (p.kind === "journal"

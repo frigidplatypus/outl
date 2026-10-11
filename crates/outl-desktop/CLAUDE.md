@@ -324,7 +324,7 @@ This section captures only the **architectural decisions** a contributor needs t
 Click a neutral `•` bullet, or fire `ZoomIn` (`z i` / `Cmd/Ctrl+Shift+]`), to zoom into the selected block; `ZoomOut` (`z o` / `Cmd/Ctrl+Shift+[`) pops one level.
 The header becomes the focused block's own **page-like header** (Roam-style).
 The focused block's text is the `<h1>` title.
-The eyebrow is a clickable **zoom path**: a leading page crumb (`📅 <slug>` / `📄 <title>`) exits the zoom back to the journal/page, then one crumb per ancestor re-focuses it.
+The eyebrow is a clickable **zoom path**: a leading page crumb (page glyph plus `<slug>` or `<title>`) exits the zoom back to the journal/page, then one crumb per ancestor re-focuses it.
 The outline body renders the focused block's **children** (`rootBlocks()` → `fv.root.children`), so the block isn't duplicated as both title and first row.
 `navBlocks()` traverses the same children so `j`/`k` stay in the body.
 `addFirstBlock()` creates into the focused block (`parentId: focusBlockId`) when it's a zoomed-into leaf.

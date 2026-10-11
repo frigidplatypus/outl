@@ -355,7 +355,8 @@ The scale, as it actually appears in the code:
 
 | Role | Size | Where |
 |---|---|---|
-| Page title | 28px, `font-mono`, semibold, `leading-[1.15] tracking-tight` | `OutlineView.tsx` — the one place monospace is used at display size, on both the journal and page branches |
+| Page title (desktop) | 24px, semibold, `leading-[1.2] tracking-[-0.011em]` | `OutlineView.tsx`. A journal reads as a day (`Today`, `Yesterday`, `Thursday`) with the full date beside it in `fg-dim`, from `journalHeading()` in `@outl/shared/journal`; `Today` takes `accent`. The ISO slug moves to the eyebrow, in mono, because it is the file name |
+| Journal title (mobile) | 17px, semibold | `JournalHeader.tsx`, same `journalHeading()`, date line at 12px under it on every day so the header height never changes |
 | Body | 17px / 1.4 | mobile `body` and `BlockRow` (`text-[17px] leading-[1.42]`); desktop has no CSS base and takes `DesktopSettings.font_size`, default `15` |
 | Inline chip, inline code | 14px | `MarkdownInline.tsx` — block-ref chip, `` `code` `` |
 | Ref / tag chip (mobile) | 15px, weight 500 | `MarkdownInline.tsx` chip variant |
@@ -363,6 +364,11 @@ The scale, as it actually appears in the code:
 | Secondary meta | 12px | truncated paths, mono |
 | Chrome label | 10px, uppercase, mono | code-fence language label |
 | Gutter | 9px, mono | `BlockRow.tsx` left gutter |
+
+Chrome icons are line SVGs from `@outl/shared/icons`, stroked in `currentColor` so they take the
+palette token of the text next to them. `PageGlyph` is the one place that picks a page's icon: its own
+`icon::` when set, else the calendar or page line icon. Emoji in chrome are out: they bring their own
+colours, render differently per OS, and read as content.
 
 Monospace is a **role**, not a decoration. It marks "this is a literal": inline code, code-fence language
 labels, block ids, file paths, keyboard chords. Prose never uses it.

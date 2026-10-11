@@ -33,7 +33,7 @@ import type { MdAheadOfLog, PageView } from "@outl/shared/api/types";
 
 import { PageAheadOfLogBanner, ParseWarningsBanner } from "@outl/shared/warnings";
 import { isAssetLink } from "@outl/shared/links";
-import { journalSlugToDate } from "@outl/shared/journal";
+import { HistoryIcon, PageGlyph } from "@outl/shared/icons";
 import {
   collectBlockRefHandles,
   findBlock,
@@ -62,6 +62,7 @@ import {
 } from "../lib/store";
 import { BlockRow, type BlockCallbacks } from "./BlockRow";
 import { PageSections } from "./PageSections";
+import { PageTitle } from "./PageTitle";
 import { PropertyEditor } from "./PropertyEditor";
 
 /**
@@ -706,29 +707,6 @@ export function OutlineView() {
     onCleanup(() => unlisten?.());
   });
 
-  /**
-   * Journal day-of-week ("Thursday") — used in the breadcrumb
-   * above the ISO title. Returns empty for non-journals or
-   * malformed slugs.
-   */
-  function journalWeekday(): string {
-    const page = appState.page;
-    if (!page || page.kind !== "journal") return "";
-    // `journalSlugToDate` parses parts so JS doesn't apply UTC
-    // (`new Date("2026-06-02")` is midnight UTC, which renders the
-    // previous day in negative-offset timezones).
-    const d = journalSlugToDate(page.slug);
-    return d ? d.toLocaleDateString(undefined, { weekday: "long" }) : "";
-  }
-
-  /** Page icon, with the same 📅/📄 default the eyebrow uses. */
-  function pageIcon(): string {
-    return (
-      appState.page?.icon ||
-      (appState.page?.kind === "journal" ? "📅" : "📄")
-    );
-  }
-
   /** Human label for the page crumb in the zoom path — the journal's
    *  ISO slug or a regular page's title (falling back to its slug). */
   function pageCrumbLabel(): string {
@@ -781,12 +759,15 @@ export function OutlineView() {
                  * slot keeps the title pinned from the first frame.
                  */}
                 <div class="mb-2 flex min-h-5 items-baseline gap-1.5 text-[12.5px] text-(--color-outl-fg-dim)">
-                  <Show when={appState.page?.kind === "journal"}>
-                    <span>{pageIcon()}</span>
-                    <span>Journal · {journalWeekday()}</span>
-                  </Show>
-                  <Show when={appState.page && appState.page.kind !== "journal"}>
-                    <span>{pageIcon()}</span>
+                  <Show when={appState.page}>
+                    <PageGlyph
+                      icon={appState.page?.icon}
+                      kind={appState.page?.kind}
+                      class="self-center"
+                    />
+                    <Show when={appState.page?.kind === "journal"}>
+                      <span>Journal ·</span>
+                    </Show>
                     <span class="font-mono">{appState.page?.slug}</span>
                   </Show>
                   {/*
@@ -804,22 +785,17 @@ export function OutlineView() {
                       aria-label="Page history"
                       onClick={() => setAppState("timelineOpen", true)}
                     >
-                      ⏱
+                      <HistoryIcon />
                     </button>
                   </Show>
                 </div>
 
-                <h1 class="font-mono text-[28px] font-semibold leading-[1.15] tracking-tight">
+                <h1 class="text-[24px] font-semibold leading-[1.2] tracking-[-0.011em]">
                   <Show
                     when={appState.page}
                     fallback={<span class="opacity-40">No page open</span>}
                   >
-                    <Show
-                      when={appState.page?.kind === "journal"}
-                      fallback={appState.page?.title}
-                    >
-                      {appState.page?.slug}
-                    </Show>
+                    {(page) => <PageTitle page={page()} />}
                   </Show>
                 </h1>
               </>
@@ -844,7 +820,7 @@ export function OutlineView() {
                     class="flex items-center gap-1.5 opacity-70 hover:opacity-100"
                     title="Back to page"
                   >
-                    <span>{pageIcon()}</span>
+                    <PageGlyph icon={appState.page?.icon} kind={appState.page?.kind} />
                     <span
                       class={
                         appState.page?.kind === "journal" ? "font-mono" : ""
@@ -873,7 +849,7 @@ export function OutlineView() {
                 </nav>
 
                 {/* Title = the focused block itself. */}
-                <h1 class="font-mono text-[28px] font-semibold leading-[1.15] tracking-tight">
+                <h1 class="text-[24px] font-semibold leading-[1.2] tracking-[-0.011em]">
                   <Show
                     when={fv().root.text}
                     fallback={<span class="opacity-40">(empty block)</span>}
