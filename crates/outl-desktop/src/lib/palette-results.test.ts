@@ -7,17 +7,18 @@ import { paletteActions, paletteResults, sectionOf } from "./palette-results";
 
 const page = (slug: string): PageMeta => ({ id: slug, slug, title: slug, kind: "page" });
 const cmdK = [{ mods: 8, key: { kind: "Char", value: "k" } }] as Binding["chord"];
+const ctrlK = [{ mods: 1, key: { kind: "Char", value: "k" } }] as Binding["chord"];
 
 const bindings: Binding[] = [
   { chord: cmdK, mode: "global", action: { kind: "OpenToday" }, description: "Open today's journal" },
-  { chord: cmdK, mode: "global", action: { kind: "OpenToday" }, description: "Ctrl twin" },
+  { chord: ctrlK, mode: "global", action: { kind: "OpenToday" }, description: "Ctrl twin" },
   { chord: cmdK, mode: "normal", action: { kind: "ToggleSidebar" }, description: "Toggle sidebar" },
   { chord: cmdK, mode: "insert", action: { kind: "WrapBold" }, description: "Bold" },
   { chord: cmdK, mode: "global", action: { kind: "OpenPicker" }, description: "Open quick switcher" },
   { chord: cmdK, mode: "global", action: { kind: "Quit" }, description: "Quit" },
 ] as Binding[];
 
-const actions = paletteActions(bindings, (k) => k !== "Quit");
+const actions = paletteActions(bindings, (k) => k !== "Quit", true);
 
 describe("paletteActions", () => {
   it("keeps one row per handled global or normal action, first description wins", () => {
@@ -26,10 +27,17 @@ describe("paletteActions", () => {
       ["ToggleSidebar", "Toggle sidebar"],
     ]);
   });
+
+  it("shows the Cmd chord on macOS and the Ctrl twin elsewhere", () => {
+    expect(actions[0].chord).toEqual(cmdK);
+    const other = paletteActions(bindings, (k) => k !== "Quit", false);
+    expect(other[0].chord).toEqual(ctrlK);
+    expect(other[0].label).toBe("Open today's journal");
+  });
 });
 
 describe("paletteResults", () => {
-  const blocks = [{ handle: "blk-1", text: "today notes", source_slug: "a" }];
+  const blocks = [{ handle: "blk-1", id: "n1", text: "today notes", source_slug: "a" }];
 
   it("lists only pages for an empty query", () => {
     const r = paletteResults({ query: "", pages: [page("a")], blocks, actions });

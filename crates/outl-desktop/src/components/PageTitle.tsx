@@ -1,4 +1,6 @@
-import { Show } from "solid-js";
+import { Show, createResource } from "solid-js";
+
+import { todaySlug } from "@outl/shared/api/commands";
 
 import type { PageMeta } from "@outl/shared/api/types";
 import { journalHeading } from "@outl/shared/journal";
@@ -11,8 +13,11 @@ import { journalHeading } from "@outl/shared/journal";
  * uses it.
  */
 export function PageTitle(props: { page: PageMeta }) {
+  // The configured-timezone day, refetched per page so a session that
+  // crosses midnight relabels on the next navigation.
+  const [today] = createResource(() => props.page.slug, () => todaySlug());
   const heading = () =>
-    props.page.kind === "journal" ? journalHeading(props.page.slug) : null;
+    props.page.kind === "journal" ? journalHeading(props.page.slug, today() ?? null) : null;
   return (
     <Show when={heading()} fallback={props.page.title || props.page.slug}>
       {(h) => (

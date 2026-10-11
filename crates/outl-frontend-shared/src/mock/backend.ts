@@ -13,14 +13,18 @@ const palettes = presets as Palette[];
  * `outl_shortcuts::default_bindings`; this is not a copy of it.
  */
 const META = 0b1000;
-const chord = (value: string) => [{ mods: META, key: { kind: "Char", value } }];
-const BINDINGS = [
-  { chord: chord("p"), mode: "global", action: { kind: "OpenPicker" }, description: "Open quick switcher" },
-  { chord: chord("k"), mode: "normal", action: { kind: "OpenCommandPalette" }, description: "Command palette" },
-  { chord: chord("j"), mode: "global", action: { kind: "OpenToday" }, description: "Open today's journal" },
-  { chord: chord("\\"), mode: "global", action: { kind: "ToggleSidebar" }, description: "Toggle sidebar" },
-  { chord: chord(","), mode: "global", action: { kind: "OpenSettings" }, description: "Open settings" },
+const CTRL = 0b0001;
+const BASE = [
+  { key: "p", mode: "global", action: { kind: "OpenPicker" }, description: "Open quick switcher" },
+  { key: "k", mode: "normal", action: { kind: "OpenCommandPalette" }, description: "Command palette" },
+  { key: "j", mode: "global", action: { kind: "OpenToday" }, description: "Open today's journal" },
+  { key: "\\", mode: "global", action: { kind: "ToggleSidebar" }, description: "Toggle sidebar" },
+  { key: ",", mode: "global", action: { kind: "OpenSettings" }, description: "Open settings" },
 ];
+// Cmd first, then its Ctrl twin, the order the real catalog uses.
+const BINDINGS = BASE.flatMap(({ key, ...rest }) =>
+  [META, CTRL].map((mods) => ({ chord: [{ mods, key: { kind: "Char", value: key } }], ...rest })),
+);
 const palette = (name: unknown) =>
   palettes.find((p) => p.name === name) ?? palettes[0];
 
@@ -112,7 +116,7 @@ export function createMockBackend(ws = new MockWorkspace(), today = new Date()) 
       return [...ws.walk()]
         .filter(([, n]) => n.text.toLowerCase().includes(q))
         .slice(0, 25)
-        .map(([p, n]) => ({ handle: n.id, text: n.text, source_slug: p.meta.slug }));
+        .map(([p, n]) => ({ handle: `blk-${n.id}`, id: n.id, text: n.text, source_slug: p.meta.slug }));
     },
     page_backlinks: (a) => ({
       backlinks: backlinks(String(a.slug)),

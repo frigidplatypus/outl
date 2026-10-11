@@ -103,6 +103,7 @@ beforeEach(() => {
   searchBlocks.mockResolvedValue([
     {
       handle: "blk-abc123",
+      id: "n1",
       text: "buy milk",
       source_slug: "2026-09-01",
     },
@@ -197,6 +198,7 @@ describe("PageSwitcher — Blocks mode (issue #19)", () => {
 
     expect(onJumpToBlock).toHaveBeenCalledWith({
       handle: "blk-abc123",
+      id: "n1",
       text: "buy milk",
       source_slug: "2026-09-01",
     });
@@ -217,6 +219,7 @@ describe("PageSwitcher — Blocks mode (issue #19)", () => {
 
     expect(onJumpToBlock).toHaveBeenCalledWith({
       handle: "blk-abc123",
+      id: "n1",
       text: "buy milk",
       source_slug: "2026-09-01",
     });

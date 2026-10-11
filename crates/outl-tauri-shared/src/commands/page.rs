@@ -121,6 +121,7 @@ fn collect_block_hits(index: &BlockIndex, query: &str, limit: usize) -> Vec<Bloc
 fn block_hit(b: &BlockEntry) -> BlockHit {
     BlockHit {
         handle: b.ref_handle.clone(),
+        id: b.id.to_string(),
         text: block_snippet(&b.text),
         source_slug: b.source_slug.clone(),
     }

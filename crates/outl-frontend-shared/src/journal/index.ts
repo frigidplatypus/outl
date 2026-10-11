@@ -141,20 +141,25 @@ export interface JournalHeading {
 }
 
 /**
- * Header text for a journal page, relative to `today`. The ISO slug is
- * a literal (it is the file name), so it stays in the eyebrow in mono;
- * the title is what a person calls the day. Returns `null` for a slug
- * that is not a real date, so the caller can fall back to the slug.
+ * Header text for a journal page, relative to `todaySlug`. The ISO slug
+ * is a literal (it is the file name), so it stays in the eyebrow in
+ * mono; the title is what a person calls the day. `todaySlug` is the
+ * backend's `today_slug`, in the configured timezone, never the
+ * browser's clock; while it is unknown (`null`) every day gets its
+ * weekday. Returns `null` for a slug that is not a real date, so the
+ * caller can fall back to the slug.
  */
 export function journalHeading(
   slug: string,
-  today: Date = new Date(),
+  todaySlug: string | null,
   locale?: string,
 ): JournalHeading | null {
   const day = journalSlugToDate(slug);
   if (!day) return null;
-  const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const offset = Math.round((day.getTime() - midnight.getTime()) / 86_400_000);
+  const today = journalSlugToDate(todaySlug);
+  const offset = today
+    ? Math.round((day.getTime() - today.getTime()) / 86_400_000)
+    : Number.NaN;
   const relative: Record<number, string> = { [-1]: "Yesterday", 0: "Today", 1: "Tomorrow" };
   return {
     title: relative[offset] ?? day.toLocaleDateString(locale, { weekday: "long" }),

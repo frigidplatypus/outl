@@ -25,6 +25,7 @@ import {
 } from "@outl/shared/journal";
 import { CalendarIcon, PageGlyph, SearchIcon } from "@outl/shared/icons";
 
+import { isMac } from "../lib/palette-results";
 import { appState, setAppState } from "../lib/store";
 
 /**
@@ -405,7 +406,7 @@ export function Sidebar(props: {
         >
           <SearchIcon class="opacity-70" />
           Search
-          <kbd class="ml-auto font-mono text-[11px] text-(--color-outl-fg-dimmer)">Cmd+P</kbd>
+          <kbd class="ml-auto font-mono text-[11px] text-(--color-outl-fg-dimmer)">{isMac() ? "Cmd+P" : "Ctrl+P"}</kbd>
         </button>
         <button
           type="button"

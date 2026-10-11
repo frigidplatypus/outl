@@ -32,16 +32,25 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 ### Added
 
 - **Desktop: one palette for pages, blocks and actions.**
-  `Cmd/Ctrl+P` used to find pages only. It now lists pages, then blocks, then the actions that match, each action with its chord, and a leading `>` narrows to actions. `:` and `Cmd/Ctrl+K` in Normal mode open it that way, so `OpenCommandPalette` is no longer a dead key on the desktop. In Insert, `Cmd+K` still inserts a link. A Search row at the top of the sidebar opens it for mouse users.
+  `Cmd/Ctrl+P` used to find pages only.
+  It now lists pages, then blocks, then the actions that match, each action with its chord, and a leading `>` narrows to actions.
+  `:` and `Cmd/Ctrl+K` in Normal mode open it that way, so `OpenCommandPalette` is no longer a dead key on the desktop.
+  In Insert, `Cmd+K` still inserts a link.
+  A Search row at the top of the sidebar opens it for mouse users.
 
 - **Journal days have names.**
-  The header said `2026-10-11` in 28px mono. It now says Today, Yesterday, Tomorrow or the weekday, with the full date next to it, on desktop and mobile. The ISO slug stays in the eyebrow, because it is the file name.
+  The header said `2026-10-11` in 28px mono.
+  It now says Today, Yesterday, Tomorrow or the weekday, with the full date next to it, on desktop and mobile.
+  The ISO slug stays in the eyebrow, because it is the file name.
 
 - **Line icons in the chrome, one popover surface on the desktop.**
-  The 📅/📄/⏱ defaults are SVG line icons that follow the palette. A page's own `icon::` still wins. Autocomplete, property pickers and the switcher share one radius and one palette-derived shadow, and the active row is a tint instead of a solid accent fill.
+  The 📅/📄/⏱ defaults are SVG line icons that follow the palette.
+  A page's own `icon::` still wins.
+  Autocomplete, property pickers and the switcher share one radius and one palette-derived shadow, and the active row is a tint instead of a solid accent fill.
 
 - **Run either GUI client in a browser with `?mock=1`.**
-  `bun run dev` in `crates/outl-desktop` or `crates/outl-mobile`, then open `http://localhost:<port>/?mock=1`: an in-memory workspace answers the Tauri commands, so the UI can be looked at and screenshotted without a native build. Dev builds only.
+  `bun run dev` in `crates/outl-desktop` or `crates/outl-mobile`, then open `http://localhost:<port>/?mock=1`: an in-memory workspace answers the Tauri commands, so the UI can be looked at and screenshotted without a native build.
+  Dev builds only.
 
 - **Markdown tables render as tables, on all three clients — and tabular data pasted from anywhere becomes one.**
   A pipe table used to arrive as a wall of `|` characters plus one `unrecognized_block_marker` warning *per row*, because the parser had no table in its grammar and kept each line verbatim ([#329](https://github.com/outlmd/outl/issues/329)). The content was safe; it just wasn't readable, and the warnings made a correct file look broken.

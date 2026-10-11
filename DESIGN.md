@@ -365,10 +365,9 @@ The scale, as it actually appears in the code:
 | Chrome label | 10px, uppercase, mono | code-fence language label |
 | Gutter | 9px, mono | `BlockRow.tsx` left gutter |
 
-Chrome icons are line SVGs from `@outl/shared/icons`, stroked in `currentColor` so they take the
-palette token of the text next to them. `PageGlyph` is the one place that picks a page's icon: its own
-`icon::` when set, else the calendar or page line icon. Emoji in chrome are out: they bring their own
-colours, render differently per OS, and read as content.
+Chrome icons are line SVGs from `@outl/shared/icons`, stroked in `currentColor` so they take the palette token of the text next to them.
+`PageGlyph` is the one place that picks a page's icon: its own `icon::` when set, else the calendar or page line icon.
+Emoji in chrome are out: they bring their own colours, render differently per OS, and read as content.
 
 Monospace is a **role**, not a decoration. It marks "this is a literal": inline code, code-fence language
 labels, block ids, file paths, keyboard chords. Prose never uses it.
