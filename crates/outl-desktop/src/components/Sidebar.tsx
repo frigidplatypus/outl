@@ -23,7 +23,7 @@ import {
   journalSlugToDate,
   mondayIndex,
 } from "@outl/shared/journal";
-import { CalendarIcon, PageGlyph } from "@outl/shared/icons";
+import { CalendarIcon, PageGlyph, SearchIcon } from "@outl/shared/icons";
 
 import { appState, setAppState } from "../lib/store";
 
@@ -396,6 +396,17 @@ export function Sidebar(props: {
   return (
     <aside class="flex h-full flex-col text-sm">
       <div class="space-y-1 px-3 pt-6 pb-2">
+        {/* Search first, the way you start most visits. Opens the same
+            palette as Cmd+P; the chord is shown so the click teaches it. */}
+        <button
+          type="button"
+          onClick={() => setAppState("pickerOpen", true)}
+          class="flex w-full items-center gap-1.5 rounded-md border border-(--color-outl-border)/60 px-2 py-1 text-left text-[12.5px] text-(--color-outl-fg-dim) hover:text-(--color-outl-fg)"
+        >
+          <SearchIcon class="opacity-70" />
+          Search
+          <kbd class="ml-auto font-mono text-[11px] text-(--color-outl-fg-dimmer)">Cmd+P</kbd>
+        </button>
         <button
           type="button"
           onClick={props.onToday}
