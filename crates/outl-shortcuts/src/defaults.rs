@@ -323,6 +323,19 @@ pub fn default_bindings() -> Vec<Binding> {
             Action::OpenCommandPalette,
             "Command palette",
         ),
+        // Normal only: in Insert, Cmd+K stays "insert link".
+        Binding::new(
+            meta('k'),
+            Normal,
+            Action::OpenCommandPalette,
+            "Command palette",
+        ),
+        Binding::new(
+            ctrl('k'),
+            Normal,
+            Action::OpenCommandPalette,
+            "Command palette",
+        ),
         Binding::new(pair('q', 'q'), Normal, Action::Quit, "Quit (chord)"),
         // Vim's `ZZ` — "save and quit". outl auto-commits Insert on
         // every Normal-mode boundary, so by the time the chord

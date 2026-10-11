@@ -163,6 +163,16 @@ const KNOWN_DIVERGENCES: &[Divergence] = &[
         note: "The TUI reorders with `J` / `Alt+Down`.",
     },
     Divergence {
+        chord: "Ctrl+k",
+        mode: Mode::Normal,
+        catalog: Action::OpenCommandPalette,
+        tui_does: "moves the selection up one block — `Up | Char('k')` is unguarded and \
+              catches the modifier",
+        harm: Harm::Different,
+        note: "The binding is for the desktop on Linux and Windows. The TUI opens the \
+              palette with `:`.",
+    },
+    Divergence {
         chord: "Ctrl+x",
         mode: Mode::Normal,
         catalog: Action::CutBlock,
@@ -360,7 +370,7 @@ fn the_divergence_list_has_not_silently_shrunk() {
     // one is a single keystroke. Pin the shape of the list.
     assert_eq!(
         KNOWN_DIVERGENCES.len(),
-        17,
+        18,
         "the known-divergence list changed size — if a divergence was genuinely \
          resolved, move the chord to AGREED and update this count in the same edit",
     );

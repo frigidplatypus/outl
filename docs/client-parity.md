@@ -49,7 +49,7 @@ It is the string the client shows when the user reaches for the action, so it is
 | Action | TUI | Desktop | Mobile |
 |---|---|---|---|
 | `OpenPicker` | ✅ | ✅ | ✅ |
-| `OpenCommandPalette` | ✅ | ❌ The command palette isn't on the desktop yet — use the quick switcher (Cmd/Ctrl+P) or the slash menu inside a block. | ❌ The command palette isn't on mobile yet — use the slash menu inside a block. |
+| `OpenCommandPalette` | ✅ | ✅ | ❌ The command palette isn't on mobile yet — use the slash menu inside a block. |
 | `ToggleHelp` | ✅ | ✅ | ✅ |
 | `ToggleSidebar` | ✅ | ✅ | — _Mobile is single-pane — the page switcher replaces the sidebar._ |
 | `ToggleBacklinks` | ✅ | ✅ | ✅ |

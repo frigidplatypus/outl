@@ -278,9 +278,9 @@ export function buildHandlers(deps: DesktopHandlerDeps): ActionHandlers {
 
   return {
     // ── chrome ────────────────────────────────────────────────────
-    OpenPicker: () => {
-      setAppState("pickerOpen", !appState.pickerOpen);
-    },
+    OpenPicker: () => setAppState("pickerOpen", !appState.pickerOpen),
+    // The same palette, opened on `>` so it lists actions only.
+    OpenCommandPalette: () => setAppState({ pickerSeed: "> ", pickerOpen: true }),
     OpenSettings: () => {
       setAppState("settingsOpen", !appState.settingsOpen);
     },

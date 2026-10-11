@@ -179,10 +179,7 @@ pub fn support(action: Action) -> ClientSupport {
         Action::OpenPicker => row!(Full, Full, Full),
         Action::OpenCommandPalette => row!(
             Full,
-            Missing(
-                "The command palette isn't on the desktop yet — use the quick switcher \
-                 (Cmd/Ctrl+P) or the slash menu inside a block."
-            ),
+            Full,
             Missing("The command palette isn't on mobile yet — use the slash menu inside a block.")
         ),
         Action::ToggleHelp => row!(Full, Full, Full),

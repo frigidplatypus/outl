@@ -7,15 +7,35 @@ import {
   onMount,
 } from "solid-js";
 
-import { openRef, searchPages } from "@outl/shared/api/commands";
-import type { PageMeta, PageView } from "@outl/shared/api/types";
-import { PageGlyph } from "@outl/shared/icons";
+import {
+  openPageBySlug,
+  openRef,
+  searchBlocks,
+  searchPages,
+} from "@outl/shared/api/commands";
+import type { PageView } from "@outl/shared/api/types";
+import { PageGlyph, SearchIcon } from "@outl/shared/icons";
 
+import { listShortcutBindings } from "../lib/api";
+import { formatSequence } from "../lib/chord-format";
+import {
+  BLOCK_QUERY_MIN,
+  COMMAND_PREFIX,
+  paletteActions,
+  paletteResults,
+  sectionOf,
+  type PaletteItem,
+} from "../lib/palette-results";
+import type { ActionHandlers } from "../lib/shortcuts";
 import { appState, setAppState } from "../lib/store";
 
 /**
- * `Cmd/Ctrl+P` quick switcher.
+ * The palette: `Cmd/Ctrl+P`, and `Cmd/Ctrl+K` or `:` in Normal mode,
+ * which open it on `>` (actions only). Pages, blocks and actions in
+ * one list; see `lib/palette-results.ts` for what shows and in which
+ * order.
  *
+ * Page search:
  * A centered modal with a single text input and a fuzzy-ranked
  * results list. The backend already implements the ranking
  * (`search_pages` from `outl-mobile`'s original surface, now shared
@@ -26,9 +46,13 @@ import { appState, setAppState } from "../lib/store";
  * decision tree the inline `[[ref]]` click handler uses, so typing
  * a non-existent name creates the page in one round-trip).
  */
-export function Picker(props: { onPicked: (view: PageView) => void }) {
+export function Picker(props: {
+  onPicked: (view: PageView) => void;
+  /** The dispatcher's handlers; an action row runs the same function its chord does. */
+  handlers: ActionHandlers | null;
+}) {
   const [query, setQuery] = createSignal("");
-  const [results, setResults] = createSignal<PageMeta[]>([]);
+  const [results, setResults] = createSignal<PaletteItem[]>([]);
   const [highlight, setHighlight] = createSignal(0);
 
   let inputRef: HTMLInputElement | undefined;
@@ -42,8 +66,16 @@ export function Picker(props: { onPicked: (view: PageView) => void }) {
 
   async function refresh(q: string) {
     try {
-      const list = await searchPages(q);
-      setResults(list);
+      const commandsOnly = q.trim().startsWith(COMMAND_PREFIX);
+      const [pages, blocks, bindings] = await Promise.all([
+        commandsOnly ? [] : searchPages(q),
+        !commandsOnly && q.trim().length >= BLOCK_QUERY_MIN ? searchBlocks(q.trim()) : [],
+        listShortcutBindings(),
+      ]);
+      // A slower, older query must not overwrite a newer one.
+      if (q !== query()) return;
+      const actions = paletteActions(bindings, (k) => Boolean(props.handlers?.[k]));
+      setResults(paletteResults({ query: q, pages, blocks, actions }));
       setHighlight(0);
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
@@ -60,6 +92,23 @@ export function Picker(props: { onPicked: (view: PageView) => void }) {
     try {
       const view = await openRef(target);
       props.onPicked(view);
+      close();
+    } catch (e) {
+      setAppState("lastError", e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function choose(item: PaletteItem) {
+    if (item.kind === "page") return pick(item.page.slug);
+    if (item.kind === "action") {
+      close();
+      await props.handlers?.[item.action]?.();
+      return;
+    }
+    try {
+      const view = await openPageBySlug(item.hit.source_slug);
+      props.onPicked(view);
+      setAppState("selectedBlockId", item.hit.handle);
       close();
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
@@ -85,7 +134,7 @@ export function Picker(props: { onPicked: (view: PageView) => void }) {
     if (e.key === "Enter") {
       e.preventDefault();
       const r = results();
-      if (r.length > 0) void pick(r[highlight()].slug);
+      if (r.length > 0) void choose(r[highlight()]);
       else if (query().trim()) void pick(query().trim()); // create new
       return;
     }
@@ -117,8 +166,13 @@ export function Picker(props: { onPicked: (view: PageView) => void }) {
       queueMicrotask(() => {
         inputRef?.focus();
         // Select all so the user can either accept the seed or type
-        // a fresh query without an extra Backspace.
-        inputRef?.select();
+        // a fresh query without an extra Backspace. Except the `>`
+        // seed, which is a mode, not a query: typing must keep it.
+        if (query().startsWith(COMMAND_PREFIX)) {
+          inputRef?.setSelectionRange(query().length, query().length);
+        } else {
+          inputRef?.select();
+        }
       });
     }
   });
@@ -144,40 +198,51 @@ export function Picker(props: { onPicked: (view: PageView) => void }) {
         }}
       >
         <div class="mt-24 w-[520px] max-w-[90vw] overflow-hidden rounded-pop border border-(--color-outl-border)/60 bg-(--color-outl-bg-elev) shadow-pop">
-          <input
-            ref={inputRef}
-            type="text"
-            value={query()}
-            onInput={(e) => setQuery(e.currentTarget.value)}
-            onKeyDown={handleKey}
-            placeholder="Find or create a page…"
-            class="w-full border-b border-(--color-outl-fg)/10 bg-transparent px-4 py-3 outline-none"
-          />
-          <div class="max-h-[60vh] overflow-y-auto">
+          <div class="flex items-center gap-2 border-b border-(--color-outl-border)/60 px-4">
+            <SearchIcon class="text-(--color-outl-fg-dimmer)" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={query()}
+              onInput={(e) => setQuery(e.currentTarget.value)}
+              onKeyDown={handleKey}
+              placeholder="Search pages and blocks, > for actions"
+              class="w-full bg-transparent py-3 text-[15px] outline-none"
+            />
+          </div>
+          <div class="max-h-[60vh] overflow-y-auto p-1">
             <For each={results()}>
-              {(p, idx) => (
-                <button
-                  type="button"
-                  onClick={() => void pick(p.slug)}
-                  class={`block w-full px-4 py-2 text-left text-sm ${
-                    idx() === highlight()
-                      ? "bg-(--color-outl-fg)/10"
-                      : "hover:bg-(--color-outl-fg)/5"
-                  }`}
-                >
-                  <div class="flex items-center gap-1.5">
-                    <PageGlyph icon={p.icon} kind={p.kind} class="opacity-70" />
-                    {p.title}
-                  </div>
-                  <div class="font-mono text-[10px] opacity-50">{p.slug}</div>
-                </button>
+              {(item, idx) => (
+                <>
+                  <Show when={idx() === 0 || sectionOf(results()[idx() - 1]) !== sectionOf(item)}>
+                    <div class="px-3 pt-2 pb-1 text-[11px] font-medium text-(--color-outl-fg-dimmer)">
+                      {sectionOf(item)}
+                    </div>
+                  </Show>
+                  <button
+                    type="button"
+                    onClick={() => void choose(item)}
+                    onMouseMove={() => setHighlight(idx())}
+                    class={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[13px] ${
+                      idx() === highlight() ? "bg-(--color-outl-accent)/15" : ""
+                    }`}
+                  >
+                    <PaletteRow item={item} />
+                  </button>
+                </>
               )}
             </For>
-            <Show when={results().length === 0 && query().trim().length > 0}>
+            <Show
+              when={
+                results().length === 0 &&
+                query().trim().length > 0 &&
+                !query().trim().startsWith(COMMAND_PREFIX)
+              }
+            >
               <button
                 type="button"
                 onClick={() => void pick(query().trim())}
-                class="block w-full px-4 py-2 text-left text-sm hover:bg-(--color-outl-fg)/5"
+                class="block w-full rounded-md px-3 py-1.5 text-left text-[13px] hover:bg-(--color-outl-fg)/5"
               >
                 <span class="opacity-60">Create new page </span>
                 <span class="font-medium">"{query().trim()}"</span>
@@ -185,10 +250,50 @@ export function Picker(props: { onPicked: (view: PageView) => void }) {
             </Show>
           </div>
           <div class="border-t border-(--color-outl-fg)/10 px-4 py-1.5 text-[10px] opacity-50">
-            ↑/↓ navigate · ⏎ open · Esc close
+            ↑/↓ navigate · ⏎ open · &gt; actions · Esc close
           </div>
         </div>
       </div>
     </Show>
+  );
+}
+
+function PaletteRow(props: { item: PaletteItem }) {
+  const item = props.item;
+  if (item.kind === "page") {
+    return (
+      <>
+        <PageGlyph icon={item.page.icon} kind={item.page.kind} class="opacity-70" />
+        <span class="truncate">{item.page.title}</span>
+        <span class="ml-auto shrink-0 font-mono text-[11px] text-(--color-outl-fg-dimmer)">
+          {item.page.slug}
+        </span>
+      </>
+    );
+  }
+  if (item.kind === "block") {
+    return (
+      <>
+        <span aria-hidden="true" class="w-3.5 shrink-0 text-center text-(--color-outl-fg-dimmer)">
+          •
+        </span>
+        <span class="truncate">{item.hit.text}</span>
+        <span class="ml-auto shrink-0 font-mono text-[11px] text-(--color-outl-fg-dimmer)">
+          {item.hit.source_slug}
+        </span>
+      </>
+    );
+  }
+  return (
+    <>
+      <span class="truncate">{item.label}</span>
+      <Show when={item.chord}>
+        {(chord) => (
+          <kbd class="ml-auto shrink-0 rounded border border-(--color-outl-border)/60 px-1.5 font-mono text-[11px] text-(--color-outl-fg-dim)">
+            {formatSequence(chord())}
+          </kbd>
+        )}
+      </Show>
+    </>
   );
 }
