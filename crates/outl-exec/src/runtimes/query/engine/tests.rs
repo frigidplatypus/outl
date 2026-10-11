@@ -385,7 +385,7 @@ fn a_block_without_the_sort_date_sorts_last() {
         hit("blk-no-due", vec![]),
         hit("blk-early", vec![("due".into(), "2025-07-01".into())]),
     ];
-    sort_hits(&mut hits, &[SortKey::Prop("due".into())]);
+    sort_hits(&mut hits, &[asc(SortKey::Prop("due".into()))]);
     assert_eq!(hits[0].handle, "blk-early");
     assert_eq!(hits[1].handle, "blk-no-due");
 }
@@ -396,7 +396,7 @@ fn a_block_with_a_non_date_sort_value_sorts_last() {
         hit("blk-non-date", vec![("due".into(), "high".into())]),
         hit("blk-dated", vec![("due".into(), "2025-07-01".into())]),
     ];
-    sort_hits(&mut hits, &[SortKey::Prop("due".into())]);
+    sort_hits(&mut hits, &[asc(SortKey::Prop("due".into()))]);
     assert_eq!(hits[0].handle, "blk-dated");
     assert_eq!(hits[1].handle, "blk-non-date");
 }
@@ -415,8 +415,84 @@ fn a_block_with_two_dates_sorts_by_the_earliest() {
         ),
         hit("blk-one", vec![("due".into(), "2025-07-01".into())]),
     ];
-    sort_hits(&mut hits, &[SortKey::Prop("due".into())]);
+    sort_hits(&mut hits, &[asc(SortKey::Prop("due".into()))]);
     assert_eq!(hits[0].handle, "blk-two");
+}
+
+#[test]
+fn a_descending_sort_keeps_undated_blocks_last() {
+    // `:desc` reverses the known dates only — an unknown value is
+    // unknown, not maximal, and must not be smuggled to the top.
+    let mut hits = vec![
+        hit("blk-no-due", vec![]),
+        hit("blk-late", vec![("due".into(), "2025-08-01".into())]),
+        hit("blk-early", vec![("due".into(), "2025-07-01".into())]),
+    ];
+    sort_hits(
+        &mut hits,
+        &[Sort {
+            key: SortKey::Prop("due".into()),
+            dir: Dir::Desc,
+        }],
+    );
+    assert_eq!(
+        hits.iter().map(|h| h.handle.as_str()).collect::<Vec<_>>(),
+        ["blk-late", "blk-early", "blk-no-due"]
+    );
+}
+
+#[test]
+fn created_sorts_oldest_first_and_hash_ids_last() {
+    let mut hits = vec![
+        // A slug-derived id has no plausible creation time.
+        with_created("blk-fake", None),
+        with_created("blk-new", Some(1_900_000_000_000)),
+        with_created("blk-old", Some(1_600_000_000_000)),
+    ];
+    sort_hits(&mut hits, &[asc(SortKey::Created)]);
+    assert_eq!(
+        hits.iter().map(|h| h.handle.as_str()).collect::<Vec<_>>(),
+        ["blk-old", "blk-new", "blk-fake"]
+    );
+}
+
+#[test]
+fn created_descending_still_parks_hash_ids_last() {
+    let mut hits = vec![
+        with_created("blk-fake", None),
+        with_created("blk-new", Some(1_900_000_000_000)),
+        with_created("blk-old", Some(1_600_000_000_000)),
+    ];
+    sort_hits(
+        &mut hits,
+        &[Sort {
+            key: SortKey::Created,
+            dir: Dir::Desc,
+        }],
+    );
+    assert_eq!(
+        hits.iter().map(|h| h.handle.as_str()).collect::<Vec<_>>(),
+        ["blk-new", "blk-old", "blk-fake"]
+    );
+}
+
+#[test]
+fn journal_date_orders_journals_and_parks_ordinary_pages_last() {
+    let mut hits = vec![
+        on_page("blk-plain", "notes"),
+        on_page("blk-july", "2025-07-03"),
+        on_page("blk-june", "2025-06-30"),
+    ];
+    sort_hits(&mut hits, &[asc(SortKey::JournalDate)]);
+    assert_eq!(
+        hits.iter().map(|h| h.handle.as_str()).collect::<Vec<_>>(),
+        ["blk-june", "blk-july", "blk-plain"]
+    );
+}
+
+/// An ascending `Sort`, for the many tests that do not exercise direction.
+fn asc(key: SortKey) -> Sort {
+    Sort { key, dir: Dir::Asc }
 }
 
 /// A hit with only the sort-relevant fields filled.
@@ -428,5 +504,22 @@ fn hit(handle: &str, properties: Vec<(String, String)>) -> Hit {
         status: None,
         text: "x".into(),
         properties,
+        created_ms: None,
+    }
+}
+
+/// A hit carrying a creation time, for `sort: created`.
+fn with_created(handle: &str, created_ms: Option<u64>) -> Hit {
+    Hit {
+        created_ms,
+        ..hit(handle, vec![])
+    }
+}
+
+/// A hit hosted by a specific page, for `sort: journal-date`.
+fn on_page(handle: &str, page_slug: &str) -> Hit {
+    Hit {
+        page_slug: page_slug.into(),
+        ..hit(handle, vec![])
     }
 }

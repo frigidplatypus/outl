@@ -8,7 +8,7 @@
 | **Date** | 2026-08-06 |
 | **Reference doc** | [query.md](../query.md) |
 | **Invariant** | none |
-| **Guarded by** | `parses_status_todo`, `parses_multiple_filters`, `ignores_comments`, `parses_sort`, `parses_since`, `rejects_unknown_key`, `an_empty_tag_is_rejected_rather_than_matching_everything`, `a_dangling_colon_on_prop_is_an_error_not_a_wildcard` (`crates/outl-exec/src/runtimes/query/dsl.rs`), `split_todo_open`, `split_todo_done`, `split_todo_none`, `tag_and_not_tag_on_the_same_name_can_never_both_match`, `prop_and_not_prop_on_the_same_target_can_never_both_match` (`crates/outl-exec/src/runtimes/query/engine.rs`), `crates/outl-exec/tests/query_negative_filters.rs` (the whole file) |
+| **Guarded by** | `parses_status_todo`, `parses_multiple_filters`, `ignores_comments`, `parses_sort`, `parses_since`, `rejects_unknown_key`, `an_empty_tag_is_rejected_rather_than_matching_everything`, `a_dangling_colon_on_prop_is_an_error_not_a_wildcard`, `parses_sort_direction_suffix`, `a_bad_sort_direction_is_a_line_error`, `parses_offset_directive` (`crates/outl-exec/src/runtimes/query/dsl.rs`), `split_todo_open`, `split_todo_done`, `split_todo_none`, `tag_and_not_tag_on_the_same_name_can_never_both_match`, `prop_and_not_prop_on_the_same_target_can_never_both_match`, `a_descending_sort_keeps_undated_blocks_last`, `created_sorts_oldest_first_and_hash_ids_last` (`crates/outl-exec/src/runtimes/query/engine.rs`), `crates/outl-exec/tests/query_negative_filters.rs` (the whole file) |
 
 ## Why
 
@@ -22,7 +22,7 @@ A query syntax is a **format**, so it joins the op log, the sidecar and the mark
 ## What we chose
 
 A ` ```query ` fence holding one `key: value` directive per line, implicitly ANDed.
-Directives shipped today: the filters `status`, `tag`, `prop`, `kind`, `since`, `text` — each also spelled `not-<key>` — plus the controls `sort` and `limit`.
+Directives shipped today: the filters `status`, `tag`, `prop`, `kind`, `since`, `text` — each also spelled `not-<key>` — plus the controls `sort`, `limit` and `offset`.
 Blank lines and `#` comments are ignored.
 The `not-` family landed after this RFC — see [Amended by issue 323](#amended-by-issue-323) below.
 

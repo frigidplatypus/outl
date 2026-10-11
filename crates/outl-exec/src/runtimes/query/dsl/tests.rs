@@ -240,9 +240,7 @@ fn parses_after_iso_date() {
     let q = parse("after: deadline 2025-08-15").unwrap();
     assert_eq!(q.filters.len(), 1);
     let expected = NaiveDate::from_ymd_opt(2025, 8, 15).unwrap();
-    assert!(
-        matches!(&q.filters[0], Filter::After(k, d) if k == "deadline" && *d == expected)
-    );
+    assert!(matches!(&q.filters[0], Filter::After(k, d) if k == "deadline" && *d == expected));
 }
 
 #[test]
@@ -275,15 +273,60 @@ fn before_still_accepts_the_inner_colon_form() {
 fn parses_sort_by_property() {
     let q = parse("sort: due").unwrap();
     assert_eq!(q.sort.len(), 1);
-    assert!(matches!(&q.sort[0], SortKey::Prop(k) if k == "due"));
+    assert_eq!(
+        q.sort[0],
+        Sort {
+            key: SortKey::Prop("due".into()),
+            dir: Dir::Asc,
+        }
+    );
 }
 
 #[test]
 fn parses_sort_mixed_keywords_and_property() {
     let q = parse("sort: page, due").unwrap();
     assert_eq!(q.sort.len(), 2);
-    assert!(matches!(q.sort[0], SortKey::Page));
-    assert!(matches!(&q.sort[1], SortKey::Prop(k) if k == "due"));
+    assert_eq!(q.sort[0].key, SortKey::Page);
+    assert_eq!(q.sort[1].key, SortKey::Prop("due".into()));
+}
+
+#[test]
+fn parses_sort_direction_suffix() {
+    let q = parse("sort: due:desc, created:asc").unwrap();
+    assert_eq!(
+        q.sort,
+        [
+            Sort {
+                key: SortKey::Prop("due".into()),
+                dir: Dir::Desc,
+            },
+            Sort {
+                key: SortKey::Created,
+                dir: Dir::Asc,
+            },
+        ]
+    );
+    assert_eq!(
+        parse("sort: journal-date").unwrap().sort[0].key,
+        SortKey::JournalDate
+    );
+}
+
+#[test]
+fn a_bad_sort_direction_is_a_line_error() {
+    // Strict like the rest of the vocabulary: `DESC` is a typo, not
+    // a case-tolerant `desc`.
+    let err = parse("status: todo\nsort: due:DESC").unwrap_err();
+    assert_eq!(err.line, 2);
+    assert!(err.msg.contains("'asc' or 'desc'"), "got {}", err.msg);
+    // A colon with nothing after it names a missing direction, not
+    // a property literally called `due:`.
+    assert!(parse("sort: due:").is_err());
+    // A direction is never a hyphen prefix: `-due` is a property key.
+    assert_eq!(
+        parse("sort: -due").unwrap().sort[0].key,
+        SortKey::Prop("-due".into())
+    );
 }
 
 #[test]
@@ -311,4 +354,15 @@ fn huge_month_offset_errors_not_truncates() {
 fn moderate_relative_offset_still_parses() {
     let q = parse("before: due +3650d").unwrap();
     assert!(matches!(&q.filters[0], Filter::Before(k, _) if k == "due"));
+}
+
+#[test]
+fn parses_offset_directive() {
+    let q = parse("sort: due\nlimit: 5\noffset: 10").unwrap();
+    assert_eq!(q.limit, Some(5));
+    assert_eq!(q.offset, Some(10));
+    // Absent stays `None` — no offset means start at the top.
+    assert_eq!(parse("tag: ops").unwrap().offset, None);
+    assert!(parse("offset: -1").is_err());
+    assert!(parse("offset: soon").is_err());
 }

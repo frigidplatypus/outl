@@ -264,13 +264,15 @@ fn js_value_to_query_params(
     params.not_tag = string_list(&obj, "notTag", ctx)?;
     params.prop = string_list(&obj, "prop", ctx)?;
     params.not_prop = string_list(&obj, "notProp", ctx)?;
-    if let Some(v) = obj
-        .get(js_string!("limit"), ctx)
-        .map_err(|e| e.to_string())?
-        .as_number()
-    {
-        if v.is_finite() && v >= 0.0 {
-            params.limit = Some(v as usize);
+    for (key, slot) in [("limit", &mut params.limit), ("offset", &mut params.offset)] {
+        if let Some(v) = obj
+            .get(js_string!(key), ctx)
+            .map_err(|e| e.to_string())?
+            .as_number()
+        {
+            if v.is_finite() && v >= 0.0 {
+                *slot = Some(v as usize);
+            }
         }
     }
     let sort_val = obj

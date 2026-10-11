@@ -84,10 +84,17 @@ pub struct QueryParams {
     /// Restrict to blocks hosted by this page slug.
     pub page: Option<String>,
 
-    /// Sort keys in priority order.
+    /// Sort criteria in priority order, newest-dominating-last like
+    /// the DSL. Each entry takes the DSL's `sort:` grammar — a key
+    /// with an optional `:asc` / `:desc` suffix, so
+    /// `sort: ["due:desc", "created"]` and `sort: due:desc,created`
+    /// are the same query.
     pub sort: Vec<String>,
     /// Maximum number of results.
     pub limit: Option<usize>,
+    /// Skip this many matches after sorting — the structured twin of
+    /// the DSL's `offset:` directive.
+    pub offset: Option<usize>,
 }
 
 /// One query result — structured, typed, no markdown.
@@ -146,6 +153,9 @@ fn run_query_internal(query: &dsl::Query, workspace_root: &Path) -> Result<Vec<Q
 fn run_against(query: &dsl::Query, index: &WorkspaceIndex) -> Vec<QueryHit> {
     let mut hits = engine::run(index, query);
     engine::sort_hits(&mut hits, &query.sort);
+    if let Some(offset) = query.offset {
+        hits.drain(..offset.min(hits.len()));
+    }
     if let Some(limit) = query.limit {
         hits.truncate(limit);
     }
@@ -206,20 +216,15 @@ fn build_query_from_params(p: &QueryParams) -> Result<dsl::Query, String> {
 
     let mut sort = Vec::new();
     for s in &p.sort {
-        sort.push(match s.as_str() {
-            "page" => dsl::SortKey::Page,
-            "status" => dsl::SortKey::Status,
-            "text" => dsl::SortKey::Text,
-            "" => return Err("sort: empty key".into()),
-            // Anything else is a property name — `sort: due` orders
-            // by the block's `due::` property, same as the DSL.
-            other => dsl::SortKey::Prop(other.to_lowercase()),
-        });
+        // One parser for both front ends: a JS `sort: ["due:desc"]`
+        // and a block's `sort: due:desc` cannot drift apart.
+        sort.push(dsl::parse_sort_str(s)?);
     }
     Ok(dsl::Query {
         filters,
         sort,
         limit: p.limit,
+        offset: p.offset,
     })
 }
 
@@ -278,11 +283,7 @@ fn prop_filter(s: &str) -> Result<dsl::Filter, String> {
 /// Build a `Before`/`After` filter from a `[key, date]` pair, so both
 /// thresholds share one parser. The key folds to lowercase like the
 /// block index and the DSL's `parse_prop_date` do.
-fn date_filter(
-    which: &str,
-    key: &str,
-    date_str: &str,
-) -> Result<dsl::Filter, String> {
+fn date_filter(which: &str, key: &str, date_str: &str) -> Result<dsl::Filter, String> {
     if key.is_empty() {
         return Err(format!("{which}: requires a property key"));
     }

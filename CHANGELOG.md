@@ -285,6 +285,14 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   Desktop and mobile still show the raw pipe rows, and that gap is recorded rather than discovered: `Capability::MarkdownTable` is `Full` on the TUI, `Missing` on both GUI clients with a nudge that the rows are saved in full.
   Reasoning and rejected alternatives: [RFC 0329](docs/rfcs/0329-markdown-pipe-tables.md).
 
+- **Query blocks can sort by creation time, journal date, and direction — and skip.**
+  `sort:` used to be ascending-only, and the only dates a query could order by were `due::`-style properties: a page of tasks could not ask for "newest first" or "oldest journal entry first" in any way the engine understood.
+  Each `sort:` entry now takes an optional `:asc` / `:desc` suffix, and two new keys join `page`, `status`, `text` and property keys:
+  `created` decodes the timestamp half of a block's ULID id (a `from_slug`-derived page root carries hash bits there, decodes to nothing, and sorts last), and `journal-date` orders by the hosting journal page's date.
+  A descending sort reverses the blocks with a known value and keeps the unknown ones last — an unknown date is unknown, not maximal, and must not be smuggled to the top of a task list.
+  `offset: N` skips N results after sorting, so `limit: 20` + `offset: 20` pages; the JS API mirrors both as `sort: "due:desc"` and `offset`.
+
+
 ### Fixed
 
 - **A flaky NDK download took the Homebrew tap down with it, four releases deep, and only one of the four went red.**

@@ -14,12 +14,42 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NodeId(pub ulid::Ulid);
 
+/// Lower bound of the plausible wall-clock window for
+/// [`NodeId::created_ms`]: 2020-01-01T00:00:00Z in milliseconds — well
+/// after any clock outl could plausibly run against, far below the
+/// first ULIDs being minted.
+const CREATED_FLOOR_MS: u64 = 1_577_836_800_000;
+
+/// Upper bound: 2100-01-01T00:00:00Z in milliseconds.
+const CREATED_CEIL_MS: u64 = 4_102_444_800_000;
+
 impl NodeId {
     /// Generate a fresh `NodeId` using the current time and a random tail.
     pub fn new() -> Self {
         Self(ulid::Ulid::generate())
     }
 
+    /// Creation time in milliseconds since the Unix epoch, decoded
+    /// from the ULID's 48-bit timestamp, or `None` when the timestamp
+    /// is not a plausible wall clock.
+    ///
+    /// The deterministic constructors ([`NodeId::from_slug`], the
+    /// `from_seed` path callable-result blocks use) put a hash where
+    /// the clock belongs, and hash bits land anywhere. The window
+    /// `[2020-01-01, 2100-01-01)` covers every real outl id and is
+    /// ~0.9% of the 48-bit space, so about 1 in 100 hash-derived ids
+    /// still decodes to a fake timestamp — `Some` is best-effort, not
+    /// proof of provenance. Callers that order by creation time
+    /// should treat `None` as "unknown, sort last".
+    pub fn created_ms(&self) -> Option<u64> {
+        // The ULID timestamp is the top 48 bits; the remaining 80 are
+        // entropy. Decoded by shift rather than a crate accessor so
+        // the bit layout is stated in one place, like `from_bytes`.
+        let ms = (u128::from(self.0) >> 80) as u64;
+        (CREATED_FLOOR_MS..CREATED_CEIL_MS)
+            .contains(&ms)
+            .then_some(ms)
+    }
     /// Deterministic [`NodeId`] derived from a page slug.
     ///
     /// A page (or journal) root's identity is its slug, not the wall
@@ -146,5 +176,45 @@ mod tests {
         let id = NodeId::from_slug("2026-07-10");
         assert_ne!(id, NodeId::root());
         assert_ne!(id, NodeId::trash());
+    }
+
+    #[test]
+    fn created_ms_decodes_a_minted_timestamp() {
+        // A hand-built ULID carrying one plausible timestamp, so the
+        // decode does not depend on the wall clock running the tests.
+        let id = NodeId(ulid::Ulid::from_bytes(
+            ((1_600_000_000_000u128 << 80) | 0xdeadbeef).to_be_bytes(),
+        ));
+        assert_eq!(id.created_ms(), Some(1_600_000_000_000));
+        // A fresh id sits inside the window: sorting by creation time
+        // must never park ordinary blocks last.
+        assert!(NodeId::new().created_ms().is_some());
+    }
+
+    #[test]
+    fn created_ms_rejects_non_clock_timestamps() {
+        // The zero id, below the floor, and at the ceiling.
+        assert_eq!(NodeId::root().created_ms(), None);
+        let below = NodeId(ulid::Ulid::from_bytes(
+            (1_000_000_000_000u128 << 80).to_be_bytes(),
+        ));
+        assert_eq!(below.created_ms(), None);
+        let above = NodeId(ulid::Ulid::from_bytes(
+            (5_000_000_000_000u128 << 80).to_be_bytes(),
+        ));
+        assert_eq!(above.created_ms(), None);
+    }
+
+    #[test]
+    fn slug_derived_ids_usually_have_no_creation_time() {
+        // `from_slug` puts hash bits where the clock belongs; the
+        // window admits ~0.9% of them by construction. A handful of
+        // slugs is a smoke test of the documented rate, not proof —
+        // an occasional `Some` is the 1-in-100 caveat, not a bug.
+        let none = ["notes", "ideas", "inbox", "meeting-notes", "recipes"]
+            .iter()
+            .filter(|s| NodeId::from_slug(s).created_ms().is_none())
+            .count();
+        assert!(none >= 3, "only {none}/5 slug ids decoded to None");
     }
 }

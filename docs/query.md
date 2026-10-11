@@ -49,11 +49,12 @@ Blank lines and `#`-prefixed comments are ignored.
 | `kind` | `kind: journal` | Hosting page kind: `journal` or `page` |
 | `since` | `since: 7d` | Journal within N days. Units: `d` (days), `w` (weeks), `m` (months) |
 | `text` | `text: deploy` | Substring in block text (case-insensitive) |
-| `sort` | `sort: page, due` | Sort criteria, applied left-to-right. Keys: `page`, `status`, `text`, or any property key (sorts by that property's date value; blocks without a parseable date sort last) |
+| `sort` | `sort: page, due:desc` | Sort criteria, applied left-to-right. Keys: `page`, `status`, `text`, `created`, `journal-date`, or any property key. Each key takes an optional `:asc` / `:desc` suffix (ascending is the default) |
 | `limit` | `limit: 50` | Maximum number of results |
+| `offset` | `offset: 20` | Skip this many results after sorting, before the limit applies |
 
 Every **filter** above also exists as `not-<key>`, taking the same values: `not-status`, `not-tag`, `not-prop`, `not-kind`, `not-since`, `not-text`.
-`sort` and `limit` are not filters and have no negative — `not-sort` is rejected as an unknown key.
+`sort`, `limit` and `offset` are not filters and have no negative — `not-sort` is rejected as an unknown key.
 
 Every directive is repeatable and every line ANDs, positives included: two `tag:` lines mean "carries both", two `not-tag:` lines mean "carries neither".
 
@@ -90,7 +91,7 @@ The same rule covers tags. `not-tag:` with no name is rejected, and so is a name
 A leading `#` is fine: `not-tag: #research` and `not-tag: research` are the same filter.
 
 `tag:`, `prop:` and `text:` match their values **case-insensitively**: `prop: Status: Done` and `prop: status: done` are the same filter.
-Directive keys and the fixed vocabularies (`status: todo|doing|done|open`, `kind: page|journal`, `sort: page|status|text`) are literal and lowercase; `STATUS: TODO` is a parse error, not a match.
+Directive keys and the fixed vocabularies (`status: todo|doing|done|open`, `kind: page|journal`, `sort: page|status|text|created|journal-date`) are literal and lowercase; `STATUS: TODO` is a parse error, not a match.
 
 ## Examples
 
@@ -214,7 +215,16 @@ Directive keys and the fixed vocabularies (`status: todo|doing|done|open`, `kind
   ```
 ````
 
-`sort: due` orders by the `due` property's date ascending; a block without a parseable `due` sorts last.
+`sort: due` orders by the `due` property's date ascending; a block without a parseable `due` sorts last — `:desc` reverses the dated blocks but keeps the undated ones last, because unknown is not maximal.
+
+### Sort keys and direction
+
+Each `sort:` entry is a key with an optional `:asc` / `:desc` suffix. Keys:
+
+- `page`, `status`, `text` — as before.
+- Any other word is a property key: sorted by that property's ISO-date value; a block whose value is missing or not a date sorts last.
+- `created` — the block's creation time, decoded from the timestamp half of its ULID id. A `from_slug`-derived id carries hash bits there instead of a clock, so it decodes to no creation time and sorts last. A hand-crafted id that happens to look like a timestamp between 2000 and 2100 sorts by it — a display-order key, not provenance.
+- `journal-date` — the hosting page's date, for journal pages; blocks on ordinary pages have none and sort last.
 
 ### Open work tasks, minus the parking lot
 
@@ -357,8 +367,9 @@ for (const t of tasks) {
 | `kind` | `"journal"` \| `"page"` | Hosting page kind |
 | `since` | `string` | Duration: `"7d"`, `"2w"`, `"3m"` |
 | `text` | `string` | Substring search (case-insensitive) |
-| `sort` | `string` | Sort key: `"page"`, `"status"`, `"text"`, or any property key (date-ascending; unparseable sorts last) |
+| `sort` | `string` | Comma-separated sort keys with optional `:asc`/`:desc` suffix: `"page"`, `"status"`, `"text"`, `"created"`, `"journal-date"`, or any property key (date-ascending; unparseable sorts last) |
 | `limit` | `number` | Max results |
+| `offset` | `number` | Skip this many results after sorting, before the limit applies |
 
 And one negative per filter, taking the same values: `notStatus`, `notTag`, `notProp`, `notKind`, `notSince`, `notText`.
 `prop`, `notTag` and `notProp` accept a string or an array of strings; the rest take one string.

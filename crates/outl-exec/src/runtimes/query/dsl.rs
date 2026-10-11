@@ -29,8 +29,10 @@ use chrono::NaiveDate;
 #[derive(Debug, Default)]
 pub struct Query {
     pub filters: Vec<Filter>,
-    pub sort: Vec<SortKey>,
+    pub sort: Vec<Sort>,
     pub limit: Option<usize>,
+    /// Skip this many matches after sorting — `offset: 10`.
+    pub offset: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -170,6 +172,51 @@ pub enum SortKey {
     /// Anything that is not a known fixed key is read as a property
     /// name, so new properties need no parser change.
     Prop(String),
+    /// Sort by block creation time — `sort: created`.
+    ///
+    /// A block's id is a ULID whose top 48 bits are its creation
+    /// timestamp, so creation time is read off the id with no stored
+    /// state. Ids not minted from a wall clock (`NodeId::from_slug`
+    /// page roots, `from_seed` callable-result blocks) carry a hash
+    /// where the clock belongs; those sort last rather than by their
+    /// fake value.
+    Created,
+    /// Sort by the date of the journal page hosting the block —
+    /// `sort: journal-date`. A journal's slug *is* its ISO date, so
+    /// the value is the page's own identity; blocks on ordinary pages
+    /// sort last.
+    JournalDate,
+}
+
+/// Sort direction, spelled `:asc` / `:desc` on a `sort:` key —
+/// `sort: due:desc`.
+///
+/// A colon suffix, not a `-due` prefix: property keys are free text
+/// that may contain hyphens, so a `-` prefix would be ambiguous
+/// (negation or a key named `due-date`?). A property key never
+/// contains a colon — `split_kv` consumes the first one for the
+/// directive — so the suffix cannot be misread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dir {
+    Asc,
+    Desc,
+}
+
+impl Dir {
+    /// Apply the direction to an ascending comparison.
+    pub fn apply(self, ordering: std::cmp::Ordering) -> std::cmp::Ordering {
+        match self {
+            Dir::Asc => ordering,
+            Dir::Desc => ordering.reverse(),
+        }
+    }
+}
+
+/// One `sort:` criterion: a key and a direction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sort {
+    pub key: SortKey,
+    pub dir: Dir,
 }
 
 #[derive(Debug)]
@@ -191,6 +238,7 @@ pub fn parse(source: &str) -> Result<Query, ParseError> {
     let mut filters = Vec::new();
     let mut sort = Vec::new();
     let mut limit = None;
+    let mut offset = None;
 
     for (i, raw) in source.lines().enumerate() {
         let line = raw.trim();
@@ -202,18 +250,30 @@ pub fn parse(source: &str) -> Result<Query, ParseError> {
         let key = key.trim();
         let value = value.trim();
 
-        // `sort` and `limit` are not filters, so there is nothing to
-        // negate: `not-sort` falls through to the unknown-key error
-        // below rather than being read as some reversed ordering.
+        // `sort`, `limit`, and `offset` are not filters, so there is
+        // nothing to negate: `not-sort` falls through to the
+        // unknown-key error below rather than being read as some
+        // reversed ordering.
         match key {
             "sort" => {
                 for part in value.split(',') {
-                    sort.push(parse_sort_key(part.trim(), i)?);
+                    let part = part.trim();
+                    if part.is_empty() {
+                        return Err(ParseError {
+                            line: i + 1,
+                            msg: "sort: empty key".into(),
+                        });
+                    }
+                    sort.push(parse_sort_spec(part, i)?);
                 }
                 continue;
             }
             "limit" => {
                 limit = Some(parse_usize(value, i)?);
+                continue;
+            }
+            "offset" => {
+                offset = Some(parse_usize(value, i)?);
                 continue;
             }
             _ => {}
@@ -258,6 +318,7 @@ pub fn parse(source: &str) -> Result<Query, ParseError> {
         filters,
         sort,
         limit,
+        offset,
     })
 }
 
@@ -339,22 +400,55 @@ fn parse_text(v: &str, line_idx: usize) -> Result<String, ParseError> {
     Ok(v.to_string())
 }
 
-fn parse_sort_key(v: &str, _line_idx: usize) -> Result<SortKey, ParseError> {
-    match v {
-        "page" => Ok(SortKey::Page),
-        "status" => Ok(SortKey::Status),
-        "text" => Ok(SortKey::Text),
+/// Parse one `sort:` criterion, `key` or `key:asc` / `key:desc`.
+///
+/// Shared with the structured API, which has no lines to report —
+/// that one calls [`parse_sort_str`] and maps the message itself.
+fn parse_sort_spec(v: &str, line_idx: usize) -> Result<Sort, ParseError> {
+    parse_sort_str(v).map_err(|msg| ParseError {
+        line: line_idx + 1,
+        msg,
+    })
+}
+
+/// [`parse_sort_spec`] without line context — the string-error twin,
+/// same shape as [`parse_duration_str`].
+///
+/// The direction is a colon suffix because `split_kv` already took the
+/// directive's first colon: what reaches here is the value, and a
+/// property key can never contain a colon of its own — `sort: due:desc`
+/// is unambiguous, while a `-due` prefix would collide with hyphenated
+/// property names. Direction is strict like the rest of the
+/// vocabulary: `due:DESC` is a typo, not a case-tolerant `desc`, and a
+/// bare `due:` names a missing direction, not a property.
+pub fn parse_sort_str(v: &str) -> Result<Sort, String> {
+    if v.is_empty() {
+        return Err("sort: empty key".into());
+    }
+    let (key, dir) = match v.split_once(':') {
+        None => (v, Dir::Asc),
+        Some((key, "asc")) => (key, Dir::Asc),
+        Some((key, "desc")) => (key, Dir::Desc),
+        Some(_) => {
+            return Err(format!("sort direction must be 'asc' or 'desc', got '{v}'"));
+        }
+    };
+    if key.is_empty() {
+        return Err("sort: empty key".into());
+    }
+    let key = match key {
+        "page" => SortKey::Page,
+        "status" => SortKey::Status,
+        "text" => SortKey::Text,
+        "created" => SortKey::Created,
+        "journal-date" => SortKey::JournalDate,
         // Anything else is read as a property name — `sort: due`
         // orders by the block's `due::` property as an ISO date.
-        // An empty key is still a typo worth reporting.
-        "" => Err(ParseError {
-            line: _line_idx + 1,
-            msg: "sort: empty key".into(),
-        }),
         // Folded: the block index lowercases property keys, so the
         // sort key has to fold too or `sort: Due` would match nothing.
-        other => Ok(SortKey::Prop(other.to_lowercase())),
-    }
+        other => SortKey::Prop(other.to_lowercase()),
+    };
+    Ok(Sort { key, dir })
 }
 
 /// Parse `key date` from a `before:` / `after:` directive value.

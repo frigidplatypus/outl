@@ -1,6 +1,9 @@
 //! Execution engine — filter, sort and collect matching blocks.
 
-use super::dsl::{Filter, ISO_DATE_FMT, KindFilter, PropFilter, Query, SortKey, StatusFilter, TagFilter};
+use super::dsl::{
+    Dir, Filter, KindFilter, PropFilter, Query, Sort, SortKey, StatusFilter, TagFilter,
+    ISO_DATE_FMT,
+};
 use chrono::{Duration, NaiveDate};
 use outl_md::block_index::BlockEntry;
 use outl_md::index::WorkspaceIndex;
@@ -44,6 +47,10 @@ pub struct Hit {
     pub text: String,
     /// Non-empty `key:: value` properties, lowercased, in file order.
     pub properties: Vec<(String, String)>,
+    /// Block creation time in milliseconds, decoded from the block's
+    /// ULID id — `None` for ids not minted from a wall clock
+    /// ([`SortKey::Created`] explains why those park last).
+    pub created_ms: Option<u64>,
 }
 
 /// Run `query` against `index`, returning all matching blocks.
@@ -69,6 +76,10 @@ pub fn run(index: &WorkspaceIndex, query: &Query) -> Vec<Hit> {
                 status,
                 text: body.to_string(),
                 properties: entry.properties.clone(),
+                // Wall-clock ms from the id's ULID timestamp half;
+                // `None` when the id derives from a slug instead of
+                // the clock (page roots — see `sort_hits`).
+                created_ms: created_ms(entry),
             })
         })
         .collect()
@@ -76,26 +87,65 @@ pub fn run(index: &WorkspaceIndex, query: &Query) -> Vec<Hit> {
 
 /// Sort hits by the given criteria, in priority order (last key first
 /// so the first key dominates after stable sort).
-pub fn sort_hits(hits: &mut [Hit], keys: &[SortKey]) {
+///
+/// Missing values — a block without the property, without a parseable
+/// date, with a hash-derived id, on a non-journal page — sort last in
+/// **both** directions: `:desc` must not smuggle the unknown rows to
+/// the top, they are unknown, not maximal. The sort is stable, so
+/// equal keys keep prior order.
+pub fn sort_hits(hits: &mut [Hit], keys: &[Sort]) {
     for key in keys.iter().rev() {
-        match key {
-            SortKey::Page => hits.sort_by(|a, b| a.page_slug.cmp(&b.page_slug)),
+        let dir = key.dir;
+        match &key.key {
+            SortKey::Page => hits.sort_by(|a, b| dir.apply(a.page_slug.cmp(&b.page_slug))),
             // Unfinished work first, in the order it moves through:
             // TODO, DOING, DONE. A non-task sorts with TODO, which
             // is where it sat before DOING existed.
             SortKey::Status => hits.sort_by(|a, b| {
                 let rank = |s: Option<Status>| s.unwrap_or(Status::Todo);
-                rank(a.status).cmp(&rank(b.status))
+                dir.apply(rank(a.status).cmp(&rank(b.status)))
             }),
-            SortKey::Text => hits.sort_by(|a, b| a.text.cmp(&b.text)),
-            // Blocks without the property (or without a parseable date)
-            // sort last; the sort is stable so equal keys keep prior order.
-            SortKey::Prop(k) => hits.sort_by_key(|h| {
-                let d = prop_date(&h.properties, k);
-                (d.is_none(), d)
+            SortKey::Text => hits.sort_by(|a, b| dir.apply(a.text.cmp(&b.text))),
+            SortKey::Prop(k) => hits.sort_by(|a, b| {
+                cmp_nulls_last(
+                    dir,
+                    prop_date(&a.properties, k),
+                    prop_date(&b.properties, k),
+                )
+            }),
+            SortKey::Created => {
+                hits.sort_by(|a, b| cmp_nulls_last(dir, a.created_ms, b.created_ms))
+            }
+            SortKey::JournalDate => hits.sort_by(|a, b| {
+                cmp_nulls_last(
+                    dir,
+                    parse_journal_date(&a.page_slug),
+                    parse_journal_date(&b.page_slug),
+                )
             }),
         }
     }
+}
+
+/// Compare optional sort values, `None` ordered after `Some` in both
+/// directions — only present values get direction-applied.
+fn cmp_nulls_last<T: Ord>(dir: Dir, a: Option<T>, b: Option<T>) -> std::cmp::Ordering {
+    match (a, b) {
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (Some(a), Some(b)) => dir.apply(a.cmp(&b)),
+    }
+}
+
+/// Creation time for a hit, read off the block's id.
+///
+/// `NodeId::created_ms` applies the plausible-clock window: page roots
+/// (`from_slug`) and callable-result blocks (`from_seed`) carry a hash
+/// where the timestamp belongs and decode to `None`, so they sort last
+/// under `sort: created` rather than by a fake timestamp.
+fn created_ms(entry: &BlockEntry) -> Option<u64> {
+    entry.id.created_ms()
 }
 
 /// Parses the earliest valid ISO date among the `key` property values.
