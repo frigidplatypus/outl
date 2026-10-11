@@ -46,6 +46,7 @@ fn emoji_hit_matches_its_interface() {
 fn block_hit_matches_its_interface() {
     let dto = BlockHit {
         handle: "blk-r6s4a1".into(),
+        id: "01J0000000000000000000000".into(),
         text: "restarted the ingest worker".into(),
         source_slug: "infra".into(),
     };

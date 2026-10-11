@@ -64,19 +64,35 @@ export function Picker(props: {
     setHighlight(0);
   }
 
+  // `search_blocks` rebuilds the workspace index on every call, so it
+  // runs debounced, after pages and actions have already painted, the
+  // same 150 ms the `((` suggester uses.
+  const BLOCK_DEBOUNCE_MS = 150;
+  let blockTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(blockTimer));
+
   async function refresh(q: string) {
+    clearTimeout(blockTimer);
     try {
       const commandsOnly = q.trim().startsWith(COMMAND_PREFIX);
-      const [pages, blocks, bindings] = await Promise.all([
+      const [pages, bindings] = await Promise.all([
         commandsOnly ? [] : searchPages(q),
-        !commandsOnly && q.trim().length >= BLOCK_QUERY_MIN ? searchBlocks(q.trim()) : [],
         listShortcutBindings(),
       ]);
       // A slower, older query must not overwrite a newer one.
       if (q !== query()) return;
       const actions = paletteActions(bindings, (k) => Boolean(props.handlers?.[k]));
-      setResults(paletteResults({ query: q, pages, blocks, actions }));
+      setResults(paletteResults({ query: q, pages, blocks: [], actions }));
       setHighlight(0);
+      if (commandsOnly || q.trim().length < BLOCK_QUERY_MIN) return;
+      blockTimer = setTimeout(() => {
+        searchBlocks(q.trim())
+          .then((blocks) => {
+            if (q !== query()) return;
+            setResults(paletteResults({ query: q, pages, blocks, actions }));
+          })
+          .catch((e) => setAppState("lastError", e instanceof Error ? e.message : String(e)));
+      }, BLOCK_DEBOUNCE_MS);
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
     }
@@ -108,7 +124,7 @@ export function Picker(props: {
     try {
       const view = await openPageBySlug(item.hit.source_slug);
       props.onPicked(view);
-      setAppState("selectedBlockId", item.hit.handle);
+      setAppState("selectedBlockId", item.hit.id);
       close();
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
@@ -135,7 +151,9 @@ export function Picker(props: {
       e.preventDefault();
       const r = results();
       if (r.length > 0) void choose(r[highlight()]);
-      else if (query().trim()) void pick(query().trim()); // create new
+      else if (query().trim() && !query().trim().startsWith(COMMAND_PREFIX)) {
+        void pick(query().trim()); // create new
+      }
       return;
     }
   }

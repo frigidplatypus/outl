@@ -306,6 +306,8 @@ pub struct BacklinksReply {
 pub struct BlockHit {
     /// Ref handle to insert, e.g. `blk-r6s4a1`.
     pub handle: String,
+    /// The block's node id, for selecting it once its page is open.
+    pub id: String,
     /// Block text (snippet) for the popup label.
     pub text: String,
     /// Slug of the page hosting the block, for context.

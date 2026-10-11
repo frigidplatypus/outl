@@ -52,10 +52,12 @@ export interface EmojiHit {
  * (`blk-XXXXXX`) the caller inserts wrapped in `((…))`; block refs
  * resolve by handle, never by the display `text`. `text` is a
  * single-line snippet for the popup label and `source_slug` the page
- * hosting the block, for context.
+ * hosting the block, for context. `id` is the block's node id, for
+ * selecting it after opening its page.
  */
 export interface BlockHit {
   handle: string;
+  id: string;
   text: string;
   source_slug: string;
 }

@@ -145,6 +145,7 @@ describe("SuggestPopups — per-popup rows", () => {
   it("BlockSuggestPopup shows the snippet and page, never the handle", () => {
     const hit: BlockHit = {
       handle: "blk-abc123",
+      id: "n1",
       text: "ship the ratchet",
       source_slug: "work/plan",
     };
@@ -164,7 +165,7 @@ describe("SuggestPopups — per-popup rows", () => {
   });
 
   it("BlockSuggestPopup labels an empty block rather than an empty row", () => {
-    const hit: BlockHit = { handle: "blk-0", text: "", source_slug: "inbox" };
+    const hit: BlockHit = { handle: "blk-0", id: "n0", text: "", source_slug: "inbox" };
     const host = mount(() => (
       <BlockSuggestPopup
         items={[hit]}

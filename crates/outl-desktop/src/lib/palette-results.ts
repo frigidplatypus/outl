@@ -17,7 +17,7 @@
 import type { BlockHit } from "@outl/shared/api/commands";
 import type { PageMeta } from "@outl/shared/api/types";
 
-import type { Action, Binding, Chord } from "./api";
+import { MOD_META, type Action, type Binding, type Chord } from "./api";
 
 export type PaletteItem =
   | { kind: "page"; page: PageMeta }
@@ -41,20 +41,27 @@ const NOT_LISTED = new Set<Action["kind"]>(["OpenPicker", "OpenCommandPalette"])
 
 /**
  * One row per action that has a handler and a `global` or `normal`
- * binding, labelled with the first binding's description. The first
- * binding wins because the catalog lists the platform chord (Cmd)
- * before its Ctrl twin.
+ * binding, labelled with the first binding's description. The catalog
+ * lists a Cmd chord before its Ctrl twin, so off macOS a later binding
+ * without Cmd replaces the chord: the row teaches a key that works here.
  */
 export function paletteActions(
   bindings: Binding[],
   handled: (kind: Action["kind"]) => boolean,
+  mac: boolean = isMac(),
 ): Extract<PaletteItem, { kind: "action" }>[] {
   const seen = new Map<Action["kind"], Extract<PaletteItem, { kind: "action" }>>();
+  const usesMeta = (c: Chord[]) => c.some((k) => (k.mods & MOD_META) !== 0);
   for (const b of bindings) {
     const kind = b.action.kind;
     if (b.mode !== "global" && b.mode !== "normal") continue;
-    if (NOT_LISTED.has(kind) || seen.has(kind) || !handled(kind)) continue;
-    seen.set(kind, { kind: "action", action: kind, label: b.description, chord: b.chord });
+    if (NOT_LISTED.has(kind) || !handled(kind)) continue;
+    const prev = seen.get(kind);
+    if (!prev) {
+      seen.set(kind, { kind: "action", action: kind, label: b.description, chord: b.chord });
+    } else if (!mac && prev.chord && usesMeta(prev.chord) && !usesMeta(b.chord)) {
+      prev.chord = b.chord;
+    }
   }
   return [...seen.values()];
 }
@@ -90,4 +97,9 @@ export function paletteResults(input: {
 /** Section heading for an item, used to draw a label when it changes. */
 export function sectionOf(item: PaletteItem): string {
   return item.kind === "page" ? "Pages" : item.kind === "block" ? "Blocks" : "Actions";
+}
+
+/** Whether the webview runs on macOS, where Cmd is the platform modifier. */
+export function isMac(): boolean {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 }

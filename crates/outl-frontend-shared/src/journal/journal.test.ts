@@ -113,7 +113,7 @@ describe("labels + mondayIndex", () => {
 });
 
 describe("journalHeading", () => {
-  const today = new Date(2026, 9, 11, 15, 30);
+  const today = "2026-10-11";
 
   it("names the nearby days relative to today", () => {
     expect(journalHeading("2026-10-11", today, "en-US")?.title).toBe("Today");
@@ -131,7 +131,11 @@ describe("journalHeading", () => {
   it("does not shift across a DST change", () => {
     // Brazil and the US both move clocks in this window in some years;
     // the day count must round, not floor.
-    expect(journalHeading("2026-11-02", new Date(2026, 10, 3, 0, 5), "en-US")?.title).toBe("Yesterday");
+    expect(journalHeading("2026-11-02", "2026-11-03", "en-US")?.title).toBe("Yesterday");
+  });
+
+  it("falls back to the weekday while today is unknown", () => {
+    expect(journalHeading("2026-10-11", null, "en-US")?.title).toBe("Sunday");
   });
 
   it("returns null for a slug that is not a date", () => {

@@ -26,7 +26,7 @@ export function JournalHeader(props: {
     props.todaySlug !== null && props.todaySlug === props.slug;
   // "Today" / "Yesterday" / "Thursday", and the full date under it.
   // The ISO slug is the file name, not what anyone calls the day.
-  const heading = () => journalHeading(props.slug);
+  const heading = () => journalHeading(props.slug, props.todaySlug);
   return (
     <div class="min-w-0">
       <div class="flex items-center justify-center gap-1.5">
