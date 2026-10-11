@@ -43,6 +43,7 @@
     "./journal": "./src/journal/index.ts",
     "./links": "./src/links/index.ts",
     "./markdown": "./src/markdown/index.ts",
+    "./mock": "./src/mock/index.ts",
     "./namespace": "./src/namespace/index.ts",
     "./onboarding": "./src/onboarding/index.ts",
     "./outline": "./src/outline/index.ts",
