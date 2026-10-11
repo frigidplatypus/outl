@@ -51,8 +51,7 @@ export interface EmojiHit {
  * `outl_tauri_shared::state::BlockHit`. `handle` is the ref handle
  * (`blk-XXXXXX`) the caller inserts wrapped in `((…))`; block refs
  * resolve by handle, never by the display `text`. `text` is a
- * single-line snippet for the popup label and `source_slug` the page
- * hosting the block, for context.
+ * single-line snippet for the popup label and `source_slug` its page.
  */
 export interface BlockHit {
   handle: string;
