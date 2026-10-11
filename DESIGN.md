@@ -464,14 +464,22 @@ A third level would need a field every one of the ten presets — including `nor
 Depth is carried by **border + shadow + translucency**, never by a second background hue:
 
 ```tsx
-// BlockRow.tsx (desktop) — every autocomplete popover
-class="absolute top-full left-0 z-30 mt-1 max-h-56 w-72 overflow-y-auto rounded-md
-       border border-(--color-outl-border) bg-(--color-outl-bg-elev) py-1 text-[13px] shadow-lg"
+// SuggestPopups.tsx (desktop) — every autocomplete popover, the property pickers, the switcher
+class="absolute top-full left-0 z-30 mt-1 max-h-56 w-72 overflow-y-auto rounded-pop
+       border border-(--color-outl-border)/60 bg-(--color-outl-bg-elev) p-1 text-[13px] shadow-pop"
 ```
 
 Translucent chrome derives from `fg`, not from a dedicated token — `bg-(--color-outl-fg)/10`,
 `border-(--color-outl-fg)/15`, `hover:bg-(--color-outl-fg)/20`. That is why chrome inverts correctly on a
 light preset with no `dark:` variant anywhere.
+
+Desktop has one more, for the popover:
+
+```css
+--shadow-pop:
+  0 1px 2px color-mix(in srgb, var(--color-outl-fg) 6%, transparent),
+  0 8px 24px color-mix(in srgb, var(--color-outl-fg) 10%, transparent);
+```
 
 Mobile adds three non-colour chrome tokens in its `@theme` block, all derived from the palette:
 
@@ -509,7 +517,8 @@ no answer for it.
 | Token | Value | Applied to |
 |---|---|---|
 | `rounded` | 0.25rem | inline code, small chips, ghost buttons |
-| `rounded-md` | 0.375rem | popovers, ref chips, autocomplete panels |
+| `rounded-md` | 0.375rem | ref chips, rows inside a popover |
+| `rounded-pop` | 0.5rem | desktop popovers: autocomplete, property pickers, the quick switcher. Paired with `shadow-pop`, both in `crates/outl-desktop/src/styles.css`. The active row is `bg-(--color-outl-accent)/15` on `fg` text, not a solid accent fill, so the accent stays a highlight and never becomes a background |
 | `rounded-lg` | 0.5rem | toasts, sheets |
 | `rounded-[0.2em]` | em-relative | the `<mark>` highlight — scales with the text it wraps, so a highlight in a 13px popover is not visually rounder than one in 17px body |
 | `--radius-capsule` | 9999px | mobile floating capsules (header actions, edit toolbar), the selection rail |

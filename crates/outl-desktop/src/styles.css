@@ -44,6 +44,18 @@
  * / `--color-iosd-*` pair once the shared renderers migrated off it).
  */
 @theme {
+  /*
+   * The one floating surface: autocomplete, property pickers, the
+   * quick switcher. Radius and shadow live here so every popover is
+   * the same object. The shadow mixes the palette's `fg` instead of a
+   * frozen black, same reasoning as mobile's `--shadow-capsule`: black
+   * vanishes on `outl` and is heavy on `outl-light`.
+   */
+  --radius-pop: 0.5rem;
+  --shadow-pop:
+    0 1px 2px color-mix(in srgb, var(--color-outl-fg) 6%, transparent),
+    0 8px 24px color-mix(in srgb, var(--color-outl-fg) 10%, transparent);
+
   /* Canonical --color-outl-* tokens (palette boot-defaults). */
   --color-outl-bg: #0c0814;
   --color-outl-bg-elev: #15101f;

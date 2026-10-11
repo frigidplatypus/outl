@@ -143,7 +143,7 @@ export function Picker(props: { onPicked: (view: PageView) => void }) {
           if (e.target === e.currentTarget) close();
         }}
       >
-        <div class="mt-24 w-[520px] max-w-[90vw] overflow-hidden rounded-lg border border-(--color-outl-fg)/15 bg-(--color-outl-bg-elev)/95 shadow-2xl">
+        <div class="mt-24 w-[520px] max-w-[90vw] overflow-hidden rounded-pop border border-(--color-outl-border)/60 bg-(--color-outl-bg-elev) shadow-pop">
           <input
             ref={inputRef}
             type="text"
