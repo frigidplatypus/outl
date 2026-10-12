@@ -31,6 +31,16 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Added
 
+- **Mobile: a bottom bar, quick capture, a week strip and a task list.**
+  The phone gets a bottom bar with Journal, Search, Tasks and Pages, and a capture button in the middle that always writes to today's journal without moving you off the page you are on.
+  The journal header grows a week strip with a dot on each day that holds text, and a sideways swipe on the header or the strip changes day; rows keep their own swipes.
+  Coming back after 30 minutes or on a new day lands on today, unless a block is being edited.
+  Tasks lists every open TODO and DOING across the workspace, grouped by page, and opens the page zoomed into the task.
+- **Choosing a block from search zooms into it.**
+  On the phone and in the desktop palette, a hit with children becomes the outline root, so the match is the whole view.
+- **outl-light moves to a paper-white canvas.**
+  Pure white background, a neutral gray ink and a deeper violet accent; every role still meets WCAG AA, and the old `status_insert` contrast exemption is gone.
+
 - **Desktop: one palette for pages, blocks and actions.**
   `Cmd/Ctrl+P` used to find pages only.
   It now lists pages, then blocks, then the actions that match, each action with its chord, and a leading `>` narrows to actions.
