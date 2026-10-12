@@ -58,7 +58,7 @@ A `slash-command` plugin contributes a command that the user can run; where it s
 | Client | How you run a plugin command |
 |---|---|
 | TUI | Press `/` (Normal mode) → the slash menu lists built-ins **and** plugin commands, keyed by the command **id** (`/stats`); type to filter, `Enter` to run. |
-| Desktop | Two ways: the `⧉` button (bottom-left chrome) opens the plugin palette, **and** typing `/` at the start of a block opens an inline slash menu (Notion-style) — `/stats` ranks the `stats` command on top, `Enter` runs it. |
+| Desktop | Two ways: the plugins button (top bar) opens the plugin palette, **and** typing `/` at the start of a block opens an inline slash menu (Notion-style) — `/stats` ranks the `stats` command on top, `Enter` runs it. |
 | Mobile | The plugin sheet (header) lists the commands; tap to run. |
 | CLI | `outl plugin run <id> <command>` (headless). |
 

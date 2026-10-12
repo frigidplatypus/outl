@@ -66,13 +66,13 @@ describe("ErrorToast", () => {
     expect(document.body.textContent).not.toContain("gone soon");
   });
 
-  it("anchors top-right above chrome (fixed, top-4, right-4, z-50)", () => {
+  it("anchors top-right above chrome (fixed, top-16 under the top bar, right-4, z-50)", () => {
     setAppState("lastError", "x");
     mount();
     const wrapper = document.querySelector(".fixed");
     expect(wrapper).not.toBeNull();
     const cls = wrapper!.className;
-    expect(cls).toContain("top-4");
+    expect(cls).toContain("top-16");
     expect(cls).toContain("right-4");
     expect(cls).toContain("z-50");
   });

@@ -396,7 +396,9 @@ export function Sidebar(props: {
 
   return (
     <aside class="flex h-full flex-col text-sm">
-      <div class="space-y-1 px-3 pt-6 pb-2">
+      {/* pt-16 clears the top-left sidebar toggle capsule
+          (`<ChromeToggleBar />`), which floats over this corner. */}
+      <div class="space-y-1 px-3 pt-16 pb-2">
         {/* Search first, the way you start most visits. Opens the same
             palette as Cmd+P; the chord is shown so the click teaches it. */}
         <button

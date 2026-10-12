@@ -93,6 +93,18 @@ describe("SyncIndicator", () => {
     expect(syncNow).toHaveBeenCalledTimes(2);
   });
 
+  it("shows state and last sync in the hover tooltip", async () => {
+    syncNow.mockResolvedValue(undefined);
+    const btn = mount();
+    await flush();
+    expect(btn.title).toContain("Not synced yet this session");
+    expect(btn.title).toContain("right-click for Sync settings");
+    btn.click();
+    await flush();
+    await flush();
+    expect(btn.title).toContain("Last synced just now");
+  });
+
   it("opens Sync settings on right-click without syncing", () => {
     const btn = mount();
     btn.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));

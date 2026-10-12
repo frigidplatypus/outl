@@ -368,7 +368,7 @@ export function AppShell() {
       <Show when={handlers()}>
         {(h) => <BatchToolbar handlers={h()} />}
       </Show>
-      <ChromeToggleBar />
+      <ChromeToggleBar handlers={handlers()} />
       <Picker onPicked={applyView} handlers={handlers()} />
       <PluginMarketplace />
       <SettingsModal />

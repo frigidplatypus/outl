@@ -4,24 +4,26 @@ import { pluginRun, pluginToolbar } from "@outl/shared/api/commands";
 import type { PluginToolbarButton as ToolbarButtonEntry } from "@outl/shared/api/types";
 import { playPluginViews } from "../lib/plugin-views";
 import { appState, setAppState, setOutline } from "../lib/store";
+import type { ActionHandlers } from "../lib/shortcuts";
 import { SyncIndicator } from "./SyncIndicator";
 
 /**
- * Small chrome toggle button (sidebar / shortcuts help).
+ * Small round chrome button in the top bar.
  *
  * These surface keyboard chords that are otherwise invisible
- * (`Cmd/Ctrl+Shift+E` for the sidebar, `?` / `Cmd/Ctrl+/` for the
- * help overlay). They carry no business logic — clicking flips the
+ * (`Cmd/Ctrl+Shift+E` for the sidebar, `zM` / `zR` for folding). They carry no business logic — clicking flips the
  * same store signal the `outl-shortcuts` dispatcher flips, so the
  * button and the keyboard stay in sync automatically.
  */
-/** Puzzle-piece icon (lucide), the conventional "plugins" glyph. Inherits
- *  the button's `currentColor` so it follows the active/inactive state. */
-function PuzzleIcon() {
+/** Stroke icon in the mobile top bar's style: 24-unit viewBox, round
+ *  caps, `currentColor` so it follows the button's active/hover state.
+ *  The paths are the same ones `JournalChrome.tsx` draws, so the two
+ *  clients read as one app. */
+function Icon(props: { children: JSX.Element }) {
   return (
     <svg
-      width="15"
-      height="15"
+      width="16"
+      height="16"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -30,10 +32,47 @@ function PuzzleIcon() {
       stroke-linejoin="round"
       aria-hidden="true"
     >
-      <path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 16.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 20.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 9.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z" />
+      {props.children}
     </svg>
   );
 }
+
+const FoldIcon = () => (
+  <Icon>
+    <path d="M7 14l5 5 5-5M7 5l5 5 5-5" />
+  </Icon>
+);
+const UnfoldIcon = () => (
+  <Icon>
+    <path d="M7 9l5-5 5 5M7 19l5-5 5 5" />
+  </Icon>
+);
+const BellIcon = () => (
+  <Icon>
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+  </Icon>
+);
+const PluginsIcon = () => (
+  <Icon>
+    <rect x="3" y="3" width="8" height="8" rx="1.5" />
+    <rect x="13" y="3" width="8" height="8" rx="1.5" />
+    <rect x="3" y="13" width="8" height="8" rx="1.5" />
+    <rect x="13" y="13" width="8" height="8" rx="1.5" />
+  </Icon>
+);
+const GearIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </Icon>
+);
+const SidebarIcon = () => (
+  <Icon>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M9 4v16" />
+  </Icon>
+);
 
 function ChromeToggle(props: {
   glyph: JSX.Element;
@@ -49,10 +88,10 @@ function ChromeToggle(props: {
       aria-pressed={props.active}
       title={props.title}
       onClick={props.onToggle}
-      class={`flex h-7 w-7 items-center justify-center rounded-md text-[14px] leading-none transition-colors ${
+      class={`flex h-8 w-8 items-center justify-center rounded-full text-[14px] leading-none transition-colors ${
         props.active
           ? "bg-(--color-outl-accent) text-(--color-outl-bg)"
-          : "text-(--color-outl-fg-dim) hover:bg-(--color-outl-bg-elev) hover:text-(--color-outl-fg)"
+          : "text-(--color-outl-accent) hover:bg-(--color-outl-border)/40"
       }`}
     >
       <span aria-hidden="true">{props.glyph}</span>
@@ -107,7 +146,7 @@ function PluginToolbarButton(props: { entry: ToolbarButtonEntry }) {
       title={label()}
       disabled={busy()}
       onClick={() => void run()}
-      class="flex h-7 w-7 items-center justify-center rounded-md text-[14px] leading-none text-(--color-outl-fg-dim) transition-colors hover:bg-(--color-outl-bg-elev) hover:text-(--color-outl-fg) disabled:opacity-50"
+      class="flex h-8 w-8 items-center justify-center rounded-full text-[14px] leading-none text-(--color-outl-accent) transition-colors hover:bg-(--color-outl-border)/40 disabled:opacity-50"
     >
       <span aria-hidden="true">{props.entry.icon}</span>
     </button>
@@ -115,24 +154,29 @@ function PluginToolbarButton(props: { entry: ToolbarButtonEntry }) {
 }
 
 /**
- * Bottom-left chrome cluster — sidebar + shortcuts-help toggles.
+ * Window chrome, laid out like the mobile top bar (`JournalChrome.tsx`).
  *
- * Pinned to the lower-left corner of the window (VS Code's activity-bar
- * convention) so the affordances are always in the same place, independent
- * of which page or pane is open. The sidebar toggle stays reachable here
- * even after the left pane is hidden because the cluster floats over the
- * main pane, not inside the sidebar.
+ * Top-right capsule, same icons in the same order as the phone: fold
+ * all, unfold all, plugin toolbar buttons, reminders, plugins, the sync
+ * dot, settings. Settings sits last, the sync dot right before it, so a
+ * user moving between the two clients finds every control where their
+ * hand expects it.
  *
- * The cluster sits on an elevated, bordered surface so it reads with clear
- * contrast against the page content behind it; the active toggle inverts to
- * the accent color for an unmistakable on/off state.
+ * The only control without a mobile twin is the sidebar toggle (the
+ * phone has no sidebar). It gets its own small capsule in the top-left
+ * corner, where the mobile back capsule sits, so it stays reachable
+ * after the sidebar is hidden. The shortcuts-help toggle is gone from
+ * the chrome: `?` still opens it, and the palette lists it.
+ *
+ * Every button flips the same store signal or runs the same handler as
+ * its keyboard chord, so the button and the keyboard never disagree.
  */
-export function ChromeToggleBar() {
+export function ChromeToggleBar(props: { handlers?: ActionHandlers | null }) {
   const [toolbar, setToolbar] = createSignal<ToolbarButtonEntry[]>([]);
 
   // Plugins load lazily on the host's first request once the workspace is
   // open, so a fetch at mount may return empty on a cold boot. Best-effort:
-  // a failure leaves the cluster with only the native toggles.
+  // a failure leaves the capsule with only the native controls.
   onMount(() => {
     void (async () => {
       try {
@@ -143,45 +187,66 @@ export function ChromeToggleBar() {
     })();
   });
 
+  const capsule =
+    "fixed top-3 z-20 flex items-center gap-1 rounded-full border border-(--color-outl-border) bg-(--color-outl-bg-elev)/80 px-1.5 py-1 shadow-lg backdrop-blur-xl";
+
   return (
-    <div class="fixed bottom-3 left-3 z-20 flex items-center gap-1 rounded-lg border border-(--color-outl-border) bg-(--color-outl-bg-elev) p-1 shadow-lg">
-      <ChromeToggle
-        glyph="◫"
-        active={appState.sidebarOpen}
-        label={appState.sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-        title="Toggle sidebar (⌘⇧E)"
-        onToggle={() => setAppState("sidebarOpen", !appState.sidebarOpen)}
-      />
-      <ChromeToggle
-        glyph="?"
-        active={appState.helpOpen}
-        label={
-          appState.helpOpen
-            ? "Hide keyboard shortcuts"
-            : "Show keyboard shortcuts"
-        }
-        title="Keyboard shortcuts (?)"
-        onToggle={() => setAppState("helpOpen", !appState.helpOpen)}
-      />
-      <ChromeToggle
-        glyph={<PuzzleIcon />}
-        active={appState.marketplaceOpen}
-        label={appState.marketplaceOpen ? "Hide marketplace" : "Browse plugins"}
-        title="Plugins"
-        onToggle={() =>
-          setAppState("marketplaceOpen", !appState.marketplaceOpen)
-        }
-      />
-      {/* Plugin-contributed toolbar buttons sit in the same cluster as the
-          native toggles (⧉/◫/?), one per `toolbar-button` contribution. */}
-      <For each={toolbar()}>
-        {(entry) => <PluginToolbarButton entry={entry} />}
-      </For>
-      {/* Thin divider, then the always-visible sync status dot. Clicking
-          it syncs now; right-click opens Settings → Sync (peer list +
-          pairing). */}
-      <span class="mx-0.5 h-4 w-px bg-(--color-outl-border)" aria-hidden="true" />
-      <SyncIndicator />
-    </div>
+    <>
+      <div class={`${capsule} left-3`} data-testid="chrome-left">
+        <ChromeToggle
+          glyph={<SidebarIcon />}
+          active={appState.sidebarOpen}
+          label={appState.sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+          title="Toggle sidebar (⌘⇧E)"
+          onToggle={() => setAppState("sidebarOpen", !appState.sidebarOpen)}
+        />
+      </div>
+      <div class={`${capsule} right-3`} data-testid="chrome-right">
+        <ChromeToggle
+          glyph={<FoldIcon />}
+          active={false}
+          label="Fold all"
+          title="Fold all (zM)"
+          onToggle={() => void props.handlers?.FoldAll?.()}
+        />
+        <ChromeToggle
+          glyph={<UnfoldIcon />}
+          active={false}
+          label="Unfold all"
+          title="Unfold all (zR)"
+          onToggle={() => void props.handlers?.UnfoldAll?.()}
+        />
+        {/* Plugin-contributed toolbar buttons, one per `toolbar-button`
+            contribution, in the same slot as on mobile. */}
+        <For each={toolbar()}>
+          {(entry) => <PluginToolbarButton entry={entry} />}
+        </For>
+        <ChromeToggle
+          glyph={<BellIcon />}
+          active={appState.remindersOpen}
+          label="Reminders"
+          title="Reminders (⌘⇧R)"
+          onToggle={() => setAppState("remindersOpen", !appState.remindersOpen)}
+        />
+        <ChromeToggle
+          glyph={<PluginsIcon />}
+          active={appState.marketplaceOpen}
+          label={appState.marketplaceOpen ? "Hide plugins" : "Plugins"}
+          title="Plugins"
+          onToggle={() =>
+            setAppState("marketplaceOpen", !appState.marketplaceOpen)
+          }
+        />
+        {/* Click syncs now, right-click opens Settings → Sync. */}
+        <SyncIndicator />
+        <ChromeToggle
+          glyph={<GearIcon />}
+          active={appState.settingsOpen}
+          label="Settings"
+          title="Settings (⌘,)"
+          onToggle={() => setAppState("settingsOpen", !appState.settingsOpen)}
+        />
+      </div>
+    </>
   );
 }
