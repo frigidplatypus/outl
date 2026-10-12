@@ -143,5 +143,6 @@ macro_rules! __tauri_command_entry {
     };
 }
 
+pub mod capture;
 pub mod catalog;
 pub mod merges;

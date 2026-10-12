@@ -57,6 +57,7 @@ mod backlinks_keys;
 pub mod backlinks_sort;
 pub mod backup;
 pub mod block;
+pub mod capture;
 pub mod clipboard;
 pub mod clock;
 pub mod collapsed;

@@ -86,9 +86,9 @@ use crate::commands::{
     set_block_remind, set_page_property, set_reminder_settings, snooze_presets, snooze_reminder,
 };
 use crate::commands::{
-    device_activity, export_markdown, journal_days_with_content, list_action_support,
-    list_open_tasks, list_shortcut_bindings, merged_edits, page_timeline, resolve_embeds,
-    run_auto_run_blocks, run_code_block, undo_merged_edit,
+    device_activity, drain_capture_inbox, export_markdown, journal_days_with_content,
+    list_action_support, list_open_tasks, list_shortcut_bindings, merged_edits, page_timeline,
+    resolve_embeds, run_auto_run_blocks, run_code_block, undo_merged_edit,
 };
 use crate::plugin_service::spawn_plugin_service;
 use crate::state::AppState;
@@ -390,6 +390,7 @@ pub fn run() {
             device_activity,
             export_markdown,
             merged_edits,
+            drain_capture_inbox,
             undo_merged_edit,
             // Theme
             list_themes,

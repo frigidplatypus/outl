@@ -9,8 +9,9 @@ profile. This script handles them on their own:
       Put the extension's own App Store profile on its configs.
   strip <pbxproj>
       Unhook every extension from the app (embed phase and target
-      dependencies), so a release without the extension profiles still
-      ships the app instead of failing to sign.
+      dependencies) and drop the App Group from the app's entitlements,
+      so a release without the extension profiles (or with an app
+      profile that lacks the App Group) still ships the app.
 """
 import re
 import sys
@@ -38,6 +39,18 @@ def strip(text):
     return text
 
 
+def drop_app_group(plist):
+    """Remove the application-groups key and its array from a plist."""
+    out = re.sub(
+        r"\s*<key>com\.apple\.security\.application-groups</key>\s*<array>.*?</array>",
+        "",
+        plist,
+        flags=re.S,
+    )
+    print("::notice::dropped the App Group from the app entitlements")
+    return out
+
+
 def sign(text, target, name, uuid):
     pattern = re.compile(
         rf'(CODE_SIGN_ENTITLEMENTS = {target}/{target}\.entitlements;\n\t+)CODE_SIGN_IDENTITY = "Apple Development";'
@@ -58,6 +71,9 @@ def main(argv):
     text = pbx.read_text()
     if mode == "strip":
         text = strip(text)
+        ent = pbx.parent.parent / "outl-mobile_iOS" / "outl-mobile_iOS.entitlements"
+        if ent.exists():
+            ent.write_text(drop_app_group(ent.read_text()))
     elif mode == "sign":
         text = sign(text, argv[3], argv[4], argv[5])
     else:

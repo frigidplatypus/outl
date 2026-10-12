@@ -178,6 +178,7 @@ export function createMockBackend(ws = new MockWorkspace(), today = new Date()) 
       ],
     }),
     merged_edits: () => mockMerges,
+    drain_capture_inbox: () => ({ landed: 0, skipped: 0, page_ids: [] }),
     undo_merged_edit: (a) => {
       mockMerges = mockMerges.filter((m) => m.id !== a.id);
       return null;

@@ -28,6 +28,9 @@
 @implementation OutlBootstrap
 
 + (void)load {
+    // Synchronous on purpose: the capture inbox path has to be in the
+    // environment before Rust reads it (RFC 0363).
+    [OutlCaptureInbox prepare];
     // `+load` runs before `main()`, but UIKit may not be ready yet —
     // hop to the main queue so each Swift `install()` body sees a
     // usable application state.
@@ -36,6 +39,7 @@
         [OutlBackgroundRefresh install];
         [OutlBrandChrome install];
         [OutlOpsWatcher install];
+        [OutlCaptureInbox install];
     });
 }
 

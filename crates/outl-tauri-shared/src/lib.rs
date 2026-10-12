@@ -32,6 +32,7 @@
 //!   delegates to `outl-actions` — this crate is glue, same hard rule as
 //!   the client crates.
 
+pub mod capture_inbox;
 pub mod commands;
 pub mod helpers;
 pub mod history_external;
