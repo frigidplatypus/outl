@@ -141,6 +141,7 @@ import { WeekStrip } from "./WeekStrip";
 import { TasksSheet } from "./TasksSheet";
 import { CaptureSheet } from "./CaptureSheet";
 import { JournalEmptyPage, JournalLoadFailed, JournalStartWriting } from "./JournalEmpty";
+import { isBlankOutline } from "@outl/shared/polish";
 import { JournalZoomBar } from "./JournalZoomBar";
 import type { SwitcherMode } from "./PageSwitcher";
 import { createDayNav } from "./Journal.day-nav";
@@ -1619,7 +1620,7 @@ export function Journal() {
         )}
       </Show>
 
-      <main class="ios-scroll flex-1 pb-32">
+      <main class="outl-reading ios-scroll flex-1 pb-32">
         <PullToRefresh onRefresh={handleRefresh}>
         <div class="min-h-[60vh]">
         {/* The page's own `key:: value` metadata (`icon::`, `type::`).
@@ -1678,12 +1679,10 @@ export function Journal() {
                 />
               )}
             </Show>
-            {/* An empty page used to render as nothing at all: no
-                text, no affordance, no hint that a tap anywhere would
-                help. It is also the one state with no block to
+            {/* An empty page used to render as nothing at all, with no
+                hint that a tap would help. It is also the one state with no block to
                 long-press, so it was the only place page properties
-                were unreachable. Both doors live here, and the whole
-                block costs nothing on a page that has content. */}
+                were unreachable. Both doors live here. */}
             <Show when={outlineRoots().length === 0 && view()}>
               <JournalEmptyPage
                 journal={view()?.page.kind === "journal"}
@@ -1742,6 +1741,7 @@ export function Journal() {
         <PageSections
           backlinks={backlinks()}
           pageKind={view()?.page.kind}
+          blank={isBlankOutline(outlineRoots())}
           onToggleOrder={async () => {
             const v = view();
             if (!v) return;

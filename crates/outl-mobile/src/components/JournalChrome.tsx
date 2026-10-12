@@ -3,6 +3,7 @@ import type { PageView, PluginToolbarButton } from "@outl/shared";
 
 import { JournalHeader, PageHeader } from "./JournalHeader";
 import { SyncDot } from "./SyncDot";
+import { focusMode } from "@outl/shared/polish";
 import { haptic } from "../lib/haptics";
 import { createLongPress, type LongPressHandlers } from "../lib/long-press";
 
@@ -26,6 +27,8 @@ import { createLongPress, type LongPressHandlers } from "../lib/long-press";
  * the header at its first render, which is the one bug this kind of
  * extraction reliably introduces.
  */
+const focus = focusMode();
+
 export function JournalChrome(props: {
   /** The page currently on screen, or `null` while loading. */
   view: PageView | null;
@@ -69,7 +72,7 @@ export function JournalChrome(props: {
 
   return (
     <header
-      class="z-30 shrink-0 bg-(--color-outl-bg)/80 px-3 pt-2 pb-3 backdrop-blur-xl"
+      class="outl-focus-hide z-30 shrink-0 bg-(--color-outl-bg)/80 px-3 pt-2 pb-3 backdrop-blur-xl"
       style="padding-top: max(env(safe-area-inset-top), 12px);"
     >
       <div class="grid grid-cols-[auto_auto_1fr] items-center gap-2">
@@ -305,6 +308,33 @@ export function JournalChrome(props: {
                     : "offline"
               }
             />
+          </button>
+          {/* Focus mode: fades the chrome and dims every row but the
+              one being written. Same glyph and slot as desktop. */}
+          <button
+            type="button"
+            aria-label={focus.on() ? "Leave focus mode" : "Focus mode"}
+            aria-pressed={focus.on()}
+            onClick={() => {
+              haptic("light");
+              focus.toggle();
+            }}
+            class="flex h-9 w-9 items-center justify-center rounded-full active:bg-(--color-outl-border)/40"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--color-outl-accent)"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4" />
+              <circle cx="12" cy="12" r="2" />
+            </svg>
           </button>
           {/* Settings — last in the capsule, where iOS puts it. Sits
               after the sync dot on purpose: that one is read constantly,

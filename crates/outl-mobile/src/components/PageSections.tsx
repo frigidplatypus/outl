@@ -2,6 +2,7 @@ import { JSX, Show } from "solid-js";
 
 import type { PageBacklinks, PageMeta } from "@outl/shared/api/types";
 import { NamespaceMentions, NestedPages } from "@outl/shared/namespace";
+import { FirstRunTips } from "@outl/shared/polish";
 
 import { BacklinksSection } from "./BacklinksSection";
 
@@ -14,6 +15,8 @@ export interface PageSectionsProps {
   onToggleOrder: () => void;
   /** Navigate to a page. `kind` routes journals to the journal opener. */
   onOpenPage: (slug: string, kind: PageMeta["kind"]) => void;
+  /** The page holds only empty blocks: show the first-run tips. */
+  blank?: boolean;
 }
 
 /**
@@ -36,6 +39,11 @@ export interface PageSectionsProps {
 export function PageSections(props: PageSectionsProps): JSX.Element {
   return (
     <>
+      <Show when={props.blank}>
+        <div class="px-5 pt-8">
+          <FirstRunTips client="mobile" />
+        </div>
+      </Show>
       <Show
         when={
           props.pageKind === "page" ||

@@ -4,7 +4,7 @@
  * Styles live in `@outl/shared/polish/styles`.
  */
 export { createFocusMode, focusMode, FOCUS_KEY, type FocusMode } from "./focus";
-export { firstRunTips, tipsDismissed, dismissTips, TIPS_KEY, type Tip, type TipClient } from "./firstRun";
+export { isBlankOutline, firstRunTips, tipsDismissed, dismissTips, TIPS_KEY, type Tip, type TipClient } from "./firstRun";
 export { FirstRunTips } from "./FirstRunTips";
 export { contrastRatio } from "./contrast";
 export { createSettle } from "./settle";

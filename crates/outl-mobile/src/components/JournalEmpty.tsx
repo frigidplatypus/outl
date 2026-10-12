@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import { FirstRunTips } from "@outl/shared/polish";
 
 /**
  * What the journal shows when there is no outline to show: still
@@ -26,6 +27,10 @@ export function JournalLoadFailed(props: { onRetry: () => void }) {
 /** The fresh-workspace state: nothing loaded yet, one tap starts writing. */
 export function JournalStartWriting(props: { onStart: () => void }) {
   return (
+    <>
+    <div class="px-5 pt-6">
+      <FirstRunTips client="mobile" onStart={props.onStart} />
+    </div>
     <button
       type="button"
       onClick={props.onStart}
@@ -49,6 +54,7 @@ export function JournalStartWriting(props: { onStart: () => void }) {
       <p class="text-[15px] text-(--color-outl-fg-dim)">Nothing here yet.</p>
       <p class="mt-1 text-[13px] text-(--color-outl-accent)">Tap to start writing</p>
     </button>
+    </>
   );
 }
 
@@ -63,6 +69,9 @@ export function JournalEmptyPage(props: {
 }) {
   return (
     <div class="flex flex-col items-center gap-4 py-16 text-center">
+      <div class="w-full px-5">
+        <FirstRunTips client="mobile" onStart={props.onAddBlock} />
+      </div>
       <p class="text-[15px] text-(--color-outl-fg-dim)">
         <Show when={props.journal} fallback="This page is empty">
           Nothing written this day

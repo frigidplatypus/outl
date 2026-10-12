@@ -3,7 +3,7 @@ import { createRoot, createSignal } from "solid-js";
 
 import presets from "../mock/presets.json";
 import { contrastRatio } from "./contrast";
-import { dismissTips, firstRunTips, tipsDismissed } from "./firstRun";
+import { dismissTips, firstRunTips, isBlankOutline, tipsDismissed } from "./firstRun";
 import { createFocusMode, FOCUS_KEY } from "./focus";
 import { createSettle } from "./settle";
 
@@ -69,8 +69,18 @@ describe("first-run tips", () => {
   });
   it("uses the client's own gesture", () => {
     expect(firstRunTips("desktop")[0].body).toContain("Tab");
-    expect(firstRunTips("mobile")[0].body).toContain("swipe");
+    expect(firstRunTips("mobile")[0].body).toContain("indent keys");
+    // Swiping a row deletes it on mobile; the tip must never teach that.
+    expect(firstRunTips("mobile")[0].body).not.toContain("swipe");
     expect(firstRunTips("desktop")[2].body).toContain("⌘J");
+  });
+  it("treats a fresh day with one empty block as blank, and nothing else", () => {
+    const b = (text: string, children: unknown[] = []) => ({ text, children });
+    expect(isBlankOutline([])).toBe(false);
+    expect(isBlankOutline([b("  ")])).toBe(true);
+    expect(isBlankOutline([b(""), b("")])).toBe(true);
+    expect(isBlankOutline([b("hi")])).toBe(false);
+    expect(isBlankOutline([b("", [b("x")])])).toBe(false);
   });
   it("stays dismissed", () => {
     const s = memStore();
