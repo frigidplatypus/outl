@@ -35,6 +35,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./api/commands": "./src/api/commands.ts",
+    "./api/overview": "./src/api/overview.ts",
     "./api/types": "./src/api/types.ts",
     "./autocomplete": "./src/autocomplete/index.ts",
     "./drag-drop": "./src/drag-drop/index.ts",

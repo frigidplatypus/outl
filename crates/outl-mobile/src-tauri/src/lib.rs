@@ -86,7 +86,7 @@ use crate::commands::{
     set_block_remind, set_page_property, set_reminder_settings, snooze_presets, snooze_reminder,
 };
 use crate::commands::{
-    list_action_support, list_shortcut_bindings, page_timeline, resolve_embeds,
+    journal_days_with_content, list_action_support, list_open_tasks, list_shortcut_bindings, page_timeline, resolve_embeds,
     run_auto_run_blocks, run_code_block,
 };
 use crate::plugin_service::spawn_plugin_service;
@@ -363,6 +363,8 @@ pub fn run() {
             search_pages,
             search_persons,
             search_blocks,
+            list_open_tasks,
+            journal_days_with_content,
             outl_emoji_search,
             open_today_journal,
             open_journal_for,
