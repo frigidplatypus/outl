@@ -359,6 +359,40 @@ Adding a gesture means finding one that is free, or moving an existing one somew
 zoom took the plain dot's old mark-as-TODO tap, and TODO moved to the long-press menu rather than
 disappearing.
 
+Horizontal swipes have two owners on a phone, so each gets its own band of the screen.
+A row owns its own swipe (delete, indent), so the outline never changes day under a finger that meant
+to act on a block.
+Changing day by swipe lives only on the journal header and the week strip above the outline.
+A swipe there has to be mostly sideways, at least 56 px long, quicker than 700 ms, and must not start
+within 24 px of a screen edge, where iOS keeps its own back gesture.
+
+Choosing a block from search zooms into it when it has children, on both the phone and the desktop
+palette, so the hit is the whole view instead of one row on a long page.
+A leaf block opens in its page with the cursor on it.
+
+### Getting around on a phone
+
+The bottom bar is the phone's map: Journal, Search, Tasks and Pages, with a quick capture button in the
+middle.
+It sits within thumb reach and hides while the keyboard is up, because the keyboard toolbar owns that
+space during an edit.
+
+Quick capture always writes to today's journal, wherever the user is standing.
+On today it appends a block and focuses it in place.
+On any other page it opens a small sheet that adds the line to today without moving the user, and says
+so with a toast.
+Sending a thought somewhere else is a second step, not a question asked before the thought is down.
+
+The week strip under the journal header shows the current week with a dot on each day that holds text.
+Opening a day creates its page, so the dot means "a block has text", not "the file exists".
+
+Coming back to the app after 30 minutes, or on a new calendar day, lands on today's journal.
+It never moves the user while a block is being edited, and it does nothing when today is already on
+screen.
+
+Tasks lists every open TODO and DOING across the workspace, grouped by page, with DOING first.
+Tapping one opens its page zoomed into that task.
+
 ### Optimistic by default
 
 The reply a client renders is built from the in-memory tree, not from a re-read of the file it just
