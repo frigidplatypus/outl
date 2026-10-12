@@ -87,8 +87,8 @@ use crate::commands::{
 };
 use crate::commands::{
     device_activity, export_markdown, journal_days_with_content, list_action_support,
-    list_open_tasks, list_shortcut_bindings, page_timeline, resolve_embeds, run_auto_run_blocks,
-    run_code_block,
+    list_open_tasks, list_shortcut_bindings, merged_edits, page_timeline, resolve_embeds,
+    run_auto_run_blocks, run_code_block, undo_merged_edit,
 };
 use crate::plugin_service::spawn_plugin_service;
 use crate::state::AppState;
@@ -389,6 +389,8 @@ pub fn run() {
             page_timeline,
             device_activity,
             export_markdown,
+            merged_edits,
+            undo_merged_edit,
             // Theme
             list_themes,
             get_theme,

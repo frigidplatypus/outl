@@ -50,3 +50,33 @@ export function deviceActivity(): Promise<DeviceActivity> {
 export function exportMarkdown(destDir: string | null = null): Promise<ExportReport> {
   return invoke<ExportReport>("export_markdown", { destDir });
 }
+
+/**
+ * A concurrent edit the CRDT merged on sync, as returned by
+ * `merged_edits`. Mirrors `MergedEditDto` in `outl-tauri-shared`.
+ * `ours` is this device's text before the merge, `merged` what the block
+ * reads now.
+ */
+export interface MergedEdit {
+  id: string;
+  page_id: string;
+  page_title: string;
+  block_id: string;
+  ours: string;
+  merged: string;
+  peer_actor: string;
+  at_ms: number;
+}
+
+/** Merged concurrent edits this session, newest first. Read-only. */
+export function mergedEdits(): Promise<MergedEdit[]> {
+  return invoke<MergedEdit[]>("merged_edits");
+}
+
+/**
+ * Put this device's pre-merge text back. Writes new ops (so it syncs and
+ * Cmd+Z undoes it) and drops the entry from the log.
+ */
+export function undoMergedEdit(id: string): Promise<unknown> {
+  return invoke("undo_merged_edit", { id });
+}

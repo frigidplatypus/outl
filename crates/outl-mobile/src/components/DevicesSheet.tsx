@@ -45,10 +45,10 @@ import {
   peerPairHost,
   peerPairJoin,
 } from "@outl/shared/api/commands";
-import { deviceActivity, exportMarkdown } from "@outl/shared/api/trust";
+import { deviceActivity, exportMarkdown, mergedEdits, undoMergedEdit } from "@outl/shared/api/trust";
 import type { PeerDto, PeerStatusDto } from "@outl/shared/api/types";
 import { PeerList, PairingQR, SyncProgressView, createSyncProgress } from "@outl/shared/peers";
-import { DeviceActivityList, ExportCard } from "@outl/shared/trust";
+import { DeviceActivityList, ExportCard, MergedEditsPanel } from "@outl/shared/trust";
 
 import { createSheetDrag } from "../lib/sheet-drag";
 import { haptic } from "../lib/haptics";
@@ -444,6 +444,8 @@ export function DevicesSheet(props: DevicesSheetProps) {
           <Show when={activity()} fallback={<p class="text-[13px] opacity-60">Reading the op log…</p>}>
             {(a) => <DeviceActivityList activity={a()} />}
           </Show>
+          <h4 class="outl-trust-heading">Edits merged from other devices</h4>
+          <MergedEditsPanel load={mergedEdits} undo={undoMergedEdit} />
           <h4 class="outl-trust-heading">Your notes</h4>
           <ExportCard onExport={() => exportMarkdown()} />
         </div>

@@ -6,8 +6,8 @@
 
 import { Show, createResource } from "solid-js";
 
-import { deviceActivity, exportMarkdown } from "@outl/shared/api/trust";
-import { DeviceActivityList, ExportCard } from "@outl/shared/trust";
+import { deviceActivity, exportMarkdown, mergedEdits, undoMergedEdit } from "@outl/shared/api/trust";
+import { DeviceActivityList, ExportCard, MergedEditsPanel } from "@outl/shared/trust";
 
 export function TrustSection() {
   const [activity] = createResource(deviceActivity);
@@ -20,6 +20,8 @@ export function TrustSection() {
       >
         {(a) => <DeviceActivityList activity={a()} />}
       </Show>
+      <h4 class="outl-trust-heading">Edits merged from other devices</h4>
+      <MergedEditsPanel load={mergedEdits} undo={undoMergedEdit} />
       <h4 class="outl-trust-heading">Your notes</h4>
       <ExportCard onExport={() => exportMarkdown()} />
     </section>

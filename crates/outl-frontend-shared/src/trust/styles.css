@@ -78,3 +78,7 @@
 .outl-diff-removed + .outl-diff-added {
   margin-left: 3px;
 }
+
+.outl-merges { display: flex; flex-direction: column; gap: 10px; }
+.outl-merge-row { display: grid; gap: 4px; }
+.outl-merge-undo { justify-self: start; font-size: 12px; padding: 2px 10px; border-radius: 6px; border: 1px solid var(--outl-border, #ccc); background: transparent; color: inherit; cursor: pointer; }

@@ -60,6 +60,7 @@ use outl_tauri_shared::commands::reminders::{ReminderDto, ReminderSettingsDto, S
 use outl_tauri_shared::commands::theme::ThemeConfigDto;
 use outl_tauri_shared::commands::timeline::{PageTimelineDto, TimelineEventDto};
 use outl_tauri_shared::commands::trust::{ActorActivityDto, DeviceActivityDto, ExportReportDto};
+use outl_tauri_shared::merges::MergedEditDto;
 use outl_tauri_shared::state::{
     BacklinksReply, CreateBlockReply, CutBlockReply, ProjectionWriteFailed, TemplateDto,
     WorkspaceSummary,
@@ -385,4 +386,19 @@ fn backlinks_reply_matches_page_backlinks() {
 #[test]
 fn namespace_child_matches_its_interface() {
     assert_wire_shape(&namespace_child(), "NamespaceChild", &[]);
+}
+
+#[test]
+fn merged_edit_matches_its_interface() {
+    let dto = MergedEditDto {
+        id: "m1".into(),
+        page_id: "p".into(),
+        page_title: "Inbox".into(),
+        block_id: "b".into(),
+        ours: "buy milk".into(),
+        merged: "buy oat milk".into(),
+        peer_actor: "01JQ0000000000000000000005".into(),
+        at_ms: 1_757_000_000_000,
+    };
+    assert_wire_shape(&dto, "MergedEdit", &[]);
 }
