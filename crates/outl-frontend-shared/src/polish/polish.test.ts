@@ -22,6 +22,11 @@ describe("reading contrast", () => {
     // design, so the floor there is 4:1 rather than repainting a classic.
     expect(contrastRatio(p.fg, p.bg_elev)).toBeGreaterThanOrEqual(4);
   });
+  it.each(presets.map((p) => [p.name, p] as const))("%s dim text clears 4.5:1", (_n, p) => {
+    // fg_dim carries hints, dates and metadata people still have to read.
+    expect(contrastRatio(p.fg_dim, p.bg)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(p.fg_dim, p.bg_elev)).toBeGreaterThanOrEqual(4);
+  });
   it("is symmetric and 21 for black on white", () => {
     expect(contrastRatio("#000000", "#ffffff")).toBeCloseTo(21, 5);
     expect(contrastRatio("#ffffff", "#000000")).toBeCloseTo(21, 5);
