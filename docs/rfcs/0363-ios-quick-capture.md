@@ -32,7 +32,7 @@ They append one record per capture to an inbox in the App Group container, and t
 
 The rollout order follows the risk:
 
-1. The widget opens `outl://capture`, which lands in the capture sheet. No cross-process write, so it can ship before the inbox does.
+1. The widget opens `outl://capture`, which lands in the capture sheet. No cross-process write, so it can ship before the inbox does. The link itself landed in #362 (`DeepLinkTarget::Capture`); the widget that opens it did not.
 2. The App Intent "Add to today", which also covers Shortcuts, Siri and the Action button.
 3. The share extension, writing text or a URL through the same inbox.
 

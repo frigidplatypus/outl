@@ -303,6 +303,9 @@ Deleting and "empty the value" are the same backend call — the `×` exists bec
 | Close overlay | `Esc` | `Esc` |
 
 The picker (`Cmd+P` / `Ctrl+P`) fuzzy-matches pages and journals together; type a date in ISO (`2026-06-04`) or natural (`today`, `yesterday`) to jump.
+On the desktop it also lists tasks (blocks with `TODO`, `DOING`, `DONE` or a checkbox) in their own section, and actions with no chord, such as "Export as Markdown".
+
+Quick capture (`Cmd+Shift+Space` / `Ctrl+Shift+Space`) adds one line to the end of today's journal without leaving the page you're on. On the desktop the chord also works with outl in the background. `outl://capture` opens the same box on desktop and mobile.
 
 ---
 

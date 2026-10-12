@@ -223,6 +223,10 @@ Layers, tooling and the current frontend suites: [`docs/development.md`](../../d
 Catalog: **`crates/outl-shortcuts`** (single source of truth, also consumed by the TUI).
 The desktop fetches it via the `list_shortcut_bindings` Tauri command on boot and wires every `Action` through `lib/action-handlers.ts`.
 
+Handlers for actions added after `action-handlers.ts` hit its size ceiling live in their own modules and are spread into `buildHandlers`: `lib/speed-handlers.ts` (`QuickCapture`, `ExportMarkdown`).
+Quick capture state and the write live in `lib/quick-capture.ts`, the box in `components/QuickCapture.tsx`; the OS-wide chord is `src-tauri/src/quick_capture.rs`, which emits `quick-capture://open`. A failed write keeps the text in the box.
+The palette lists chordless actions from `CHORDLESS_ACTIONS` in `lib/palette-results.ts`, and splits task hits (shared `taskState`) out of block hits.
+
 Two of these chords also have **visible icon affordances** in a fixed bottom-left cluster (`components/ChromeToggleBar.tsx`, mounted by `AppShell`):
 the **sidebar toggle** (`◫`, mirrors `Cmd/Ctrl+Shift+E`) and the **shortcuts-help toggle** (`?`, mirrors `?` / `Cmd/Ctrl+/`).
 They carry no business logic — clicking flips the same store signal the dispatcher flips, so button and keyboard stay in sync.

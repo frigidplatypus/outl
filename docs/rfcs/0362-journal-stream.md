@@ -89,6 +89,14 @@ Focus mode fades the chrome and dims every row but the one being written, with a
 A new user gets three tips (blocks, links, daily) on an empty or blank page, in the same words on both clients, dismissed once per device.
 Known differences left on purpose: refs render as pills on mobile and underlined inline text on desktop (`MarkdownInline`'s `variant`, chosen for touch versus long reading), and the TODO glyph is a circle on mobile and a square on desktop. Changing either is a design call, not an alignment fix.
 
+## Speed and flow
+
+One box finds everything. The desktop palette (`Cmd/Ctrl+P`, or `Cmd/Ctrl+K` on `>` for actions) lists pages, then tasks, then blocks, then actions. A task is a block hit whose text carries a task marker, read by the shared `taskState`, the same reading the bullet toggle uses, so "task" means one thing everywhere.
+Rare actions get no chord but are still found by name: `CHORDLESS_ACTIONS` lists them, starting with "Export as Markdown", which runs the same `export_markdown` the Settings card does.
+Quick capture is one line into the end of today's journal through `create_block`, so it is an op like any typed block. Three doors open the box: the `QuickCapture` action (`Cmd/Ctrl+Shift+Space`), the same chord registered with the OS through `tauri-plugin-global-shortcut` so it works with the window in the background, and `outl://capture`. On iOS the link opens the existing capture sheet, which is step 1 of RFC 0363. A chord another app already owns is logged and skipped; the other doors still work.
+`QuickCapture` and `ExportMarkdown` are new `Action`s with a verdict for all three clients in `outl_shortcuts::support`; the TUI is `Missing` for both, with the reason in `support/why.rs`.
+Not done here, on purpose: undo for sync and plugin actions, and a full keyboard map of the desktop chrome. Undo today is a per-page snapshot stack of this device's own edits. Undoing a peer's edit means emitting compensating ops for changes this device never made, and a plugin's writes need to be attributed before they can be stepped back; both are engine questions for their own design. Until then, page history's restore is the way back from a sync, and it is already new ops. Keyboard reach for the sidebar, panels and capsules needs focus management across components and lands separately.
+
 ## Scope
 
-Not covered: mobile day swipe (a separate, smaller change with no RFC need), the iOS quick capture outside the app (it writes from another process, which is an op log and actor question with its own RFC), and any change to how journal pages are created or named (RFC 0107).
+Not covered: mobile day swipe (a separate, smaller change with no RFC need), the iOS quick capture outside the app beyond the `outl://capture` link (it writes from another process, which is an op log and actor question for RFC 0363), and any change to how journal pages are created or named (RFC 0107).
