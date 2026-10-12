@@ -14,6 +14,7 @@ const palettes = presets as Palette[];
  */
 const META = 0b1000;
 const CTRL = 0b0001;
+const SHIFT = 0b0100;
 const BASE = [
   { key: "p", mode: "global", action: { kind: "OpenPicker" }, description: "Open quick switcher" },
   { key: "k", mode: "normal", action: { kind: "OpenCommandPalette" }, description: "Command palette" },
@@ -22,9 +23,18 @@ const BASE = [
   { key: ",", mode: "global", action: { kind: "OpenSettings" }, description: "Open settings" },
 ];
 // Cmd first, then its Ctrl twin, the order the real catalog uses.
-const BINDINGS = BASE.flatMap(({ key, ...rest }) =>
-  [META, CTRL].map((mods) => ({ chord: [{ mods, key: { kind: "Char", value: key } }], ...rest })),
-);
+const BINDINGS = [
+  ...BASE.flatMap(({ key, ...rest }) =>
+    [META, CTRL].map((mods) => ({ chord: [{ mods, key: { kind: "Char", value: key } }], ...rest })),
+  ),
+  // Quick capture is the one Shift+Space chord the palette needs to show.
+  ...[META, CTRL].map((mods) => ({
+    chord: [{ mods: mods | SHIFT, key: { kind: "Space" } }],
+    mode: "global",
+    action: { kind: "QuickCapture" },
+    description: "Quick capture to today",
+  })),
+];
 const palette = (name: unknown) =>
   palettes.find((p) => p.name === name) ?? palettes[0];
 
