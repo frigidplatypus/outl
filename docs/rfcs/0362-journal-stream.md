@@ -1,4 +1,4 @@
-# RFC 0362 — The journal is a stream of days, and each day keeps its own undo
+# RFC 0362: The journal is a stream of days, and each day keeps its own undo
 
 | | |
 |---|---|
