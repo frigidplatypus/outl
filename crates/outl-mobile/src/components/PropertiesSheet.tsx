@@ -29,6 +29,7 @@ import {
 } from "../lib/properties";
 import { createSheetDrag } from "../lib/sheet-drag";
 import { haptic } from "../lib/haptics";
+import { HistorySheet } from "./HistorySheet";
 import { SwipeRow } from "./SwipeRow";
 
 /** What the sheet is editing: one block's properties, or the page's. */
@@ -264,7 +265,19 @@ export function PropertiesSheet(props: PropertiesSheetProps): JSX.Element {
         ? "Page properties"
         : "Block properties";
 
+  // The page's history opens from here (the page-scope sheet is the one
+  // page-level menu mobile has) and outlives this sheet's own close.
+  const [historyFor, setHistoryFor] = createSignal<string | null>(null);
+
   return (
+    <>
+    <HistorySheet
+      pageId={historyFor()}
+      view={props.view}
+      onClose={() => setHistoryFor(null)}
+      onView={props.onView}
+      onMessage={props.onMessage}
+    />
     <Show when={open()}>
       <div
         class="outl-fade-in fixed inset-0 z-[55] bg-black/40 backdrop-blur-md"
@@ -547,6 +560,15 @@ export function PropertiesSheet(props: PropertiesSheetProps): JSX.Element {
           </div>
         </div>
 
+        <Show when={scope() === "page" && props.pageId}>
+          <button
+            type="button"
+            onClick={() => (setHistoryFor(props.pageId), props.onClose())}
+            class="mx-3 mb-2 rounded-2xl bg-(--color-outl-bg-elev)/95 py-3.5 text-center text-[16px] text-(--color-outl-accent) shadow-[var(--shadow-capsule)] backdrop-blur-2xl active:bg-(--color-outl-border)/30"
+          >
+            Page history
+          </button>
+        </Show>
         <button
           type="button"
           onClick={props.onClose}
@@ -556,5 +578,6 @@ export function PropertiesSheet(props: PropertiesSheetProps): JSX.Element {
         </button>
       </div>
     </Show>
+    </>
   );
 }

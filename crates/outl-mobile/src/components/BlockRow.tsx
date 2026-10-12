@@ -2,6 +2,7 @@ import { For, JSX, Show } from "solid-js";
 import type { BlockNode } from "@outl/shared/api/types";
 import { rawTextWithTodo } from "@outl/shared/outline";
 import { haptic } from "../lib/haptics";
+import { savedMarks } from "../lib/saved";
 import { BlockBody, rowPadLeft } from "./BlockBody";
 import { SwipeRow } from "./SwipeRow";
 
@@ -176,6 +177,12 @@ export function BlockRow(props: BlockRowProps): JSX.Element {
           }
         />
       </SwipeRow>
+      {/* Saved-to-disk: fades in when this block's commit lands, then out. */}
+      <span
+        aria-hidden="true"
+        class="outl-saved-mark absolute top-[14px] right-[6px]"
+        data-on={savedMarks.isSaved(props.block.id) ? "" : undefined}
+      />
 
       <Show when={hasChildren() && !props.block.collapsed}>
         <div class="relative">
