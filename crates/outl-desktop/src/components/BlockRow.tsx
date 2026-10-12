@@ -3,6 +3,7 @@ import { For, Show, createSignal } from "solid-js";
 import type { BlockNode, TodoState } from "@outl/shared/api/types";
 import { QuoteWrap, isBlockQuoted } from "@outl/shared/markdown";
 import { rawTextWithTodo } from "@outl/shared/outline";
+import { createSettle } from "@outl/shared/polish";
 
 import { appState, savedMarks, setAppState } from "../lib/store";
 import { BlockBody } from "./BlockBody";
@@ -89,6 +90,8 @@ export function BlockRow(props: {
   }
 
   const isSelected = () => appState.selectedBlockId === props.block.id;
+  // One short slide-in when the children appear, never on first paint.
+  const justUnfolded = createSettle(() => props.block.collapsed, 220);
   /** Vim Visual range covers this block. Mutually exclusive with
    *  `isSelected()` rendering-wise: when both are true we apply the
    *  Visual style so the user sees the contiguous band, not a single
@@ -309,6 +312,7 @@ export function BlockRow(props: {
       </div>
 
       <Show when={!props.block.collapsed && props.block.children.length > 0}>
+        <div class={justUnfolded() ? "outl-unfold" : undefined}>
         <For each={props.block.children}>
           {(child) => (
             <BlockRow
@@ -320,6 +324,7 @@ export function BlockRow(props: {
             />
           )}
         </For>
+        </div>
       </Show>
     </div>
   );

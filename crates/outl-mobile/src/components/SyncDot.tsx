@@ -1,4 +1,5 @@
 import { JSX, Show } from "solid-js";
+import { createSettle } from "@outl/shared/polish";
 
 export type SyncStatus = "synced" | "syncing" | "offline";
 
@@ -22,6 +23,8 @@ const STATUS_LABEL: Record<SyncStatus, string> = {
  * colour-blind users get a grey-ish dot they can't interpret.
  */
 export function SyncDot(props: SyncDotProps): JSX.Element {
+  // One soft pulse on the dot when a pass finishes, same as desktop.
+  const settling = createSettle(() => props.status === "syncing");
   return (
     <span
       role="status"
@@ -35,7 +38,7 @@ export function SyncDot(props: SyncDotProps): JSX.Element {
         fallback={
           <span
             aria-hidden="true"
-            class="h-2 w-2 rounded-full"
+            class={`h-2 w-2 rounded-full${settling() ? " outl-sync-settle" : ""}`}
             style={{
               background:
                 props.status === "synced"

@@ -1,6 +1,7 @@
 import { For, JSX, Show } from "solid-js";
 import type { BlockNode } from "@outl/shared/api/types";
 import { rawTextWithTodo } from "@outl/shared/outline";
+import { createSettle } from "@outl/shared/polish";
 import { haptic } from "../lib/haptics";
 import { savedMarks } from "../lib/saved";
 import { BlockBody, rowPadLeft } from "./BlockBody";
@@ -103,6 +104,8 @@ interface BlockRowProps {
 export function BlockRow(props: BlockRowProps): JSX.Element {
   const isEditing = () => props.editingId === props.block.id;
   const hasChildren = () => props.block.children.length > 0;
+  // One short slide-in when the children appear, never on first paint.
+  const justUnfolded = createSettle(() => props.block.collapsed, 220);
 
   const selectionMode = () => props.selectionMode ?? false;
   const selected = () => props.selectionSet?.has(props.block.id) ?? false;
@@ -185,7 +188,7 @@ export function BlockRow(props: BlockRowProps): JSX.Element {
       />
 
       <Show when={hasChildren() && !props.block.collapsed}>
-        <div class="relative">
+        <div class={`relative${justUnfolded() ? " outl-unfold" : ""}`}>
           {/* Guide line connecting parent bullet to children */}
           <span
             aria-hidden="true"

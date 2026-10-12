@@ -3,6 +3,7 @@
 @import "@outl/shared/warnings/styles";
 @import "@outl/shared/peers/styles";
 @import "@outl/shared/trust/styles";
+@import "@outl/shared/polish/styles";
 @import "@outl/shared/plugins/styles";
 
 /* Spring-ish ease curves used across the app. Apple's UIKit defaults
