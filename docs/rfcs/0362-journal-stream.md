@@ -95,7 +95,24 @@ One box finds everything. The desktop palette (`Cmd/Ctrl+P`, or `Cmd/Ctrl+K` on 
 Rare actions get no chord but are still found by name: `CHORDLESS_ACTIONS` lists them, starting with "Export as Markdown", which runs the same `export_markdown` the Settings card does.
 Quick capture is one line into the end of today's journal through `create_block`, so it is an op like any typed block. Three doors open the box: the `QuickCapture` action (`Cmd/Ctrl+Shift+Space`), the same chord registered with the OS through `tauri-plugin-global-shortcut` so it works with the window in the background, and `outl://capture`. On iOS the link opens the existing capture sheet, which is step 1 of RFC 0363. A chord another app already owns is logged and skipped; the other doors still work.
 `QuickCapture` and `ExportMarkdown` are new `Action`s with a verdict for all three clients in `outl_shortcuts::support`; the TUI is `Missing` for both, with the reason in `support/why.rs`.
-Not done here, on purpose: undo for sync and plugin actions, and a full keyboard map of the desktop chrome. Undo today is a per-page snapshot stack of this device's own edits. Undoing a peer's edit means emitting compensating ops for changes this device never made, and a plugin's writes need to be attributed before they can be stepped back; both are engine questions for their own design. Until then, page history's restore is the way back from a sync, and it is already new ops. Keyboard reach for the sidebar, panels and capsules needs focus management across components and lands separately.
+Undo for sync and plugin writes has its own section below. Keyboard reach for the chrome (roving focus, F6 regions, Esc to the outline) lives in `crates/outl-desktop/src/lib/keyboard-reach.ts`.
+
+## Undo across sync and plugins
+
+Undo is a per-page stack of `.md` snapshots, and a restore goes back through `restore_page_md`, so every undo is new ops in the log.
+Until now only this device's own commits pushed a snapshot. A peer reload that changed a page **dropped** that page's stack (`invalidate_changed_history`), because restoring a snapshot taken before the peer's edit would silently revert it. A plugin write pushed nothing at all.
+
+**What we chose: an outside change is its own undo step.**
+
+- **Sync.** When a reload is about to publish, every page touched by the newly arrived ops (their nodes mapped through `enclosing_page_id` in both trees), plus every page that already has a stack, is rendered in the old and the fresh tree. Where the two differ, the old render is pushed onto that page's stack instead of the stack being dropped. History stays linear in time: `edit1, edit2, peer edit` undoes as `peer edit`, then `edit2`, then `edit1`, so an older snapshot is only ever restored after the peer's edit was itself stepped back, explicitly. Pushing clears redo, the same way any new edit branches history.
+- **Plugins.** `plugin_run` and `plugin_sync_hooks` render the page on screen before handing control to the plugin thread. If the plugin applied ops and that page's render changed, the before render is pushed.
+- **No new Op, no compensating op type.** Undoing a peer's edit is a `restore_page_md` like any other undo, so it is ordinary ops from this device. Peers see an edit, not a rewind, and the CRDT converges as usual.
+
+**Why not the alternatives.** Inverse ops per remote op would need an inverse for every `Op` variant, including moves whose "before" depends on siblings, and the undo would interleave with ops the user never saw. Keeping the old drop rule is safe but means one `Cmd+Z` after any sync does nothing, which is what the issue asks to fix. A global, cross-page undo would reorder history behind the user's back (see "A stream-wide undo" above).
+
+**What gets worse.** A user who presses `Cmd+Z` right after a sync reverts the peer's edit, which is visible to that peer. That is the point, and it stays recoverable: redo, page history, and the peer's own op log all still hold it. A plugin that writes to pages other than the one on screen is not undoable from those pages; it needs the plugin host to report which pages a run touched, and is left for a follow-up. After a snapshot boot the "new ops" set can be wrong, which is why pages with a stack are always diffed too.
+
+**Guarded by** `a_peer_edit_becomes_its_own_undo_step`, `history_stays_linear_across_a_peer_edit`, `a_page_only_the_peer_touched_gains_a_stack`, `no_baseline_still_drops_everything` and `a_plugin_write_to_the_page_on_screen_is_undoable`.
 
 ## Scope
 
