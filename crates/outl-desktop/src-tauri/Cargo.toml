@@ -68,3 +68,5 @@ tracing-subscriber = { workspace = true }
 yrs = { workspace = true }
 anyhow = { workspace = true }
 tauri-plugin-notification = "2"
+# OS-wide quick capture chord (Cmd/Ctrl+Shift+Space) while outl is in the background.
+tauri-plugin-global-shortcut = "2"

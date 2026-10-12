@@ -41,6 +41,7 @@ mod helpers;
 mod iroh_sync;
 mod open_with;
 mod plugin_service;
+mod quick_capture;
 mod settings;
 mod state;
 mod workspace_open;
@@ -243,7 +244,9 @@ pub fn run() {
         // not prompt for permission — the frontend asks only when the
         // user turns reminders on in Settings.
         .plugin(tauri_plugin_notification::init())
+        .plugin(quick_capture::plugin())
         .setup(|app| -> Result<(), Box<dyn std::error::Error>> {
+            quick_capture::register(app.handle());
             // Local-only state (the per-device `actor` ULID and the
             // `config.toml`) lives at `~/.config/outl/` — the XDG
             // path the TUI also reads, so the two clients share a
