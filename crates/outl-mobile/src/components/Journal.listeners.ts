@@ -39,7 +39,9 @@ import { installFileDrop } from "@outl/shared/drag-drop";
 export type DeepLinkNavigate =
   | { kind: "today" }
   | { kind: "daily"; date: string }
-  | { kind: "page"; slug: string };
+  | { kind: "page"; slug: string }
+  /** `outl://capture`: the quick capture sheet, nothing written yet (RFC 0363). */
+  | { kind: "capture" };
 
 /** What the listeners need from `Journal`. Accessors, never values. */
 export interface JournalListenerDeps {
@@ -54,6 +56,8 @@ export interface JournalListenerDeps {
   pullAndReload: (opts: { background: boolean }) => Promise<void>;
   /** Import dropped files against the block under the drop point. */
   onFileDrop: (paths: string[], blockId: string | null) => void;
+  /** Open the capture sheet; `outl://capture` lands here. */
+  openCapture: () => void;
 }
 
 /**
@@ -89,9 +93,13 @@ function armCleanup(): (unlisten: () => void) => void {
  * with a buffered payload, without a listener in between.
  */
 export async function navigateDeepLink(
-  deps: Pick<JournalListenerDeps, "applyView" | "setError">,
+  deps: Pick<JournalListenerDeps, "applyView" | "setError" | "openCapture">,
   p: DeepLinkNavigate,
 ): Promise<void> {
+  if (p.kind === "capture") {
+    deps.openCapture();
+    return;
+  }
   try {
     const next =
       p.kind === "today"

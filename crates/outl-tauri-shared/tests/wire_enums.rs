@@ -370,6 +370,7 @@ fn deep_link_targets_match_their_union() {
         T::Today => "today",
         T::Daily(_) => "daily",
         T::Page(_) => "page",
+        T::Capture => "capture",
     );
     let emitted: BTreeSet<String> = tags.iter().map(|t| (*t).to_string()).collect();
     assert_union_variant_tags(&emitted, "DeepLinkNavigate", "kind");
