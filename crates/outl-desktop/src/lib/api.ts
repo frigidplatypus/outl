@@ -211,6 +211,7 @@ export type Action =
   | { kind: "ToggleBacklinks" }
   | { kind: "QuickCapture" }
   | { kind: "ExportMarkdown" }
+  | { kind: "ToggleFocusMode" }
   // Reminders (`remind::`) — authoring + the panel. Delivery is
   // per-OS and never a chord.
   | { kind: "InsertRemind" }

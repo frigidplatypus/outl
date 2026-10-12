@@ -147,16 +147,8 @@ impl ClientSupport {
     }
 }
 
-/// Shorthand so the table below reads as three columns.
-macro_rules! row {
-    ($tui:expr, $desktop:expr, $mobile:expr) => {
-        ClientSupport {
-            tui: $tui,
-            desktop: $desktop,
-            mobile: $mobile,
-        }
-    };
-}
+#[macro_use]
+mod row;
 
 use Support::{Full, Missing, Native, NotApplicable, Partial};
 
@@ -190,6 +182,7 @@ pub fn support(action: Action) -> ClientSupport {
         Action::OpenSettings => row!(Full, Full, Full),
         Action::QuickCapture => row!(Missing(why::TUI_NO_CAPTURE), Full, Full),
         Action::ExportMarkdown => row!(Missing(why::TUI_NO_EXPORT), Full, Full),
+        Action::ToggleFocusMode => row!(Missing(why::TUI_NO_FOCUS), Full, Full),
         Action::Quit => row!(
             Full,
             Full,
@@ -529,7 +522,7 @@ mod tests {
                 let _ = s.get(client);
             }
         }
-        assert_eq!(Action::ALL.len(), 80, "Action::ALL changed size");
+        assert_eq!(Action::ALL.len(), 81, "Action::ALL changed size");
     }
 
     #[test]

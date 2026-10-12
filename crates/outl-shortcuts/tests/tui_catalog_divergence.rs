@@ -90,6 +90,14 @@ struct Divergence {
 /// move the chord into `AGREED` instead.
 const KNOWN_DIVERGENCES: &[Divergence] = &[
     Divergence {
+        chord: "Ctrl+Shift+f",
+        mode: Mode::Global,
+        catalog: Action::ToggleFocusMode,
+        tui_does: "lands on the unguarded `F` arm and waits for a find-backward target",
+        harm: Harm::Different,
+        note: "Focus mode is GUI chrome; support.rs records the TUI as Missing. Esc drops the pending find.",
+    },
+    Divergence {
         chord: "Ctrl+Shift+Space",
         mode: Mode::Global,
         catalog: Action::QuickCapture,
@@ -378,7 +386,7 @@ fn the_divergence_list_has_not_silently_shrunk() {
     // one is a single keystroke. Pin the shape of the list.
     assert_eq!(
         KNOWN_DIVERGENCES.len(),
-        19,
+        20,
         "the known-divergence list changed size — if a divergence was genuinely \
          resolved, move the chord to AGREED and update this count in the same edit",
     );
