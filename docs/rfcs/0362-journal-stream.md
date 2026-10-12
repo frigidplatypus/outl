@@ -81,6 +81,14 @@ The sync settings show what the op log holds from each actor (`outl_actions::dev
 A block shows a short "saved" dot once `edit_block` resolves.
 Not done here: a list of merged concurrent edits with an undo. The CRDT converges without recording that two edits raced, so showing it needs the engine to detect concurrency first; that is a follow-up with its own design.
 
+## Polish you can feel
+
+Motion is short and only ever opacity or transform: children slide in when a block unfolds (never on page load), a drop target eases into its ring, and the sync dot pulses once when a pass ends. Under `prefers-reduced-motion` all of it is off and the end state shows at once.
+Reading gets one rhythm on both clients (`outl-reading`: 1.6 line height, kerning and ligatures, a little air between blocks). Body text uses `fg`, which clears 4.5:1 on all ten presets, and a test pins that.
+Focus mode fades the chrome and dims every row but the one being written, with a 68ch measure on desktop. It is a device preference, like scroll position. It ships as a button in both capsules; a keyboard chord needs an `Action`, which waits for `outl-shortcuts`' baselined files to be split.
+A new user gets three tips (blocks, links, daily) on an empty or blank page, in the same words on both clients, dismissed once per device.
+Known differences left on purpose: refs render as pills on mobile and underlined inline text on desktop (`MarkdownInline`'s `variant`, chosen for touch versus long reading), and the TODO glyph is a circle on mobile and a square on desktop. Changing either is a design call, not an alignment fix.
+
 ## Scope
 
 Not covered: mobile day swipe (a separate, smaller change with no RFC need), the iOS quick capture outside the app (it writes from another process, which is an op log and actor question with its own RFC), and any change to how journal pages are created or named (RFC 0107).

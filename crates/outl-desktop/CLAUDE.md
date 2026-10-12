@@ -538,3 +538,9 @@ One thing that bites every time: **testing on macOS needs a bundled, installed a
 
 - `components/TrustSection.tsx`, rendered inside `SyncPanel`: per-device op counts from `device_activity` (labelled "This device" / a short actor id, never a guessed name, since an actor is not a peer id) and the one-click Markdown export (`export_markdown`, a new folder next to the workspace). Presentation is `@outl/shared/trust`.
 - The saved mark: `savedMarks` in `lib/store.ts`; `OutlineView`'s commit marks a block when `edit_block` resolves and `BlockRow` renders the fading dot. Do not mark before the command resolves; the mark means "the op is on disk".
+
+## Polish: motion, focus mode, first-run tips
+
+- `BlockRow` slides children in with `outl-unfold` only when `collapsed` flips to false (`createSettle`), so a page load never animates. `SyncIndicator` pulses the dot once when a pass ends.
+- Focus mode is the capsule button after the sync dot, same slot and glyph as mobile. It is not an `Action` yet: `support.rs` and `defaults.rs` sit at their file-size baseline, so a chord waits for that split. The capsules carry `outl-focus-hide`; the outline column carries `outl-reading`.
+- `PageSections` renders `<FirstRunTips client="desktop" />` when `isBlankOutline(rootBlocks())`; the empty-page fallback in `OutlineView` shows it too.
