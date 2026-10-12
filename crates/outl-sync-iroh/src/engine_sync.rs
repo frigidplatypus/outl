@@ -10,10 +10,8 @@
 //! - [`SyncProtocolHandler`] — the **responder** side, mounted on the router.
 //! - The framing helpers (`read_frame` + the typed `read_*` wrappers).
 //!
-//! What the wire reads from and writes to DISK lives in [`crate::oplog`]
-//! (`local_vector_clock`, `ops_missing_for`, `ingest_received_ops` and the
-//! append-serialization invariant). Those rules hold regardless of which wire
-//! version calls them, which is why they are not in here.
+//! What the wire reads from and writes to DISK (`local_vector_clock`, `ops_missing_for`,
+//! `ingest_received_ops`, append serialization) lives in [`crate::oplog`], for every wire version.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -418,6 +416,7 @@ async fn delta_sync_inner(
     // flow) and we cannot claim the push landed.
     match read_ack(&mut recv).await {
         Ok(()) => {
+            crate::pending::pushed(workspace_root, peer_node_id, &peer_clock, &request);
             progress.emit(SyncProgress::Synced { peer: peer_short });
             Ok(())
         }
@@ -675,6 +674,7 @@ impl SyncProtocolHandler {
             .await
             .context("send durable-ingest ack")?;
         send.finish().context("finish ack")?;
+        crate::pending::served(&self.workspace_root, conn.remote_id(), &request);
 
         // Self-heal a moved peer's stale stored address: this inbound dial
         // arrived over the peer's CURRENT direct socket, so refresh

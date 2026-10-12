@@ -62,6 +62,9 @@ pub struct PeerStatusDto {
     pub alias: Option<String>,
     pub online: bool,
     pub rtt_ms: Option<u64>,
+    /// Ops this device holds that the peer has not confirmed yet.
+    /// `None` until the two have exchanged once this session.
+    pub pending_ops: Option<u64>,
 }
 
 /// List all paired devices.
@@ -103,6 +106,14 @@ pub fn peer_status<S: AppHost>(state: &S) -> Result<Vec<PeerStatusDto>, String> 
         })
         .unwrap_or_default();
 
+    // What each peer still has to receive. Best effort: a read error only
+    // costs the column, never the status list.
+    let pending: HashMap<String, u64> = state
+        .storage_root()
+        .ok()
+        .and_then(|root| outl_sync_iroh::pending_by_peer(&root, state.hlc().actor()).ok())
+        .unwrap_or_default();
+
     Ok(peers
         .list()
         .iter()
@@ -113,6 +124,7 @@ pub fn peer_status<S: AppHost>(state: &S) -> Result<Vec<PeerStatusDto>, String> 
                 alias: p.alias.clone(),
                 online: h.map(|h| h.reachable).unwrap_or(false),
                 rtt_ms: h.and_then(|h| h.last_rtt_ms),
+                pending_ops: pending.get(&p.node_id).copied(),
             }
         })
         .collect())

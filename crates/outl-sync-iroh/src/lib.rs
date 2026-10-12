@@ -68,6 +68,7 @@ pub mod peer_conn;
 mod peer_label;
 mod peers;
 mod peers_lock;
+mod pending;
 mod progress;
 mod protocol;
 mod revoke;
@@ -95,6 +96,7 @@ pub use pairing::{
 };
 pub use peer_label::{display_label, display_label_at, display_label_in, sanitize_alias};
 pub use peers::{migrate_global_peers_if_absent, workspace_peers_path, PeerEntry, PeersStore};
+pub use pending::pending_by_peer;
 pub use protocol::{ASSET_ALPN, PAIRING_ALPN, SNAPSHOT_ALPN, SYNC_ALPN};
 pub use revoke::rotate_workspace_identity;
 pub use status::{probe_peers, probe_peers_blocking, PeerProbe, PeerStatus};

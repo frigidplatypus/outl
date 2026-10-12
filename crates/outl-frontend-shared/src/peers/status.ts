@@ -25,3 +25,15 @@ export function peersOnline(
   const list = statuses instanceof Map ? [...statuses.values()] : (statuses as readonly PeerStatusDto[]);
   return list.some((s) => s.online === true);
 }
+
+/**
+ * What a peer still has to receive from this device, as a short label.
+ * `null` before the first exchange this session: the panel shows nothing
+ * rather than a number nobody measured.
+ */
+export function pendingLabel(s: PeerStatusDto | undefined): string | null {
+  const n = s?.pending_ops;
+  if (n == null) return null;
+  if (n === 0) return "Up to date";
+  return `${n} ${n === 1 ? "change" : "changes"} waiting`;
+}

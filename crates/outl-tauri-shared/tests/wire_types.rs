@@ -192,6 +192,7 @@ fn peer_status_dto_matches_its_interface() {
         alias: Some("phone".into()),
         online: true,
         rtt_ms: Some(42),
+        pending_ops: Some(3),
     };
     assert_wire_shape(&dto, "PeerStatusDto", &[]);
 }

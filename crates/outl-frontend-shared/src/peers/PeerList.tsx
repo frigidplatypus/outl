@@ -18,6 +18,7 @@
 import { For, Show, type JSX } from "solid-js";
 
 import type { PeerDto, PeerStatusDto } from "../api/types";
+import { pendingLabel } from "./status";
 
 interface PeerListProps {
   /** Paired devices, e.g. from `peerList()`. */
@@ -81,6 +82,13 @@ export function PeerList(props: PeerListProps): JSX.Element {
                   </span>
                   <Show when={status()?.online && status()?.rtt_ms != null}>
                     <span class="outl-peer-list__rtt">{status()!.rtt_ms}ms</span>
+                  </Show>
+                  <Show when={pendingLabel(status())}>
+                    {(label) => (
+                      <span class="outl-peer-list__pending" data-pending={status()?.pending_ops ?? 0}>
+                        {label()}
+                      </span>
+                    )}
                   </Show>
                 </span>
                 <Show when={props.onRemove}>
