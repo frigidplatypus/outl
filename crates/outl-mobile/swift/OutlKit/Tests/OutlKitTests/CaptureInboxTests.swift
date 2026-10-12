@@ -55,3 +55,11 @@ final class CaptureInboxTests: XCTestCase {
         XCTAssertEqual(all, "7ZZZZZZZZZZZZZZZZZZZZZZZZZ")
     }
 }
+
+final class CaptureReplyTests: XCTestCase {
+    func testTheReplyNeverClaimsTheLineIsAlreadyInTheJournal() {
+        XCTAssertEqual(CaptureReply.message(for: .success(URL(fileURLWithPath: "/x"))), "Saved, opens in outl.")
+        XCTAssertEqual(CaptureReply.message(for: .failure(CaptureInbox.WriteError.empty)), "Nothing to save.")
+        XCTAssertFalse(CaptureReply.saved.lowercased().contains("added"))
+    }
+}
