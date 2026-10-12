@@ -37,6 +37,7 @@
 		0363A100000000000000000D /* OutlKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0363A100000000000000000C /* OutlKit */; };
 		0363A100000000000000000E /* OutlWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0363A1000000000000000001 /* OutlWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0363B2000000000000000001 /* OutlCaptureInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0363B2000000000000000002 /* OutlCaptureInbox.swift */; };
+		0363C3000000000000000001 /* OutlAddToTodayIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0363C3000000000000000002 /* OutlAddToTodayIntent.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -77,6 +78,7 @@
 		0363A1000000000000000003 /* OutlWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OutlWidget.entitlements; sourceTree = "<group>"; };
 		0363A1000000000000000001 /* OutlWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OutlWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0363B2000000000000000002 /* OutlCaptureInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlCaptureInbox.swift; sourceTree = "<group>"; };
+		0363C3000000000000000002 /* OutlAddToTodayIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlAddToTodayIntent.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -228,6 +230,7 @@
 				F0A1B2C0000000000100000C /* OutlBrandChrome.swift */,
 				F0A1B2C0000000000100000E /* OutlBonjour.swift */,
 				0363B2000000000000000002 /* OutlCaptureInbox.swift */,
+				0363C3000000000000000002 /* OutlAddToTodayIntent.swift */,
 				941954E8B021B2B253747A0D /* bindings */,
 			);
 			path = "outl-mobile";
@@ -381,6 +384,7 @@
 				F0A1B2C0000000000100000B /* OutlBrandChrome.swift in Sources */,
 				F0A1B2C0000000000100000D /* OutlBonjour.swift in Sources */,
 				0363B2000000000000000001 /* OutlCaptureInbox.swift in Sources */,
+				0363C3000000000000000001 /* OutlAddToTodayIntent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -441,6 +445,11 @@
 					"\".\"",
 				);
 				INFOPLIST_FILE = "outl-mobile_iOS/Info.plist";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-weak_framework",
+					AppIntents,
+				);
 				INFOPLIST_KEY_CFBundleDisplayName = outl;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -545,6 +554,11 @@
 					"\".\"",
 				);
 				INFOPLIST_FILE = "outl-mobile_iOS/Info.plist";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-weak_framework",
+					AppIntents,
+				);
 				INFOPLIST_KEY_CFBundleDisplayName = outl;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				LD_RUNPATH_SEARCH_PATHS = (
