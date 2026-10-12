@@ -61,6 +61,8 @@
     "./theme": "./src/theme/index.ts",
     "./toolbar": "./src/toolbar/index.ts",
     "./warnings": "./src/warnings/index.ts",
-    "./warnings/styles": "./src/warnings/styles.css"
+    "./warnings/styles": "./src/warnings/styles.css",
+    "./polish": "./src/polish/index.ts",
+    "./polish/styles": "./src/polish/styles.css"
   }
 }

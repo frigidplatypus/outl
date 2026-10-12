@@ -1,0 +1,163 @@
+/* Baseline motion, reading rhythm and focus mode for @outl/shared/polish.
+   Every animation is short (under 200ms) and only touches opacity and
+   transform, so it never reflows the outline. A reader who asked for
+   less motion gets the end state with no transition at all. */
+:root {
+  --outl-motion-fast: 120ms;
+  --outl-motion-base: 180ms;
+  --outl-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Long reading. Line height and measure, not colour: body text uses
+     `fg`, which clears 4.5:1 on every preset (pinned in polish.test.ts). */
+  --outl-read-leading: 1.6;
+  --outl-read-measure: 68ch;
+  --outl-read-block-gap: 2px;
+}
+
+/* Children of a block that was just unfolded slide in from the bullet. */
+.outl-unfold {
+  animation: outl-unfold var(--outl-motion-base) var(--outl-ease-out);
+  transform-origin: top left;
+}
+@keyframes outl-unfold {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Drag: the block under the pointer eases into its drop ring instead
+   of snapping, so the target reads while the pointer is still moving. */
+.outl-row {
+  transition:
+    background-color var(--outl-motion-fast) ease,
+    box-shadow var(--outl-motion-fast) ease;
+}
+
+/* The sync dot settles with one soft pulse when a pass finishes. */
+.outl-sync-settle {
+  animation: outl-sync-settle 420ms var(--outl-ease-out);
+}
+@keyframes outl-sync-settle {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  60% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* Reading rhythm, applied to the outline column on both clients. */
+.outl-reading {
+  line-height: var(--outl-read-leading);
+  font-feature-settings: "kern", "liga", "calt";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: proportional-nums;
+}
+.outl-reading .outl-row {
+  padding-top: var(--outl-read-block-gap);
+  padding-bottom: var(--outl-read-block-gap);
+}
+
+/* Focus mode: the chrome steps out, the text gets a reading measure. */
+html[data-outl-focus="on"] .outl-focus-hide {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--outl-motion-base) ease;
+}
+html[data-outl-focus="on"] .outl-focus-hide:hover,
+html[data-outl-focus="on"] .outl-focus-hide:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+html[data-outl-focus="on"] .outl-reading {
+  max-width: var(--outl-read-measure);
+  margin-left: auto;
+  margin-right: auto;
+  font-size: 1.0625em;
+}
+html[data-outl-focus="on"] .outl-row:not(:focus-within):not([data-editing="true"]) {
+  opacity: 0.55;
+  transition: opacity var(--outl-motion-base) ease;
+}
+
+/* First-run tips card, shared by both empty states. */
+.outl-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 22rem;
+  margin: 0 auto;
+  padding: 16px;
+  border: 1px solid var(--color-outl-border);
+  border-radius: 14px;
+  background: var(--color-outl-bg-elev);
+  text-align: left;
+  animation: outl-unfold var(--outl-motion-base) var(--outl-ease-out);
+}
+.outl-tips h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-outl-fg);
+}
+.outl-tip {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-outl-fg);
+}
+.outl-tip-glyph {
+  color: var(--color-outl-accent);
+  font-weight: 600;
+  text-align: center;
+}
+.outl-tip kbd,
+.outl-tip code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-outl-fg) 10%, transparent);
+  font-size: 12px;
+}
+.outl-tips-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.outl-tips-actions button {
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+.outl-tips-primary {
+  background: var(--color-outl-accent);
+  color: var(--color-outl-bg);
+}
+.outl-tips-secondary {
+  color: var(--color-outl-fg-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .outl-unfold,
+  .outl-sync-settle,
+  .outl-tips {
+    animation: none;
+  }
+  .outl-row,
+  html[data-outl-focus="on"] .outl-focus-hide,
+  html[data-outl-focus="on"] .outl-row {
+    transition: none;
+  }
+}
