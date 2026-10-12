@@ -93,6 +93,7 @@ Silently changing pinned behaviour is the regression this process exists to catc
 | [0266](0266-measure-before-you-believe.md) | The most dangerous stale fact is one that was true | Informational | — |
 | [0276](0276-mcp-content-only-replies.md) | An MCP reply carries its payload once, and an error is the exception | Accepted | PR #276 (#273) |
 | [0362](0362-journal-stream.md) | The journal is a stream of days, and each day keeps its own undo | Draft | PR #362 |
+| [0363](0363-ios-quick-capture.md) | Capture from outside the iOS app lands through an inbox the app drains | Draft | #363 |
 
 ## How the retroactive set was chosen
 
