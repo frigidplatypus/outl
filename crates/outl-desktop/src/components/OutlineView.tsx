@@ -733,7 +733,7 @@ export function OutlineView() {
     //
     // Classic Tailwind/flexbox/grid pitfall on both axes; the two
     // unlocks pair.
-    <main class="flex h-full min-h-0 min-w-0 flex-col">
+    <main class="flex h-full min-h-0 min-w-0 flex-col outline-none" data-outl-region="outline" tabIndex={-1}>
       <header class="border-b border-(--color-outl-border)/30 px-12 pt-12 pb-8">
         <div class="mx-auto max-w-3xl">
           {/*

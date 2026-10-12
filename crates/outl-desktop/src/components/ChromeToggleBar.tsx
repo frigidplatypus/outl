@@ -3,6 +3,7 @@ import { For, createSignal, onMount, type JSX } from "solid-js";
 import { focusMode } from "@outl/shared/polish";
 import { pluginRun, pluginToolbar } from "@outl/shared/api/commands";
 import type { PluginToolbarButton as ToolbarButtonEntry } from "@outl/shared/api/types";
+import { rovingKeydown } from "../lib/keyboard-reach";
 import { playPluginViews } from "../lib/plugin-views";
 import { appState, setAppState, setOutline } from "../lib/store";
 import type { ActionHandlers } from "../lib/shortcuts";
@@ -202,7 +203,14 @@ export function ChromeToggleBar(props: { handlers?: ActionHandlers | null }) {
 
   return (
     <>
-      <div class={`${capsule} left-3`} data-testid="chrome-left">
+      <div
+        class={`${capsule} left-3`}
+        data-testid="chrome-left"
+        data-outl-region="chrome"
+        role="toolbar"
+        aria-label="Window"
+        onKeyDown={(e) => rovingKeydown(e, "horizontal")}
+      >
         <ChromeToggle
           glyph={<SidebarIcon />}
           active={appState.sidebarOpen}
@@ -211,7 +219,14 @@ export function ChromeToggleBar(props: { handlers?: ActionHandlers | null }) {
           onToggle={() => setAppState("sidebarOpen", !appState.sidebarOpen)}
         />
       </div>
-      <div class={`${capsule} right-3`} data-testid="chrome-right">
+      <div
+        class={`${capsule} right-3`}
+        data-testid="chrome-right"
+        data-outl-region="chrome"
+        role="toolbar"
+        aria-label="Page and app"
+        onKeyDown={(e) => rovingKeydown(e, "horizontal")}
+      >
         <ChromeToggle
           glyph={<FoldIcon />}
           active={false}
@@ -253,7 +268,7 @@ export function ChromeToggleBar(props: { handlers?: ActionHandlers | null }) {
           glyph={<FocusIcon />}
           active={focus.on()}
           label={focus.on() ? "Leave focus mode" : "Focus mode"}
-          title="Focus mode"
+          title="Focus mode (⌘⇧F)"
           onToggle={focus.toggle}
         />
         <ChromeToggle

@@ -25,6 +25,7 @@ import {
 } from "@outl/shared/journal";
 import { CalendarIcon, PageGlyph, SearchIcon } from "@outl/shared/icons";
 
+import { rovingKeydown } from "../lib/keyboard-reach";
 import { isMac } from "../lib/palette-results";
 import { appState, setAppState } from "../lib/store";
 
@@ -395,7 +396,12 @@ export function Sidebar(props: {
   }
 
   return (
-    <aside class="flex h-full flex-col text-sm">
+    <aside
+      class="flex h-full flex-col text-sm"
+      data-outl-region="sidebar"
+      aria-label="Sidebar"
+      onKeyDown={(e) => rovingKeydown(e, "vertical")}
+    >
       {/* pt-16 clears the top-left sidebar toggle capsule
           (`<ChromeToggleBar />`), which floats over this corner. */}
       <div class="space-y-1 px-3 pt-16 pb-2">
