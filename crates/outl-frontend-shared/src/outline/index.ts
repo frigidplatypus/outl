@@ -469,3 +469,15 @@ export function cycleTodo(raw: string): string {
   const next = TASK_PREFIXES[current + 1] ?? "";
   return `${next}${quoted ? QUOTE_PREFIX : ""}${body}`;
 }
+
+/**
+ * Which task state a block's text carries, read through the same
+ * {@link READ_PREFIXES} the toggle uses (quote prefix peeled), or `null`
+ * for a plain block. The palette sorts task hits into their own section
+ * with this, so "a task" means the same thing there as on the bullet.
+ */
+export function taskState(raw: string): "todo" | "doing" | "done" | null {
+  const body = raw.startsWith(QUOTE_PREFIX) ? raw.slice(QUOTE_PREFIX.length) : raw;
+  const hit = READ_PREFIXES.find(([p]) => body.startsWith(p));
+  return hit ? (["todo", "doing", "done"] as const)[hit[1]] : null;
+}

@@ -54,6 +54,8 @@ It is the string the client shows when the user reaches for the action, so it is
 | `ToggleSidebar` | ✅ | ✅ | — _Mobile is single-pane — the page switcher replaces the sidebar._ |
 | `ToggleBacklinks` | ✅ | ✅ | ✅ |
 | `OpenSettings` | ✅ | ✅ | ✅ |
+| `QuickCapture` | ❌ The terminal has no capture box yet; open today's journal and add a block. | ✅ | ✅ |
+| `ExportMarkdown` | ❌ Export isn't in the terminal yet; the workspace `.md` files are already plain Markdown. | ✅ | ✅ |
 | `Quit` | ✅ | ✅ | — _Mobile apps are backgrounded by the OS, not quit from inside._ |
 | `OpenToday` | ✅ | ✅ | ✅ |
 | `PrevDay` | ✅ | ✅ | ✅ |

@@ -30,6 +30,11 @@ pub enum Action {
     ToggleBacklinks,
     /// Open the settings modal.
     OpenSettings,
+    /// Open the quick capture box: one line into today's journal
+    /// without leaving the page on screen.
+    QuickCapture,
+    /// Copy the workspace out as plain Markdown (`export_markdown`).
+    ExportMarkdown,
     /// Quit the application (TUI: `q q` chord; desktop: `Cmd+Q` via OS).
     Quit,
 
@@ -294,6 +299,8 @@ impl Action {
         Action::ToggleSidebar,
         Action::ToggleBacklinks,
         Action::OpenSettings,
+        Action::QuickCapture,
+        Action::ExportMarkdown,
         Action::Quit,
         Action::OpenToday,
         Action::PrevDay,
@@ -388,6 +395,8 @@ mod all_tests {
             Action::ToggleSidebar => "ToggleSidebar",
             Action::ToggleBacklinks => "ToggleBacklinks",
             Action::OpenSettings => "OpenSettings",
+            Action::QuickCapture => "QuickCapture",
+            Action::ExportMarkdown => "ExportMarkdown",
             Action::Quit => "Quit",
             Action::OpenToday => "OpenToday",
             Action::PrevDay => "PrevDay",
@@ -476,14 +485,14 @@ mod all_tests {
         );
         assert_eq!(
             names.len(),
-            EXPECTED_78,
-            "Action::ALL has {} entries but the enum has {EXPECTED_78} variants \
-             — add the new variant to Action::ALL (and bump EXPECTED_78)",
+            EXPECTED_80,
+            "Action::ALL has {} entries but the enum has {EXPECTED_80} variants \
+             — add the new variant to Action::ALL (and bump EXPECTED_80)",
             names.len(),
         );
     }
 
     /// Bumped together with a new variant. The `name` match above is
     /// what makes forgetting impossible: it will not compile.
-    const EXPECTED_78: usize = 78;
+    const EXPECTED_80: usize = 80;
 }
