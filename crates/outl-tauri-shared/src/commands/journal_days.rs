@@ -27,7 +27,9 @@ pub fn journal_days_with_content<S: AppHost>(
         .map(|p| p.slug.as_str())
         .collect();
     Ok(days_with_content(
-        index.iter_blocks().filter(|b| journals.contains(b.source_slug.as_str())),
+        index
+            .iter_blocks()
+            .filter(|b| journals.contains(b.source_slug.as_str())),
         &from,
         &to,
     ))

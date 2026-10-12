@@ -80,7 +80,12 @@ pub fn collect_open_tasks<'a>(
         .map(|(s, b, body)| TaskHit {
             id: b.id.to_string(),
             source_slug: b.source_slug.clone(),
-            status: if s == TodoState::Doing { "doing" } else { "todo" }.into(),
+            status: if s == TodoState::Doing {
+                "doing"
+            } else {
+                "todo"
+            }
+            .into(),
             text: body.replace('\n', " ").trim().to_string(),
         })
         .collect();
