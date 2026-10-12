@@ -374,7 +374,7 @@ export function AppShell() {
       <SettingsModal />
       <HelpOverlay />
       <RemindersPanel applyView={applyView} setError={setError} />
-      <TimelinePanel setError={setError} />
+      <TimelinePanel setError={setError} applyView={applyView} />
       <PluginEffectLayer />
       {/* Mounted last so the notification toast sits above every chrome
        *  element (ChromeToggleBar, overlays) in the stacking order. */}

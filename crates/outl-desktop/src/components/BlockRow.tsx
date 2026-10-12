@@ -4,7 +4,7 @@ import type { BlockNode, TodoState } from "@outl/shared/api/types";
 import { QuoteWrap, isBlockQuoted } from "@outl/shared/markdown";
 import { rawTextWithTodo } from "@outl/shared/outline";
 
-import { appState, setAppState } from "../lib/store";
+import { appState, savedMarks, setAppState } from "../lib/store";
 import { BlockBody } from "./BlockBody";
 import { BlockEditor } from "./BlockEditor";
 import type { BlockCallbacks } from "./block-callbacks";
@@ -148,6 +148,14 @@ export function BlockRow(props: {
             class="absolute top-[4px] bottom-[4px] -left-[2px] w-[3px] rounded-full bg-(--color-outl-accent)"
           />
         </Show>
+        {/* Saved-to-disk: fades in when this block's commit lands, then
+         * out on its own. Reassurance, not chrome. */}
+        <span
+          aria-hidden="true"
+          title="Saved to disk"
+          class="outl-saved-mark absolute top-[11px] right-[4px]"
+          data-on={savedMarks.isSaved(props.block.id) ? "" : undefined}
+        />
 
         {/*
          * Indent guides, one per ancestor level. Hairline at 20 %, and

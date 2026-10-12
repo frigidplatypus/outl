@@ -54,9 +54,9 @@ import {
 import { setPageProperty } from "../lib/api";
 import { spliceTextAtCaret } from "../lib/markdown-wrap";
 import {
-  appState,
-  backlinksState,
+  appState, backlinksState,
   emptyBacklinks,
+  savedMarks,
   setAppState,
   setOutline,
 } from "../lib/store";
@@ -449,7 +449,7 @@ export function OutlineView() {
       const pageId = appState.page?.id;
       if (!pageId) return;
       const view = await handleError(editBlock(pageId, id, text));
-      if (view) applyView(view);
+      if (view) (applyView(view), savedMarks.mark(id));
       setEditingId(null);
       // Plugin `onOp` hooks run OFF the input path — fire-and-forget, no
       // `await`. `sync_hooks` runs the 2 plugins' JS through Boa (tens of
