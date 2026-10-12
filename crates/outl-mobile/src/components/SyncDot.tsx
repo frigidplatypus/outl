@@ -13,7 +13,7 @@ const STATUS_LABEL: Record<SyncStatus, string> = {
 };
 
 /**
- * Small status indicator next to the refresh button. Green dot when
+ * Small status indicator inside the sync-now button. Green dot when
  * the workspace is in sync, blue spinner while a sync is in flight,
  * orange dot when offline.
  *

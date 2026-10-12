@@ -164,7 +164,7 @@ Rules:
 ## Force-sync trigger (`sync_now`)
 
 `SyncTransport::sync_now()` (a trait method in `outl-actions`, default no-op so `FileSyncTransport` is unaffected) lets the GUI force an **immediate** delta-sync pass against every known peer instead of waiting for the 8s catch-up tick.
-It backs the mobile pull-to-refresh / refresh button and the desktop Sync panel's Refresh.
+It backs the mobile pull-to-refresh / sync dot tap, the desktop sync dot click and the desktop Sync panel's Refresh.
 
 Wiring mirrors the `announce_tx` / pairing-hub pattern exactly:
 

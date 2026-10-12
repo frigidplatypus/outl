@@ -1,6 +1,10 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { Show, createSignal, onCleanup, onMount } from "solid-js";
 
-import { peerStatus } from "@outl/shared/api/commands";
+import {
+  peerStatus,
+  reloadWorkspace,
+  syncNow,
+} from "@outl/shared/api/commands";
 import { peersOnline } from "@outl/shared/peers";
 
 import { setAppState } from "../lib/store";
@@ -11,8 +15,14 @@ import { onPeerOpsChanged } from "../lib/events";
  *
  * Mirrors the mobile `<SyncDot>`: green when at least one iroh peer is
  * reachable, orange when none are, a dim dot while the first probe is
- * still in flight. Clicking opens Settings, where the full peer list +
- * pairing live (`<SyncPanel>` is the Sync section of `<SettingsModal>`).
+ * still in flight, a spinner while a sync pass runs.
+ *
+ * Clicking it syncs now: dial every peer, reload the op log so the page
+ * re-renders with whatever arrived. That is the refresh the chrome used
+ * to need a separate button for. Clicks while a pass is in flight are
+ * ignored, so mashing the dot never stacks dials. Right-click opens
+ * Settings → Sync, where the full peer list + pairing live
+ * (`<SyncPanel>` is the Sync section of `<SettingsModal>`).
  *
  * The reachability read is the running transport's own dial outcomes
  * (`peerStatus()` → `peersOnline`) — the SAME source the Settings Sync
@@ -24,6 +34,7 @@ import { onPeerOpsChanged } from "../lib/events";
 export function SyncIndicator() {
   // null = first probe still running (dim); true / false = reachability.
   const [online, setOnline] = createSignal<boolean | null>(null);
+  const [syncing, setSyncing] = createSignal(false);
 
   async function refresh() {
     try {
@@ -44,6 +55,20 @@ export function SyncIndicator() {
     onCleanup(() => unlisten());
   });
 
+  async function syncNowFromDot() {
+    if (syncing()) return;
+    setSyncing(true);
+    try {
+      await syncNow();
+      await reloadWorkspace();
+    } catch (e) {
+      setAppState("lastError", e instanceof Error ? e.message : String(e));
+    } finally {
+      setSyncing(false);
+    }
+    await refresh();
+  }
+
   function color(): string {
     const o = online();
     if (o === null) return "var(--color-outl-fg-dim)";
@@ -56,6 +81,7 @@ export function SyncIndicator() {
   }
 
   function label(): string {
+    if (syncing()) return "Syncing…";
     const o = online();
     if (o === null) return "Sync: checking…";
     return o ? "Sync: a peer is reachable" : "Sync: no peer reachable";
@@ -64,18 +90,38 @@ export function SyncIndicator() {
   return (
     <button
       type="button"
-      aria-label={label()}
-      title={`${label()} — open Sync settings`}
-      onClick={() => setAppState("settingsOpen", true)}
+      aria-label={syncing() ? label() : `Sync now. ${label()}`}
+      aria-busy={syncing()}
+      title={
+        syncing()
+          ? label()
+          : `Sync now (${label()}). Right-click for Sync settings`
+      }
+      onClick={() => void syncNowFromDot()}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setAppState("settingsOpen", true);
+      }}
       class="flex h-7 w-7 items-center justify-center rounded-md text-(--color-outl-fg-dim) transition-colors hover:bg-(--color-outl-bg-elev) hover:text-(--color-outl-fg)"
     >
-      <span
-        role="status"
-        aria-live="polite"
-        aria-hidden="true"
-        class="h-2.5 w-2.5 rounded-full"
-        style={{ background: color() }}
-      />
+      <Show
+        when={syncing()}
+        fallback={
+          <span
+            role="status"
+            aria-live="polite"
+            aria-hidden="true"
+            class="h-2.5 w-2.5 rounded-full"
+            style={{ background: color() }}
+          />
+        }
+      >
+        <span
+          aria-hidden="true"
+          data-testid="sync-spinner"
+          class="h-2.5 w-2.5 animate-spin rounded-full border-2 border-(--color-outl-accent) border-t-transparent"
+        />
+      </Show>
     </button>
   );
 }
