@@ -209,6 +209,8 @@ export type Action =
   | { kind: "ToggleHelp" }
   | { kind: "ToggleSidebar" }
   | { kind: "ToggleBacklinks" }
+  | { kind: "QuickCapture" }
+  | { kind: "ExportMarkdown" }
   // Reminders (`remind::`) — authoring + the panel. Delivery is
   // per-OS and never a chord.
   | { kind: "InsertRemind" }

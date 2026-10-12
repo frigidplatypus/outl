@@ -6,29 +6,45 @@
  *
  * - **pages**, ranked by the backend's `search_pages` (exact, prefix,
  *   substring), so the palette and `[[` autocomplete agree;
- * - **blocks**, from `search_blocks`, once the query is long enough to
+ * - **tasks**, the `search_blocks` hits that carry a task marker
+ *   (`TODO`, `DOING`, `DONE`, or a checkbox), read with the same
+ *   `taskState` the bullet toggle uses, listed before plain blocks
+ *   because "find that todo" is the commonest reason to search;
+ * - **blocks**, the rest of the hits, once the query is long enough to
  *   mean something (a single letter matches half the workspace);
  * - **actions**, from the shortcut catalog, each with its chord, so the
- *   palette doubles as the place you learn the keys.
+ *   palette doubles as the place you learn the keys. Actions with no
+ *   chord at all ({@link CHORDLESS_ACTIONS}) are listed by name only.
  *
  * A leading `>` narrows the list to actions, the convention most
  * editors use. That is what `:` and Cmd+K in Normal mode open with.
  */
 import type { BlockHit } from "@outl/shared/api/commands";
 import type { PageMeta } from "@outl/shared/api/types";
+import { taskState } from "@outl/shared/outline";
 
 import { MOD_META, type Action, type Binding, type Chord } from "./api";
 
 export type PaletteItem =
   | { kind: "page"; page: PageMeta }
   | { kind: "block"; hit: BlockHit }
+  | { kind: "task"; hit: BlockHit; state: "todo" | "doing" | "done" }
   | { kind: "action"; action: Action["kind"]; label: string; chord: Chord[] | null };
 
 export const COMMAND_PREFIX = ">";
 /** Blocks start showing at this many characters. */
 export const BLOCK_QUERY_MIN = 2;
 
-const LIMITS = { pages: 8, blocks: 6, actions: 5 } as const;
+const LIMITS = { pages: 8, tasks: 5, blocks: 6, actions: 5 } as const;
+
+/**
+ * Actions the palette lists although no chord reaches them: things you
+ * do rarely enough that a key would be a waste, but should still find
+ * by typing their name. Each still owes a row in `outl_shortcuts::support`.
+ */
+export const CHORDLESS_ACTIONS: ReadonlyArray<{ action: Action["kind"]; label: string }> = [
+  { action: "ExportMarkdown", label: "Export as Markdown" },
+];
 
 /**
  * Actions that make no sense as a palette row: the palette itself, and
@@ -63,6 +79,11 @@ export function paletteActions(
       prev.chord = b.chord;
     }
   }
+  for (const c of CHORDLESS_ACTIONS) {
+    if (!seen.has(c.action) && handled(c.action)) {
+      seen.set(c.action, { kind: "action", action: c.action, label: c.label, chord: null });
+    }
+  }
   return [...seen.values()];
 }
 
@@ -86,17 +107,23 @@ export function paletteResults(input: {
     .slice(0, LIMITS.pages)
     .map((page) => ({ kind: "page", page }));
   if (!q) return pages;
-  const blocks: PaletteItem[] =
-    q.length < BLOCK_QUERY_MIN
-      ? []
-      : input.blocks.slice(0, LIMITS.blocks).map((hit) => ({ kind: "block", hit }));
+  const tasks: PaletteItem[] = [];
+  const blocks: PaletteItem[] = [];
+  if (q.length >= BLOCK_QUERY_MIN) {
+    for (const hit of input.blocks) {
+      const state = taskState(hit.text);
+      if (state && tasks.length < LIMITS.tasks) tasks.push({ kind: "task", hit, state });
+      else if (!state && blocks.length < LIMITS.blocks) blocks.push({ kind: "block", hit });
+    }
+  }
   const actions = input.actions.filter((a) => matches(a.label, q)).slice(0, LIMITS.actions);
-  return [...pages, ...blocks, ...actions];
+  return [...pages, ...tasks, ...blocks, ...actions];
 }
 
 /** Section heading for an item, used to draw a label when it changes. */
 export function sectionOf(item: PaletteItem): string {
-  return item.kind === "page" ? "Pages" : item.kind === "block" ? "Blocks" : "Actions";
+  const names = { page: "Pages", task: "Tasks", block: "Blocks", action: "Actions" } as const;
+  return names[item.kind];
 }
 
 /** Whether the webview runs on macOS, where Cmd is the platform modifier. */

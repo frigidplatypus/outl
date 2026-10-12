@@ -25,6 +25,7 @@ import {
 import {
   onDeepLinkNavigate,
   onOpenFileImport,
+  onQuickCaptureHotkey,
   onPeerOpsChanged,
   onProjectionWriteFailed,
   onWorkspaceReady,
@@ -38,6 +39,8 @@ import { BatchToolbar } from "./BatchToolbar";
 import { Sidebar } from "./Sidebar";
 import { OutlineView } from "./OutlineView";
 import { Picker } from "./Picker";
+import { QuickCapture } from "./QuickCapture";
+import { openQuickCapture } from "../lib/quick-capture";
 import { PluginMarketplace } from "./PluginMarketplace";
 import { PluginEffectLayer } from "./PluginEffectLayer";
 import { SettingsModal } from "./SettingsModal";
@@ -217,6 +220,7 @@ export function AppShell() {
    * sidebar use, then render it. A failed open lands on the status line.
    */
   async function handleDeepLink(payload: DeepLinkNavigate) {
+    if (payload.kind === "capture") return void openQuickCapture();
     try {
       const view =
         payload.kind === "today"
@@ -316,6 +320,10 @@ export function AppShell() {
     });
     onCleanup(() => unlistenDeepLink());
 
+    // The OS-level quick capture chord, for when outl is in the background.
+    const unlistenCapture = await onQuickCaptureHotkey(openQuickCapture);
+    onCleanup(() => unlistenCapture());
+
     // Reminder delivery. The backend decides what is due and remembers
     // what this device already delivered, so polling twice is harmless
     // and a device that was asleep owes exactly one banner, not a
@@ -370,6 +378,7 @@ export function AppShell() {
       </Show>
       <ChromeToggleBar handlers={handlers()} />
       <Picker onPicked={applyView} handlers={handlers()} />
+      <QuickCapture applyView={applyView} />
       <PluginMarketplace />
       <SettingsModal />
       <HelpOverlay />

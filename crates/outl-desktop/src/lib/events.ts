@@ -89,11 +89,13 @@ export function onRefProjectionFailed(
  * - `{ kind: "today" }` — open today's journal.
  * - `{ kind: "daily", date }` — open the journal for that ISO date.
  * - `{ kind: "page", slug }` — open the page by slug.
+ * - `{ kind: "capture" }` — open the quick capture box (RFC 0363).
  */
 export type DeepLinkNavigate =
   | { kind: "today" }
   | { kind: "daily"; date: string }
-  | { kind: "page"; slug: string };
+  | { kind: "page"; slug: string }
+  | { kind: "capture" };
 
 /**
  * Register a handler for `deep-link://navigate`. Fires when the user
@@ -184,4 +186,14 @@ export function onPeerPairFailed(
   handler: (error: string) => void,
 ): Promise<UnlistenFn> {
   return listen<string>("peer-pair-failed", (e) => handler(e.payload));
+}
+
+/**
+ * Register a handler for `quick-capture://open`, emitted when the OS
+ * hands outl the global quick capture chord (`Cmd/Ctrl+Shift+Space`)
+ * while the window is in the background. The backend has already
+ * shown and focused the window.
+ */
+export function onQuickCaptureHotkey(handler: () => void): Promise<UnlistenFn> {
+  return listen<null>("quick-capture://open", () => handler());
 }
