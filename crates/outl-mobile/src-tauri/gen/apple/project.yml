@@ -28,7 +28,28 @@ targetTemplates:
         RUST_LOG: info
     settings:
       groups: [app]
+# The committed project.pbxproj is the source of truth for builds;
+# this file mirrors it for `xcodegen`. The extension targets below were
+# added to the pbxproj by `scripts/ios-add-extension.py` (RFC 0363).
+packages:
+  OutlKit:
+    path: ../../../swift/OutlKit
 targets:
+  OutlWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources: [OutlWidget]
+    info:
+      path: OutlWidget/Info.plist
+    entitlements:
+      path: OutlWidget/OutlWidget.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.outl.mobile-app.widget
+        CODE_SIGN_IDENTITY: Apple Development
+    dependencies:
+      - package: OutlKit
   outl-mobile_iOS:
     type: application
     platform: iOS
@@ -82,6 +103,8 @@ targets:
         EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
       groups: [app]
     dependencies:
+      - target: OutlWidget
+      - package: OutlKit
       - framework: libapp.a
         embed: false
       - sdk: CoreGraphics.framework

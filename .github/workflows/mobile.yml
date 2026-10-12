@@ -476,6 +476,50 @@ jobs:
           print(f"::notice::Patched {text.count(needle)} signing block(s) in pbxproj")
           PY
 
+      # The app extensions (RFC 0363: widget, share) carry their own
+      # bundle ids, so they need their own App Store profiles. With every
+      # profile present each extension is signed with its own; with any
+      # missing, the extensions are unhooked from the app and the release
+      # still ships the app alone. See crates/outl-mobile/IOS-EXTENSIONS.md.
+      - name: Sign or unhook the iOS app extensions
+        id: ext_profiles
+        env:
+          OutlWidget_PROFILE_BASE64: ${{ secrets.WIDGET_PROVISIONING_PROFILE_BASE64 }}
+          OutlShare_PROFILE_BASE64: ${{ secrets.SHARE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          PBX="crates/outl-mobile/src-tauri/gen/apple/outl-mobile.xcodeproj/project.pbxproj"
+          SCRIPT="crates/outl-mobile/scripts/ios-extensions-signing.py"
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          declare -A SUFFIX=([OutlWidget]=widget [OutlShare]=share)
+          PRESENT=()
+          for t in OutlWidget OutlShare; do
+            if grep -q "/\* $t \*/ = {" "$PBX"; then PRESENT+=("$t"); fi
+          done
+          MISSING=0
+          for t in "${PRESENT[@]}"; do
+            var="${t}_PROFILE_BASE64"
+            if [[ -z "${!var}" ]]; then MISSING=1; fi
+          done
+          EXTRA=""
+          if [[ ${#PRESENT[@]} -gt 0 && $MISSING -eq 1 ]]; then
+            echo "::warning::App extension profiles missing; shipping the app without its extensions"
+            python3 "$SCRIPT" strip "$PBX"
+          else
+            for t in "${PRESENT[@]}"; do
+              var="${t}_PROFILE_BASE64"
+              path="$PROFILE_DIR/outl-$t.mobileprovision"
+              echo -n "${!var}" | base64 --decode -o "$path"
+              plist="$RUNNER_TEMP/$t.plist"
+              security cms -D -i "$path" > "$plist"
+              name=$(/usr/libexec/PlistBuddy -c "Print :Name" "$plist")
+              uuid=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$plist")
+              rm -f "$plist"
+              python3 "$SCRIPT" sign "$PBX" "$t" "$name" "$uuid"
+              EXTRA="$EXTRA<key>app.outl.mobile-app.${SUFFIX[$t]}</key><string>$name</string>"
+            done
+          fi
+          echo "extra=$EXTRA" >> "$GITHUB_OUTPUT"
+
       # `cargo tauri ios init` adds `libapp.a` to Resources alongside
       # Frameworks; on Release archives the Resources copy step fails
       # because the file lives under `arm64/release/` not the
@@ -671,6 +715,7 @@ jobs:
         id: export_opts
         env:
           PROFILE_NAME: ${{ steps.profile.outputs.name }}
+          EXTRA_PROFILES: ${{ steps.ext_profiles.outputs.extra }}
         run: |
           PLIST="$RUNNER_TEMP/ExportOptions-appstore.plist"
           cat >"$PLIST" <<EOF
@@ -690,6 +735,7 @@ jobs:
               <dict>
                   <key>app.outl.mobile-app</key>
                   <string>${PROFILE_NAME}</string>
+                  ${EXTRA_PROFILES}
               </dict>
               <key>stripSwiftSymbols</key>
               <true/>
