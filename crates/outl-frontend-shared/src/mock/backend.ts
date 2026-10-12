@@ -1,4 +1,4 @@
-import type { Backlink, Palette, PageMeta } from "../api/types";
+import type { Backlink, Palette, PageMeta, TimelineEvent } from "../api/types";
 import presets from "./presets.json";
 import { journalSlug, MockWorkspace, shiftDay } from "./workspace";
 
@@ -146,10 +146,29 @@ export function createMockBackend(ws = new MockWorkspace(), today = new Date()) 
     resolve_embeds: () => [],
     known_property_keys: () => [],
     list_templates_cmd: () => [],
-    page_timeline: () => [],
+    page_timeline: (a) => mockTimeline(page(a)),
+    device_activity: () => ({
+      complete: true,
+      actors: [
+        { actor: "01JQ0000000000000000LOCAL1", ops: 1284, last_at_ms: Date.now() - 20_000, is_local: true },
+        { actor: "01JQ00000000000000009F3A2C", ops: 3071, last_at_ms: Date.now() - 4 * 60_000, is_local: false },
+        { actor: "01JQ00000000000000007B11E0", ops: 212, last_at_ms: Date.now() - 3 * 86_400_000, is_local: false },
+      ],
+    }),
+    export_markdown: (a) => ({
+      dir: `${String(a.destDir ?? "~/Documents")}/outl-export-2026-10-12-171500`,
+      pages: ws.pages.size,
+      assets: 0,
+    }),
     outl_emoji_search: () => [],
-    outl_peer_list: () => [],
-    outl_peer_status: () => null,
+    outl_peer_list: () => [
+      { node_id: "9f3a2c1d", alias: "MacBook", added_at: "2026-09-01T10:00:00Z" },
+      { node_id: "7b11e0aa", alias: "iPhone", added_at: "2026-09-02T10:00:00Z" },
+    ],
+    outl_peer_status: () => [
+      { node_id: "9f3a2c1d", alias: "MacBook", online: true, rtt_ms: 38 },
+      { node_id: "7b11e0aa", alias: "iPhone", online: false, rtt_ms: null },
+    ],
     list_reminders: () => [],
     plugin_list: () => [],
     plugin_toolbar: () => [],
@@ -212,4 +231,35 @@ export function createMockBackend(ws = new MockWorkspace(), today = new Date()) 
     }
     return null;
   };
+}
+
+/**
+ * A believable history for whatever page is open, so the history panel
+ * has edits, a deletion and a move to render under `?mock=1`. Newest
+ * first, like the real command.
+ */
+function mockTimeline(p: { meta: PageMeta; blocks: { id: string; text: string }[] }) {
+  const now = Date.now();
+  const events: TimelineEvent[] = [];
+  const base = { actor: "01JQ0000000000000000LOCAL1", block_deleted: false, text: null, key: null };
+  p.blocks.slice(0, 3).forEach((b, i) => {
+    const words = b.text.split(" ");
+    const from = words.length > 2 ? [...words.slice(0, -1), "draft"].join(" ") : `${b.text} (draft)`;
+    events.push({ ...base, at_ms: now - (i + 1) * 3_600_000, block: b.id, change: "edited", from, to: b.text });
+  });
+  events.push({
+    ...base,
+    actor: "01JQ00000000000000009F3A2C",
+    at_ms: now - 26 * 3_600_000,
+    block: "mock-deleted",
+    block_deleted: true,
+    change: "deleted",
+    from: null,
+    to: null,
+    text: "Call the venue about the projector",
+  });
+  if (p.blocks[0]) {
+    events.push({ ...base, at_ms: now - 50 * 3_600_000, block: p.blocks[0].id, change: "moved", from: null, to: null });
+  }
+  return { slug: p.meta.slug, total: events.length, truncated: false, events };
 }
