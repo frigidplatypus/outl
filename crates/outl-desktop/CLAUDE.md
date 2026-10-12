@@ -98,7 +98,9 @@ Pairing is **not** reimplemented — `Onboarding` renders the real `<SyncPanel /
 
 ### Sync status dot (always-visible)
 
-`<SyncIndicator />` sits in the bottom-left `<ChromeToggleBar />` cluster so the mesh state is glanceable without opening Settings.
+`<SyncIndicator />` sits in the top-right capsule of `<ChromeToggleBar />`, right before Settings, so the mesh state is glanceable without opening Settings.
+The capsule mirrors the mobile top bar (`outl-mobile/src/components/JournalChrome.tsx`): fold all, unfold all, plugin toolbar buttons, reminders, plugins, sync dot, settings, same icons and order. The sidebar toggle (no mobile twin) sits alone top-left, and the sidebar pads its top so the capsule never covers search. Keep the two bars in the same order when adding a control.
+The dot's tooltip shows the reachability state and when this window last saw a sync land (a finished pass or a `peer-ops-changed`).
 Green = at least one iroh peer reachable, orange = none, dim = first probe still running, spinner while a sync pass runs.
 Clicking syncs now (`syncNow()` then `reloadWorkspace()`, same pass as the Sync panel's Refresh); clicks during a pass are ignored.
 Right-click opens Settings → Sync.
@@ -476,7 +478,7 @@ Until then the Refresh error is the surface that explains it.
 
 ### Sync panel dot + refresh (iroh-driven)
 
-`components/SyncPanel.tsx` (the "Sync" section of `SettingsModal`) is the only place the desktop surfaces sync state; there is **no** always-on chrome dot (`StatusBar` / `ChromeToggleBar` carry none).
+`components/SyncPanel.tsx` (the "Sync" section of `SettingsModal`) is the only place the desktop surfaces sync state; besides it, the always-on `<SyncIndicator />` dot in the top bar shows reachability (see "Sync status dot" above).
 The panel header shows a small status dot derived from the shared `peersOnline(statuses())` helper (`@outl/shared/peers`) — green when at least one iroh peer is reachable, orange when none are (no peers paired, or all unreachable).
 The **Refresh** button calls `forceSync()`: `syncNow()` (force a P2P pull) → `reloadWorkspace()` (re-render) → `refresh()` (re-read the device list + health for the dots).
 `syncNow` / `reloadWorkspace` failures land on `appState.lastError` but never block the status read.

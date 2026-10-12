@@ -21,7 +21,7 @@ import { appState, setAppState } from "../lib/store";
 export function ErrorToast() {
   return (
     <Show when={appState.lastError}>
-      <div class="pointer-events-none fixed right-4 top-4 z-50 flex max-w-sm justify-end">
+      <div class="pointer-events-none fixed right-4 top-16 z-50 flex max-w-sm justify-end">
         <div class="pointer-events-auto flex items-start gap-2 rounded-lg border border-(--color-outl-status-message-fg)/30 bg-(--color-outl-bg-elev) px-3 py-2 text-xs text-(--color-outl-status-message-fg) shadow-lg">
           <span aria-hidden="true">⚠</span>
           <span class="min-w-0 break-words">{appState.lastError}</span>

@@ -35,6 +35,11 @@ export function SyncIndicator() {
   // null = first probe still running (dim); true / false = reachability.
   const [online, setOnline] = createSignal<boolean | null>(null);
   const [syncing, setSyncing] = createSignal(false);
+  // When this window last saw a sync land: a pass it ran finished, or a
+  // peer delivered ops. `null` until the first one, the tooltip says so.
+  const [lastSynced, setLastSynced] = createSignal<number | null>(null);
+  // Ticks the "2 min ago" text forward while the tooltip may be read.
+  const [now, setNow] = createSignal(Date.now());
 
   async function refresh() {
     try {
@@ -49,9 +54,15 @@ export function SyncIndicator() {
   onMount(async () => {
     void refresh();
     // Re-probe on the catch-up cadence; cheap (reads cached dial health).
-    const id = setInterval(() => void refresh(), 8000);
+    const id = setInterval(() => {
+      setNow(Date.now());
+      void refresh();
+    }, 8000);
     onCleanup(() => clearInterval(id));
-    const unlisten = await onPeerOpsChanged(() => void refresh());
+    const unlisten = await onPeerOpsChanged(() => {
+      setLastSynced(Date.now());
+      void refresh();
+    });
     onCleanup(() => unlisten());
   });
 
@@ -61,6 +72,7 @@ export function SyncIndicator() {
     try {
       await syncNow();
       await reloadWorkspace();
+      setLastSynced(Date.now());
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
     } finally {
@@ -87,22 +99,27 @@ export function SyncIndicator() {
     return o ? "Sync: a peer is reachable" : "Sync: no peer reachable";
   }
 
+  function tooltip(): string {
+    const last = lastSynced();
+    const when =
+      last === null ? "Not synced yet this session" : `Last synced ${ago(now() - last)}`;
+    if (syncing()) return `${label()}\n${when}`;
+    return `${label()}\n${when}\nClick to sync now, right-click for Sync settings`;
+  }
+
   return (
     <button
       type="button"
       aria-label={syncing() ? label() : `Sync now. ${label()}`}
       aria-busy={syncing()}
-      title={
-        syncing()
-          ? label()
-          : `Sync now (${label()}). Right-click for Sync settings`
-      }
+      title={tooltip()}
+      onMouseEnter={() => setNow(Date.now())}
       onClick={() => void syncNowFromDot()}
       onContextMenu={(e) => {
         e.preventDefault();
         setAppState("settingsOpen", true);
       }}
-      class="flex h-7 w-7 items-center justify-center rounded-md text-(--color-outl-fg-dim) transition-colors hover:bg-(--color-outl-bg-elev) hover:text-(--color-outl-fg)"
+      class="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-(--color-outl-border)/40"
     >
       <Show
         when={syncing()}
@@ -124,4 +141,16 @@ export function SyncIndicator() {
       </Show>
     </button>
   );
+}
+
+/** "just now" / "3 min ago" / "2 h ago". Coarse on purpose: the tooltip
+ *  answers "is this fresh?", not "at which second". */
+export function ago(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 45) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} h ago`;
+  return `${Math.round(h / 24)} d ago`;
 }
