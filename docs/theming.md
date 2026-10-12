@@ -81,7 +81,7 @@ Now that the modal owns all three fields, restoring any of them would silently d
 | Name | Vibe |
 |------|------|
 | `outl` | The brand palette, matched to the marketing site (avelino.run). Deep-purple background, lavender accent, lemon highlight. Default theme. |
-| `outl-light` | The brand light palette. Soft purple-tinted canvas (`#f6f4fb`), brand purple accent (`#7c3aed`) darkened for contrast. Recovered from what `outl-mobile` used to hardcode in `styles.css` before RFC 0022. |
+| `outl-light` | The brand light palette. Paper-white canvas (`#ffffff`) with a barely raised `bg_elev` (`#f7f7fa`), cool grays and one violet accent (`#6d28d9`, 7.1:1). Started as what `outl-mobile` hardcoded in `styles.css` before RFC 0022; refreshed toward a calmer single-accent canvas. |
 | `default-dark` | The original outl-tui palette. Cyan refs, magenta tags, green code. |
 | `light` | High-brightness terminals. Blue refs, red tags. |
 | `logseq-light` | Logseq's default light theme. White canvas, warm dark-gray text, Blueprint blue links. Alias: `logseq`. |

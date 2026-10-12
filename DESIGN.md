@@ -688,7 +688,8 @@ backups on iOS — is [`UX.md` → What each client can do](UX.md#what-each-clie
   targets — is the behavioural half: [`UX.md` → Accessibility is a reach question](UX.md#accessibility-is-a-reach-question).
   159 accessibility attributes across the two GUI clients today.
 - **Contrast is a preset-author obligation.** `outl-light` darkens the brand violet from `#a78bfa` to
-  `#7c3aed` and replaces the lemon `#d6ff47` with `#65a30d` (lime-600) — the comment in
+  `#6d28d9` (violet-700, 7.1:1 on its white canvas) and replaces the lemon `#d6ff47` with `#4d7c0f`
+  (lime-700), dark enough that insert mode's white label clears AA — the comment in
   `crates/outl-theme/src/presets.rs` says the lemon is *"unreadable on light bg"*. Reusing the dark
   palette's hues on a light canvas is the most common preset mistake.
 - **Selection is never colour-only.** The selected block gets both an accent rail and a background change;
