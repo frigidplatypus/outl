@@ -99,7 +99,9 @@ Pairing is **not** reimplemented — `Onboarding` renders the real `<SyncPanel /
 ### Sync status dot (always-visible)
 
 `<SyncIndicator />` sits in the bottom-left `<ChromeToggleBar />` cluster so the mesh state is glanceable without opening Settings.
-Green = at least one iroh peer reachable, orange = none, dim = first probe still running; clicking opens Settings → Sync.
+Green = at least one iroh peer reachable, orange = none, dim = first probe still running, spinner while a sync pass runs.
+Clicking syncs now (`syncNow()` then `reloadWorkspace()`, same pass as the Sync panel's Refresh); clicks during a pass are ignored.
+Right-click opens Settings → Sync.
 It derives reachability from `peerStatus()` → `peersOnline()` (`@outl/shared/peers`), the same source the Sync panel and the mobile dot use.
 It re-probes on a slow interval and immediately on `peer-ops-changed`.
 Do not add a second reachability path; `peersOnline` is the one owner.

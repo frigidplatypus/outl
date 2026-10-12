@@ -178,7 +178,8 @@ export function ChromeToggleBar() {
         {(entry) => <PluginToolbarButton entry={entry} />}
       </For>
       {/* Thin divider, then the always-visible sync status dot. Clicking
-          it opens Settings → Sync (peer list + pairing). */}
+          it syncs now; right-click opens Settings → Sync (peer list +
+          pairing). */}
       <span class="mx-0.5 h-4 w-px bg-(--color-outl-border)" aria-hidden="true" />
       <SyncIndicator />
     </div>

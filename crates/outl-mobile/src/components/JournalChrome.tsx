@@ -1,15 +1,16 @@
-import { For, Show } from "solid-js";
+import { For, Show, onCleanup } from "solid-js";
 import type { PageView, PluginToolbarButton } from "@outl/shared";
 
 import { JournalHeader, PageHeader } from "./JournalHeader";
 import { SyncDot } from "./SyncDot";
 import { haptic } from "../lib/haptics";
-import type { LongPressHandlers } from "../lib/long-press";
+import { createLongPress, type LongPressHandlers } from "../lib/long-press";
 
 /**
  * The journal's top chrome: back capsule, title / day stepper, and the
  * right-hand action capsule (fold, plugin toolbar, reminders, plugins,
- * devices, refresh, settings). The calendar and the page switcher moved
+ * sync dot, settings). The sync dot doubles as the refresh: tap syncs
+ * now, press-and-hold opens devices. The calendar and the page switcher moved
  * to the week strip and the bottom bar, the places a thumb already is.
  *
  * Presentational. It owns no state — every signal it reads and every
@@ -34,7 +35,7 @@ export function JournalChrome(props: {
   peersUp: boolean;
   /** A sync pass is in flight. */
   syncing: boolean;
-  /** A pull-to-refresh is in flight (spins the refresh icon). */
+  /** A manual refresh is in flight (spins the sync dot). */
   refreshing: boolean;
   /** Today's ISO slug, or `null` before the first resolve. */
   todaySlug: string | null;
@@ -47,6 +48,7 @@ export function JournalChrome(props: {
   onNextDay: () => void;
   onFoldAll: () => void;
   onUnfoldAll: () => void;
+  /** Sync now. Fired by a tap on the sync dot; never while one runs. */
   onRefresh: () => void;
   onRunToolbarButton: (btn: PluginToolbarButton) => void;
   onOpenReminders: () => void;
@@ -54,6 +56,17 @@ export function JournalChrome(props: {
   onOpenDevices: () => void;
   onOpenSettings: () => void;
 }) {
+  // Either flag means a pass is running: `syncing` covers the automatic
+  // open/foreground pulls, `refreshing` the manual ones.
+  const syncBusy = () => props.syncing || props.refreshing;
+  const devicesLongPress = createLongPress({
+    onLongPress: () => {
+      haptic("medium");
+      props.onOpenDevices();
+    },
+  });
+  onCleanup(() => devicesLongPress.cancel());
+
   return (
     <header
       class="z-30 shrink-0 bg-(--color-outl-bg)/80 px-3 pt-2 pb-3 backdrop-blur-xl"
@@ -249,26 +262,43 @@ export function JournalChrome(props: {
               <rect x="13" y="13" width="8" height="8" rx="1.5" />
             </svg>
           </button>
-          {/* The sync dot IS the devices/pairing affordance: it shows the
-              mesh status AND opens the pairing sheet on tap — no separate
-              (ugly) devices glyph. Mirrors the desktop's clickable dot. */}
+          {/* The sync dot IS the refresh: tap syncs now (pull-to-refresh
+              still works on the page), press-and-hold opens the
+              devices/pairing sheet. One affordance for "is it synced"
+              and "sync it" instead of a dot plus a refresh glyph.
+              Mirrors the desktop's clickable dot. */}
           <button
             type="button"
-            aria-label="Devices and sync — tap to pair"
+            aria-label={
+              syncBusy()
+                ? "Syncing"
+                : "Sync now. Press and hold for devices"
+            }
+            aria-busy={syncBusy()}
+            title="Sync now"
+            onPointerDown={devicesLongPress.onPointerDown}
+            onPointerMove={devicesLongPress.onPointerMove}
+            onPointerUp={devicesLongPress.onPointerUp}
+            onPointerCancel={devicesLongPress.cancel}
+            onPointerLeave={devicesLongPress.cancel}
+            onContextMenu={(e) => e.preventDefault()}
             onClick={() => {
-              haptic("light");
-              props.onOpenDevices();
+              if (devicesLongPress.consumedClick()) return;
+              // A pass is already running: ignore the tap instead of
+              // stacking another dial behind it.
+              if (syncBusy()) return;
+              props.onRefresh();
             }}
             class="flex h-9 w-9 items-center justify-center rounded-full active:bg-(--color-outl-border)/40"
           >
             <SyncDot
               status={
                 // PRIMARY signal is iroh peer health, not navigator.onLine.
-                // A force-sync in flight wins (spinner); else a reachable
+                // A sync in flight wins (spinner); else a reachable
                 // peer → synced (green); else offline/orange — either the
                 // device has no radio, or peers exist but none answered
                 // (or none are paired, so there's nothing to sync with).
-                props.syncing
+                syncBusy()
                   ? "syncing"
                   : props.online && props.peersUp
                     ? "synced"
@@ -276,35 +306,9 @@ export function JournalChrome(props: {
               }
             />
           </button>
-          <button
-            type="button"
-            aria-label="Sync now"
-            onClick={props.onRefresh}
-            class="flex h-9 w-9 items-center justify-center rounded-full active:bg-(--color-outl-border)/40"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--color-outl-accent)"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              style={{
-                transform: props.refreshing ? "rotate(360deg)" : "rotate(0deg)",
-                transition: "transform 800ms ease-in-out",
-              }}
-              aria-hidden="true"
-            >
-              <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-              <path d="M21 3v5h-5" />
-            </svg>
-          </button>
           {/* Settings — last in the capsule, where iOS puts it. Sits
-              after the sync/refresh pair on purpose: those two are read
-              constantly, preferences are not, and the capsule scrolls
-              from the left. */}
+              after the sync dot on purpose: that one is read constantly,
+              preferences are not, and the capsule scrolls from the left. */}
           <button
             type="button"
             aria-label="Settings"

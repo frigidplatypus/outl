@@ -411,7 +411,7 @@ These are the **only** commands that touch `peers.json` directly instead of the 
 
 ## Sync dot + refresh (iroh-driven)
 
-The header `<SyncDot>` and the refresh button / `PullToRefresh` reflect and drive the **iroh P2P transport** (outl's default sync), not the iCloud-era `navigator.onLine` signal they started on.
+The header `<SyncDot>` and `PullToRefresh` reflect and drive the **iroh P2P transport** (outl's default sync), not the iCloud-era `navigator.onLine` signal they started on.
 
 - **Dot state.**
   The PRIMARY input is iroh peer health, polled via `peerStatus()` → the shared `peersOnline()` helper (`@outl/shared/peers`) into a `peersUp` signal.
@@ -420,7 +420,9 @@ The header `<SyncDot>` and the refresh button / `PullToRefresh` reflect and driv
   `navigator.onLine` stays only as a secondary floor (truly no radio → orange regardless).
   Zero paired peers reads as offline — there's nothing to sync with.
 - **Refresh.**
-  `handleRefresh` (the button **and** `PullToRefresh`) calls `syncNow()` (force a P2P pull — dial every peer now instead of waiting for the 8s catch-up tick) THEN `reloadWorkspace()` (re-render with whatever landed).
+  There is no separate refresh button: the sync dot is the button. A tap fires `handleRefresh`, press-and-hold opens the devices sheet (`createLongPress`, the same recogniser the block row and title use).
+  Taps while a pass is in flight (`syncing` or `refreshing`) are dropped, and `handleRefresh` itself refuses to start a second pass, so the dot, the pull and the auto-sync can never stack dials.
+  `handleRefresh` (the dot **and** `PullToRefresh`) calls `syncNow()` (force a P2P pull — dial every peer now instead of waiting for the 8s catch-up tick) THEN `reloadWorkspace()` (re-render with whatever landed).
   Both calls are wrapped in `withError` (toast on failure, never wedge the local reload), and the `syncing` spinner brackets the whole pass.
 - **Auto-sync (no button).**
   `Journal.tsx` shares the refresh core as `pullAndReload()`, fired on `onMount`, on `visibilitychange` → visible (iOS froze JS in the background), and on the 5s poll tick.
