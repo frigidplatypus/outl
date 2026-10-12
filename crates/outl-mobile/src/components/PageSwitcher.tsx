@@ -28,6 +28,9 @@ interface PageSwitcherProps {
    *  `BlockHit` carries no `kind`, so the decision goes through
    *  `openRef`, same as any other tapped ref. */
   onJumpToBlock: (hit: BlockHit) => void;
+  /** Scope the sheet opens on. The bottom bar's Search tab opens on
+   *  blocks and its Pages tab on pages; the user can still flip it. */
+  initialMode?: SwitcherMode;
 }
 
 /** Which half of the switcher is active — page navigation (original
@@ -39,7 +42,7 @@ interface PageSwitcherProps {
  *  just like this one. Mirrors `PropertiesSheet`'s Block/Page
  *  segmented switch (same visual pattern, same reason: one sheet,
  *  two scopes). */
-type SwitcherMode = "pages" | "blocks";
+export type SwitcherMode = "pages" | "blocks";
 
 /** Debounced the same way the desktop's `((…))` block-ref popup is
  *  (`BlockRow.tsx`): `search_blocks` rebuilds the whole
@@ -67,6 +70,10 @@ export function PageSwitcher(props: PageSwitcherProps) {
     props.open ? listPages() : Promise.resolve<PageMeta[]>([]),
   );
   const [mode, setMode] = createSignal<SwitcherMode>("pages");
+  // Each opening starts on the scope the caller asked for.
+  createEffect(() => {
+    if (props.open) setMode(props.initialMode ?? "pages");
+  });
   const [query, setQuery] = createSignal("");
   const [blockHits, setBlockHits] = createSignal<BlockHit[]>([]);
   let blockSearchTimer: ReturnType<typeof setTimeout> | undefined;

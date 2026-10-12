@@ -8,8 +8,9 @@ import type { LongPressHandlers } from "../lib/long-press";
 
 /**
  * The journal's top chrome: back capsule, title / day stepper, and the
- * right-hand action capsule (calendar, page switcher, fold, plugin
- * toolbar, reminders, plugins, devices, refresh, settings).
+ * right-hand action capsule (fold, plugin toolbar, reminders, plugins,
+ * devices, refresh, settings). The calendar and the page switcher moved
+ * to the week strip and the bottom bar, the places a thumb already is.
  *
  * Presentational. It owns no state — every signal it reads and every
  * action it fires arrives as a prop, which is what let it come out of
@@ -48,8 +49,6 @@ export function JournalChrome(props: {
   onUnfoldAll: () => void;
   onRefresh: () => void;
   onRunToolbarButton: (btn: PluginToolbarButton) => void;
-  onOpenCalendar: () => void;
-  onOpenSwitcher: () => void;
   onOpenReminders: () => void;
   onOpenPlugins: () => void;
   onOpenDevices: () => void;
@@ -137,53 +136,6 @@ export function JournalChrome(props: {
             between pages-search and refresh so the user reads it as
             "status of the data this capsule controls". */}
         <div class="ios-scroll inline-flex max-w-full items-center justify-self-end overflow-x-auto rounded-full bg-(--color-outl-bg-elev)/85 shadow-[var(--shadow-capsule)] backdrop-blur-xl">
-          <button
-            type="button"
-            aria-label="Calendar"
-            onClick={() => {
-              haptic("light");
-              props.onOpenCalendar();
-            }}
-            class="flex h-9 w-9 items-center justify-center rounded-full active:bg-(--color-outl-border)/40"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--color-outl-accent)"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <rect x="3" y="4" width="18" height="18" rx="3" />
-              <path d="M3 10h18M8 2v4m8-4v4" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            aria-label="Pages"
-            onClick={() => {
-              haptic("light");
-              props.onOpenSwitcher();
-            }}
-            class="flex h-9 w-9 items-center justify-center rounded-full active:bg-(--color-outl-border)/40"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--color-outl-accent)"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M21 21l-4.3-4.3M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z" />
-            </svg>
-          </button>
           {/* Fold all / unfold all (RFC 0254 phase 4b, mirrors the
               desktop's `z M` / `z R`) — walks the whole page, not just
               the zoomed subtree, same as the desktop's `zM`/`zR`. */}
