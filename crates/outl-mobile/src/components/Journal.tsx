@@ -730,8 +730,8 @@ export function Journal() {
     loadTodayWithRetry,
     pullAndReload,
     onFileDrop: (paths, blockId) => handleFileDrop(paths, blockId),
+    openCapture: () => setCaptureOpen(true),
   };
-
 
 
 

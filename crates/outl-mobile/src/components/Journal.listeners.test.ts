@@ -76,6 +76,7 @@ function harness(over: Partial<JournalListenerDeps> = {}) {
     loadTodayWithRetry: vi.fn(async () => {}),
     pullAndReload: vi.fn(async () => {}),
     onFileDrop: vi.fn(),
+    openCapture: vi.fn(),
   };
   const deps: JournalListenerDeps = {
     view: () => null,
@@ -210,6 +211,19 @@ describe("deep link", () => {
 
     expect(commands[cmd]).toHaveBeenCalled();
     expect(calls.applyView).toHaveBeenCalled();
+  });
+
+  it("opens the capture sheet for outl://capture without navigating", async () => {
+    const { deps, calls } = harness();
+    createRoot(() => listenForDeepLink(deps));
+    gate.release();
+    await vi.waitFor(() => expect(bus.handlers.has("deep-link://navigate")).toBe(true));
+
+    await emit("deep-link://navigate", { kind: "capture" });
+
+    expect(calls.openCapture).toHaveBeenCalledOnce();
+    expect(commands.openTodayJournal).not.toHaveBeenCalled();
+    expect(calls.applyView).not.toHaveBeenCalled();
   });
 
   it("surfaces a failed navigation instead of swallowing it", async () => {

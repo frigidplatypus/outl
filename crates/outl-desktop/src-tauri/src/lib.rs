@@ -112,6 +112,7 @@ fn deep_link_payload(raw: &str) -> Option<serde_json::Value> {
 
     match outl_actions::parse_deep_link(raw) {
         Ok(DeepLinkTarget::Today) => Some(serde_json::json!({ "kind": "today" })),
+        Ok(DeepLinkTarget::Capture) => Some(serde_json::json!({ "kind": "capture" })),
         Ok(DeepLinkTarget::Daily(date)) => Some(serde_json::json!({
             "kind": "daily",
             "date": date.format("%Y-%m-%d").to_string(),

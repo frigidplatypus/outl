@@ -19,6 +19,7 @@
 //! | `outl://daily/today`      | [`DeepLinkTarget::Today`] |
 //! | `outl://daily/2026-06-25` | [`DeepLinkTarget::Daily`] |
 //! | `outl://page/<slug>`      | [`DeepLinkTarget::Page`] (`/` = nesting) |
+//! | `outl://capture`          | [`DeepLinkTarget::Capture`] |
 //!
 //! Anything else is an [`Err`] the client logs and ignores — never a
 //! crash, never a stray page.
@@ -41,6 +42,10 @@ pub enum DeepLinkTarget {
     /// hierarchical (`ai-agent/learning`); each `/`-separated segment
     /// is validated independently.
     Page(String),
+    /// `outl://capture`: open the quick capture box over today's
+    /// journal. The widget's first step in RFC 0363; nothing is written
+    /// until the user submits a line.
+    Capture,
 }
 
 /// Why an `outl://` URL could not be parsed into a [`DeepLinkTarget`].
@@ -87,6 +92,8 @@ pub fn parse_deep_link(url: &str) -> Result<DeepLinkTarget, DeepLinkError> {
     match kind {
         "daily" => parse_daily(payload),
         "page" => parse_page(payload),
+        "capture" if payload.trim_end_matches('/').is_empty() => Ok(DeepLinkTarget::Capture),
+        "capture" => Err(DeepLinkError::Malformed),
         "" => Err(DeepLinkError::Malformed),
         other => Err(DeepLinkError::UnknownKind(other.to_string())),
     }
@@ -121,6 +128,26 @@ fn parse_page(payload: &str) -> Result<DeepLinkTarget, DeepLinkError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_capture_with_or_without_trailing_slash() {
+        assert_eq!(
+            parse_deep_link("outl://capture"),
+            Ok(DeepLinkTarget::Capture)
+        );
+        assert_eq!(
+            parse_deep_link("outl://capture/"),
+            Ok(DeepLinkTarget::Capture)
+        );
+    }
+
+    #[test]
+    fn capture_takes_no_payload() {
+        assert_eq!(
+            parse_deep_link("outl://capture/today"),
+            Err(DeepLinkError::Malformed)
+        );
+    }
 
     #[test]
     fn parses_today() {
