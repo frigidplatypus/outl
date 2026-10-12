@@ -12,6 +12,7 @@ use outl_plugins::settings::{self, SettingsField};
 use outl_plugins::KeyringStore;
 
 use crate::helpers::{build_page_view, parse_node_id, with_ws};
+use crate::history_external::{page_before, record_plugin_step};
 use crate::host::AppHost;
 use crate::plugin_service::PluginService;
 use crate::state::PageView;
@@ -64,7 +65,11 @@ pub fn run<S: AppHost>(
     command_id: String,
     page_id: Option<String>,
 ) -> Result<PluginRunReply, String> {
+    let before = page_before(state, page_id.as_deref());
     let mut run = plugins.run_command(plugin_id, command_id)?;
+    if run.applied > 0 {
+        record_plugin_step(state, before);
+    }
 
     if run.applied > 0 {
         // The plugin mutated the workspace (any page), so the backlinks
@@ -182,7 +187,11 @@ pub fn sync_hooks<S: AppHost>(
     plugins: &PluginService,
     page_id: Option<String>,
 ) -> Result<PluginSyncHooksReply, String> {
+    let before = page_before(state, page_id.as_deref());
     let mut outcome = plugins.sync_hooks();
+    if outcome.applied > 0 {
+        record_plugin_step(state, before);
+    }
     let mut errors = Vec::new();
     let view = if outcome.applied > 0 {
         // A plugin mutated the workspace (any page), so the backlinks

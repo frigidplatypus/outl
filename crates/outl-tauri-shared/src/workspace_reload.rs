@@ -54,7 +54,8 @@ use outl_core::hlc::HlcGenerator;
 use outl_core::workspace::Workspace;
 use tracing::warn;
 
-use crate::helpers::{invalidate_backlink_index, invalidate_changed_history};
+use crate::helpers::invalidate_backlink_index;
+use crate::history_external::record_external_changes;
 use crate::host::AppHost;
 
 /// How many times a reload re-runs its replay after losing a race with a
@@ -108,7 +109,7 @@ pub fn replay_from_disk(root: PathBuf, hlc: HlcGenerator) -> Result<Workspace, S
 /// a tree that is not missing a local op.
 ///
 /// Everything a client owes after the swap that is *not* client-specific
-/// happens here — surgical undo invalidation and dropping the cached
+/// happens here — recording the peer's changes as undo steps and dropping the cached
 /// backlinks index. What stays in the client is what genuinely diverges
 /// (the desktop's background `.md` reconcile).
 ///
@@ -153,7 +154,7 @@ where
                 // Lock order is workspace -> history, the order every
                 // other path in this crate takes.
                 let mut history = history.lock();
-                invalidate_changed_history(slot.as_ref(), &fresh, &mut history);
+                record_external_changes(slot.as_ref(), &fresh, &mut history);
             }
             *slot = Some(fresh);
             drop(slot);
