@@ -109,6 +109,19 @@
   opacity: 0.7;
 }
 
+/* Ops waiting for this peer. Accent when there is something to send. */
+.outl-peer-list__pending {
+  font-size: 0.75rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.outl-peer-list__pending:not([data-pending="0"]) {
+  color: var(--color-outl-accent);
+  opacity: 1;
+}
+
 .outl-peer-list__remove {
   appearance: none;
   background: transparent;

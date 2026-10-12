@@ -562,15 +562,15 @@ export interface PeerDto {
  * elected not assigned").
  * Only the CLI `outl peer status`, which has no running transport, probes.
  *
- * - `online` is `true` when the peer is currently reachable.
- * - `rtt_ms` is the last round-trip time in milliseconds when reachable,
- *   `null` when the peer is offline.
+ * - `online`: reachable now. `rtt_ms`: last round trip in ms, `null` offline.
+ * - `pending_ops`: ops the peer hasn't confirmed, `null` before any exchange.
  */
 export interface PeerStatusDto {
   node_id: string;
   alias: string | null;
   online: boolean;
   rtt_ms: number | null;
+  pending_ops: number | null;
 }
 
 /**

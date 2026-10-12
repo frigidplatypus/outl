@@ -176,8 +176,8 @@ export function createMockBackend(ws = new MockWorkspace(), today = new Date()) 
       { node_id: "7b11e0aa", alias: "iPhone", added_at: "2026-09-02T10:00:00Z" },
     ],
     outl_peer_status: () => [
-      { node_id: "9f3a2c1d", alias: "MacBook", online: true, rtt_ms: 38 },
-      { node_id: "7b11e0aa", alias: "iPhone", online: false, rtt_ms: null },
+      { node_id: "9f3a2c1d", alias: "MacBook", online: true, rtt_ms: 38, pending_ops: 0 },
+      { node_id: "7b11e0aa", alias: "iPhone", online: false, rtt_ms: null, pending_ops: 4 },
     ],
     list_reminders: () => [],
     plugin_list: () => [],
