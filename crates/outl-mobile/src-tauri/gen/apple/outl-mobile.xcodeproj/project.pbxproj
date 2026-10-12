@@ -38,6 +38,9 @@
 		0363A100000000000000000E /* OutlWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0363A1000000000000000001 /* OutlWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0363B2000000000000000001 /* OutlCaptureInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0363B2000000000000000002 /* OutlCaptureInbox.swift */; };
 		0363C3000000000000000001 /* OutlAddToTodayIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0363C3000000000000000002 /* OutlAddToTodayIntent.swift */; };
+		0363D4000000000000000012 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0363D4000000000000000011 /* ShareViewController.swift */; };
+		0363D400000000000000000D /* OutlKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0363D400000000000000000C /* OutlKit */; };
+		0363D400000000000000000E /* OutlShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0363D4000000000000000001 /* OutlShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -79,6 +82,10 @@
 		0363A1000000000000000001 /* OutlWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OutlWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0363B2000000000000000002 /* OutlCaptureInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlCaptureInbox.swift; sourceTree = "<group>"; };
 		0363C3000000000000000002 /* OutlAddToTodayIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlAddToTodayIntent.swift; sourceTree = "<group>"; };
+		0363D4000000000000000011 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		0363D4000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		0363D4000000000000000003 /* OutlShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OutlShare.entitlements; sourceTree = "<group>"; };
+		0363D4000000000000000001 /* OutlShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OutlShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -107,6 +114,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				0363A100000000000000000D /* OutlKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0363D4000000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0363D400000000000000000D /* OutlKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -184,6 +199,7 @@
 				626BD1839E141625CCF789B9 /* LaunchScreen.storyboard */,
 				40ACCFCB52C636AB6B1C9770 /* Externals */,
 				00ADA1A6367B132C265E551F /* outl-mobile_iOS */,
+				0363D4000000000000000004 /* OutlShare */,
 				0363A1000000000000000004 /* OutlWidget */,
 				D91C70DAC27B27588C2C257E /* Sources */,
 				3717D25C0F7735265C955430 /* src */,
@@ -204,6 +220,7 @@
 			isa = PBXGroup;
 			children = (
 				6B1DBE6C01DBA911F071B23C /* outl.app */,
+				0363D4000000000000000001 /* OutlShare.appex */,
 				0363A1000000000000000001 /* OutlWidget.appex */,
 			);
 			name = Products;
@@ -246,6 +263,16 @@
 			path = OutlWidget;
 			sourceTree = "<group>";
 		};
+		0363D4000000000000000004 /* OutlShare */ = {
+			isa = PBXGroup;
+			children = (
+				0363D4000000000000000011 /* ShareViewController.swift */,
+				0363D4000000000000000002 /* Info.plist */,
+				0363D4000000000000000003 /* OutlShare.entitlements */,
+			);
+			path = OutlShare;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -262,6 +289,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				0363D400000000000000000F /* PBXTargetDependency */,
 				0363A100000000000000000F /* PBXTargetDependency */,
 			);
 			name = "outl-mobile_iOS";
@@ -290,6 +318,26 @@
 			);
 			productName = OutlWidget;
 			productReference = 0363A1000000000000000001 /* OutlWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		0363D4000000000000000008 /* OutlShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0363D400000000000000000B /* Build configuration list for PBXNativeTarget "OutlShare" */;
+			buildPhases = (
+				0363D4000000000000000005 /* Sources */,
+				0363D4000000000000000006 /* Frameworks */,
+				0363D4000000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OutlShare;
+			packageProductDependencies = (
+				0363D400000000000000000C /* OutlKit */,
+			);
+			productName = OutlShare;
+			productReference = 0363D4000000000000000001 /* OutlShare.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -337,6 +385,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		0363A1000000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0363D4000000000000000007 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -396,6 +451,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0363D4000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0363D4000000000000000012 /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -405,6 +468,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
+				0363D400000000000000000E /* OutlShare.appex in Embed Foundation Extensions */,
 				0363A100000000000000000E /* OutlWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
@@ -420,6 +484,13 @@
 			remoteGlobalIDString = 0363A1000000000000000008;
 			remoteInfo = OutlWidget;
 		};
+		0363D4000000000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D189CF478257466E80C23D09 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0363D4000000000000000008;
+			remoteInfo = OutlShare;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXTargetDependency section */
@@ -427,6 +498,11 @@
 			isa = PBXTargetDependency;
 			target = 0363A1000000000000000008 /* OutlWidget */;
 			targetProxy = 0363A1000000000000000010 /* PBXContainerItemProxy */;
+		};
+		0363D400000000000000000F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0363D4000000000000000008 /* OutlShare */;
+			targetProxy = 0363D4000000000000000010 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -708,6 +784,58 @@
 			};
 			name = release;
 		};
+		0363D4000000000000000009 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OutlShare/OutlShare.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CURRENT_PROJECT_VERSION = 1.0.0;
+				DEVELOPMENT_TEAM = CPEEKT3E77;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = OutlShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.outl.mobile-app.share";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = debug;
+		};
+		0363D400000000000000000A /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OutlShare/OutlShare.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CURRENT_PROJECT_VERSION = 1.0.0;
+				DEVELOPMENT_TEAM = CPEEKT3E77;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = OutlShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.outl.mobile-app.share";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -738,6 +866,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = debug;
 		};
+		0363D400000000000000000B /* Build configuration list for PBXNativeTarget "OutlShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0363D4000000000000000009 /* debug */,
+				0363D400000000000000000A /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -753,6 +890,11 @@
 			productName = OutlKit;
 		};
 		0363A100000000000000000C /* OutlKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4F2E9D183B5A4C6E91A2B3C4 /* XCLocalSwiftPackageReference "../../../swift/OutlKit" */;
+			productName = OutlKit;
+		};
+		0363D400000000000000000C /* OutlKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 4F2E9D183B5A4C6E91A2B3C4 /* XCLocalSwiftPackageReference "../../../swift/OutlKit" */;
 			productName = OutlKit;

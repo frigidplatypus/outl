@@ -63,3 +63,13 @@ final class CaptureReplyTests: XCTestCase {
         XCTAssertFalse(CaptureReply.saved.lowercased().contains("added"))
     }
 }
+
+final class SharedLineTests: XCTestCase {
+    func testTextAndURLBecomeOneLine() {
+        let url = URL(string: "https://outl.app/rfc")!
+        XCTAssertEqual(SharedLine.compose(text: "Read this\n later", url: url), "Read this later https://outl.app/rfc")
+        XCTAssertEqual(SharedLine.compose(text: nil, url: url), "https://outl.app/rfc")
+        XCTAssertEqual(SharedLine.compose(text: "see https://outl.app/rfc", url: url), "see https://outl.app/rfc")
+        XCTAssertNil(SharedLine.compose(text: "  \n", url: nil))
+    }
+}

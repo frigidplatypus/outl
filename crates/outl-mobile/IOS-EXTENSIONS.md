@@ -11,6 +11,7 @@ Design and invariants: [`docs/rfcs/0363-ios-quick-capture.md`](../../docs/rfcs/0
 | Widget (opens `outl://capture`) | `src-tauri/gen/apple/OutlWidget/` | `OutlWidget` app extension, iOS 16+ |
 | Shared pure logic (links, inbox writer, ULID) | `swift/OutlKit/Sources/OutlKit/Capture/` | OutlKit package, unit tested by `swift test` |
 | App Intent "Add to today" + App Shortcut | `src-tauri/gen/apple/Sources/outl-mobile/OutlAddToTodayIntent.swift` | app, iOS 16+ (`AppIntents` weak-linked) |
+| Share extension (text, one web link) | `src-tauri/gen/apple/OutlShare/` | `OutlShare` app extension, iOS 15+ |
 | App bridge (inbox path, arrival notification) | `src-tauri/gen/apple/Sources/outl-mobile/OutlCaptureInbox.swift` | app |
 | Drain | `outl_actions::capture`, `outl-tauri-shared/src/capture_inbox.rs` (`drain_capture_inbox`) | Rust, tested on Linux |
 | When to drain | `src/components/Journal.inbox.ts` (mount, foreground, `__outlCapturesArrived`) | webview |
