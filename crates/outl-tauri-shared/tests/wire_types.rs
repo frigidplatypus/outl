@@ -53,6 +53,7 @@ mod wire_pin;
 
 mod wire_fixtures;
 
+use outl_tauri_shared::capture_inbox::CaptureDrainDto;
 use outl_tauri_shared::commands::exec::{EmbedContent, RunCodeBlockReply};
 use outl_tauri_shared::commands::peers::{PeerDto, PeerStatusDto};
 use outl_tauri_shared::commands::property::PropertyKey;
@@ -401,4 +402,14 @@ fn merged_edit_matches_its_interface() {
         at_ms: 1_757_000_000_000,
     };
     assert_wire_shape(&dto, "MergedEdit", &[]);
+}
+
+#[test]
+fn capture_drain_matches_its_interface() {
+    let dto = CaptureDrainDto {
+        landed: 2,
+        skipped: 0,
+        page_ids: vec!["01JQ0000000000000000000005".into()],
+    };
+    assert_wire_shape(&dto, "CaptureDrain", &[]);
 }

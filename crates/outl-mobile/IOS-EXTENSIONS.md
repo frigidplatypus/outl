@@ -9,7 +9,13 @@ Design and invariants: [`docs/rfcs/0363-ios-quick-capture.md`](../../docs/rfcs/0
 | Piece | Path | Target |
 |---|---|---|
 | Widget (opens `outl://capture`) | `src-tauri/gen/apple/OutlWidget/` | `OutlWidget` app extension, iOS 16+ |
-| Shared pure logic (links, inbox writer) | `swift/OutlKit/Sources/OutlKit/Capture/` | OutlKit package, unit tested by `swift test` |
+| Shared pure logic (links, inbox writer, ULID) | `swift/OutlKit/Sources/OutlKit/Capture/` | OutlKit package, unit tested by `swift test` |
+| App bridge (inbox path, arrival notification) | `src-tauri/gen/apple/Sources/outl-mobile/OutlCaptureInbox.swift` | app |
+| Drain | `outl_actions::capture`, `outl-tauri-shared/src/capture_inbox.rs` (`drain_capture_inbox`) | Rust, tested on Linux |
+| When to drain | `src/components/Journal.inbox.ts` (mount, foreground, `__outlCapturesArrived`) | webview |
+
+The App Group is `group.app.outl.mobile-app`; the inbox is `captures/` in
+its container. The app and every extension that writes must carry it.
 
 The extension targets were added to the committed `project.pbxproj` by
 `scripts/ios-add-extension.py`; `project.yml` mirrors them for anyone who
@@ -27,14 +33,25 @@ regenerates with `xcodegen`.
 
 ## What needs Xcode on a Mac
 
-1. **Apple Developer portal.** Register the App IDs
-   `app.outl.mobile-app.widget` (and, from step 3, `app.outl.mobile-app.share`).
-2. **App Store profiles.** One per extension. Add them as repository
+1. **Apple Developer portal.** Create the App Group
+   `group.app.outl.mobile-app`. Register the App IDs
+   `app.outl.mobile-app.widget` and `app.outl.mobile-app.share`. Enable
+   App Groups on `app.outl.mobile-app` and on the share App ID, both with
+   that group.
+2. **Regenerate the app's App Store profile** so it includes the App
+   Group, and update `PROVISIONING_PROFILE_BASE64`. The release job drops
+   the App Group from the app (and unhooks the extensions) while any
+   extension profile secret is missing, so nothing breaks before this.
+3. **Extension App Store profiles.** One per extension. Add them as repository
    secrets `WIDGET_PROVISIONING_PROFILE_BASE64` and
    `SHARE_PROVISIONING_PROFILE_BASE64` (base64 of the `.mobileprovision`).
    Until both exist, release builds ship without the extensions.
-3. **Run on a device.** Open `src-tauri/gen/apple/outl-mobile.xcodeproj`,
+4. **Run on a device.** Open `src-tauri/gen/apple/outl-mobile.xcodeproj`,
    pick your team on each extension target (Signing & Capabilities), run
    the `outl-mobile_iOS` scheme on a phone, then add the "Add to today"
    widget from the Home Screen and the Lock Screen and tap it: the app
    should open on the capture sheet.
+5. **Inbox on a device.** With the app in the background, use the
+   "Add to today" Shortcut (step 3) or share some text to outl: the line
+   should be in today's journal when you open the app, and with the app
+   open it should appear within a second (Darwin notification).

@@ -127,6 +127,7 @@ import {
   listenForWorkspaceReady,
   navigateDeepLink,
 } from "./Journal.listeners";
+import { installForegroundRefresh } from "./Journal.inbox";
 import { PageSections } from "./PageSections";
 import { BlockContextMenu } from "./BlockContextMenu";
 import { SelectionToolbar } from "./SelectionToolbar";
@@ -586,13 +587,8 @@ export function Journal() {
     // block in a custom language can render its transformed view. Best-
     // effort — failure leaves fences as plain highlighted code.
     void loadTransformers();
-    // iOS freezes JS in the background; on return to the foreground, pull again
-    // so edits made on another device while we were away land right away.
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void pullAndReload();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    onCleanup(() => document.removeEventListener("visibilitychange", onVisible));
+    // Back in the foreground: pull peers' edits and drain the iOS capture inbox.
+    installForegroundRefresh({ pull: () => pullAndReload(), notify: (text) => setError(text) });
   });
 
   /**

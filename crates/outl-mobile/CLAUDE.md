@@ -3,11 +3,18 @@
 Tauri 2 mobile client (iOS first, Android later).
 Solid.js + Tailwind frontend, Rust backend that **must stay thin** — every workspace operation is delegated to `outl-actions`.
 
+## Capture from outside the app (RFC 0363)
+
+The widget, the "Add to today" App Intent and the share extension never touch the workspace: they write `<ULID>.json` files to `captures/` in the App Group (`OutlKit/Capture/CaptureInbox.swift`).
+`drain_capture_inbox` (`outl-tauri-shared/src/capture_inbox.rs` over `outl_actions::capture`) is the **only** path from that inbox into the workspace; root invariant 7 holds because every capture becomes ops there.
+Targets, signing and what needs a Mac: `IOS-EXTENSIONS.md`.
+
 ## `Journal.tsx` is being broken up
 
 1,978 lines in one component, still over 3x the `file-size-guard.sh` ceiling.
 The chrome came out first (`JournalChrome.tsx`), then the delete prompts (`JournalDeleteDialogs.tsx`) and the toolbar dispatch (`Journal.toolbar-dispatch.ts`); [issue 265](https://github.com/outlmd/outl/issues/265) phases 1-3 took the block ops, the selection state machine and the platform listeners out.
 Day navigation and wake-to-today live in `Journal.day-nav.ts`, quick capture in `Journal.capture.ts` (`outl://capture` opens its sheet through `openCapture` in `Journal.listeners.ts`), and the empty states and zoom bar in `JournalEmpty.tsx` and `JournalZoomBar.tsx`.
+The foreground pull and the capture inbox drain live in `Journal.inbox.ts`.
 The remaining seams are in that issue, and the props rule an extraction must not break is in `outl-frontend-shared/CLAUDE.md`.
 
 ## Layering

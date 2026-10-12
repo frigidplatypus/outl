@@ -8,7 +8,7 @@
 | **Date** | 2026-10-12 |
 | **Reference doc** | none yet; `UX.md` "Getting around on a phone" covers the in-app capture this extends |
 | **Invariant** | root `CLAUDE.md` invariant 7 (state that must converge goes through the op log) |
-| **Guarded by** | the tests listed under "How it cannot regress" |
+| **Guarded by** | `outl_actions::capture` tests (the four below plus `a_malformed_capture_is_kept_and_counted`, `the_block_id_is_the_capture_ulid`), `outl-tauri-shared/tests/capture_inbox_command.rs`, OutlKit `CaptureInboxTests` |
 
 ## Why
 
