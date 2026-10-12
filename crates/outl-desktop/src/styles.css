@@ -173,3 +173,12 @@
     transition: none;
   }
 }
+
+/*
+ * Keyboard focus ring. Only on :focus-visible, so a mouse click never
+ * paints it, but Tab, arrows and F6 always show where you are.
+ */
+:where(button, a[href], [role="button"], [role="toolbar"] *, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-outl-accent);
+  outline-offset: 2px;
+}

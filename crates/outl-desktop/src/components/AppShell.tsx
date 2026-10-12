@@ -35,6 +35,7 @@ import type { DeepLinkNavigate } from "../lib/events";
 import { installShortcuts, type ActionHandlers } from "../lib/shortcuts";
 import { loadTransformers } from "@outl/shared/plugins/transformer-registry";
 import { buildHandlers } from "../lib/action-handlers";
+import { installRegionKeys } from "../lib/keyboard-reach";
 import { BatchToolbar } from "./BatchToolbar";
 import { Sidebar } from "./Sidebar";
 import { OutlineView } from "./OutlineView";
@@ -250,6 +251,9 @@ export function AppShell() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+
+  // F6 cycles sidebar / outline / chrome, Esc returns to the outline.
+  onMount(() => onCleanup(installRegionKeys()));
 
   onMount(async () => {
     // Subscribe BEFORE draining. `take_pending_open_file` is what tells

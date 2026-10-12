@@ -1,5 +1,6 @@
 import { Show, createEffect, createSignal } from "solid-js";
 
+import { createSheetDrag } from "../lib/sheet-drag";
 import { useKeyboardInset } from "../lib/viewport";
 
 /**
@@ -21,6 +22,8 @@ export function CaptureSheet(props: {
   const [text, setText] = createSignal("");
   const [sending, setSending] = createSignal(false);
   const keyboardInset = useKeyboardInset();
+  // Same drag-down-to-close as every other sheet.
+  const drag = createSheetDrag(() => props.onClose());
   let input: HTMLTextAreaElement | undefined;
 
   createEffect(() => {
@@ -45,11 +48,27 @@ export function CaptureSheet(props: {
       <div class="outl-fade-in fixed inset-0 z-50 bg-black/30 backdrop-blur-sm" onClick={props.onClose} />
       <div
         class="outl-sheet-up fixed inset-x-0 bottom-0 z-50 rounded-t-2xl bg-(--color-outl-bg-elev) px-4 pt-3 shadow-2xl"
-        style={{ "padding-bottom": `max(env(safe-area-inset-bottom), ${keyboardInset()}px, 12px)` }}
+        style={{
+          "padding-bottom": `max(env(safe-area-inset-bottom), ${keyboardInset()}px, 12px)`,
+          transform: `translateY(${drag.translateY()}px)`,
+          transition: drag.dragging() ? "none" : "transform 220ms var(--ease-spring-in)",
+        }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Add to today's journal"
       >
+        <span
+          class="mx-auto -mt-1 mb-1 block h-3 w-16 cursor-grab py-1 active:cursor-grabbing"
+          style={{ "touch-action": "none" }}
+          onPointerDown={drag.onPointerDown}
+          onPointerMove={drag.onPointerMove}
+          onPointerUp={drag.onPointerUp}
+          onPointerCancel={drag.onPointerCancel}
+          aria-label="Drag to close"
+          role="button"
+        >
+          <span aria-hidden="true" class="mx-auto block h-1 w-10 rounded-full bg-(--color-outl-border)" />
+        </span>
         <div class="flex items-center justify-between">
           <span class="text-[13px] font-medium text-(--color-outl-fg-dim)">{props.target}</span>
           <button
