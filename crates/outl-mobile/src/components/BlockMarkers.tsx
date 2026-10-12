@@ -96,10 +96,10 @@ export function BulletOrCheckbox(props: {
           e.stopPropagation();
           props.onToggle();
         }}
-        class="relative z-10 -my-1.5 -ml-1 flex h-[30px] w-[30px] shrink-0 items-center justify-center"
+        class="relative z-10 -my-[13px] -ml-[8px] flex h-[44px] w-[44px] shrink-0 items-center justify-center"
       >
         <span
-          class="flex h-[20px] w-[20px] items-center justify-center rounded-full border-[1.5px] transition-colors"
+          class="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] border-[1.5px] transition-colors"
           classList={{
             "border-(--color-outl-accent) bg-(--color-outl-accent)":
               props.todo === "DONE",
@@ -115,7 +115,7 @@ export function BulletOrCheckbox(props: {
           <Show when={props.todo === "DOING"}>
             <span
               aria-hidden="true"
-              class="h-[9px] w-[9px] rounded-full bg-(--color-outl-accent)"
+              class="h-[8px] w-[8px] rounded-[2px] bg-(--color-outl-accent)"
             />
           </Show>
           <Show when={props.todo === "DONE"}>

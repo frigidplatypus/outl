@@ -108,14 +108,16 @@ function FileChip(props: {
  *
  * ## `variant`
  *
- * - **`"pill"`** (default) — touch-friendly chips with filled
- *   backgrounds. Right for mobile where fingers need a fat target.
- *   Uses the canonical `--color-outl-accent` token, same as `"inline"`.
- * - **`"inline"`** — TUI-style inline text with underline + color
- *   only, no chip background. Right for desktop where dense
- *   reading is the norm; pills there feel heavy. Uses the
+ * - **`"inline"`** — underlined, coloured text with no chip background.
+ *   Both GUI clients use it for block text (desktop first, mobile since
+ *   PR #362: one visual language, refs read as links, not buttons). Mobile
+ *   keeps a 44pt touch target by widening each `.outl-ref`'s hit area in
+ *   its own CSS, not by drawing a chip. Uses the
  *   canonical `--color-outl-ref-link-fg` (and `--color-outl-tag-link-fg`)
  *   tokens for separate hues on refs vs tags.
+ * - **`"pill"`** (default) — chips with filled backgrounds, using
+ *   `--color-outl-accent`. No client renders block text with it any
+ *   more; it stays the default for compact read-only contexts.
  *
  * The host client supplies the matching CSS custom properties; the
  * renderer is otherwise unaware of the active theme.
@@ -125,8 +127,8 @@ type Variant = "pill" | "inline";
 interface MarkdownInlineProps {
   /** Tokens produced by `outl_md::tokenize_owned` on the backend. */
   tokens: InlineToken[];
-  /** Render style. Defaults to `"pill"` (mobile-style chips).
-   *  Desktop passes `"inline"` for TUI-style underlined text. */
+  /** Render style. Defaults to `"pill"` (chips). Desktop and mobile
+   *  both pass `"inline"` for block text: underlined links. */
   variant?: Variant;
   /** Whether the context permits assets (e.g. images) to render as block
    *  elements (`<img>`). Defaults to `false` when `variant === "inline"`
@@ -243,7 +245,7 @@ export function MarkdownInline(props: MarkdownInlineProps): JSX.Element {
                 <span
                   {...a11y}
                   title={tok.href}
-                  class="text-(--color-outl-md-link-fg) underline decoration-(--color-outl-md-link-fg)/40 underline-offset-2 hover:decoration-(--color-outl-md-link-fg)"
+                  class="outl-ref text-(--color-outl-md-link-fg) underline decoration-(--color-outl-md-link-fg)/40 underline-offset-2 hover:decoration-(--color-outl-md-link-fg)"
                   classList={{ "cursor-pointer": !!props.onLinkClick }}
                 >
                   {tok.value}
@@ -371,7 +373,7 @@ export function MarkdownInline(props: MarkdownInlineProps): JSX.Element {
                     e.stopPropagation();
                     props.onRefClick(tok.value);
                   }}
-                  class="cursor-pointer text-(--color-outl-ref-link-fg) underline decoration-(--color-outl-ref-link-fg)/40 underline-offset-2 hover:decoration-(--color-outl-ref-link-fg)"
+                  class="outl-ref cursor-pointer text-(--color-outl-ref-link-fg) underline decoration-(--color-outl-ref-link-fg)/40 underline-offset-2 hover:decoration-(--color-outl-ref-link-fg)"
                 >
                   {tok.value}
                 </span>
@@ -402,7 +404,7 @@ export function MarkdownInline(props: MarkdownInlineProps): JSX.Element {
                     e.stopPropagation();
                     props.onTagClick(tok.value);
                   }}
-                  class="cursor-pointer text-(--color-outl-tag-link-fg) underline decoration-(--color-outl-tag-link-fg)/40 underline-offset-2 hover:decoration-(--color-outl-tag-link-fg)"
+                  class="outl-ref cursor-pointer text-(--color-outl-tag-link-fg) underline decoration-(--color-outl-tag-link-fg)/40 underline-offset-2 hover:decoration-(--color-outl-tag-link-fg)"
                 >
                   {/* The Rust token serialiser stores the leading `#` in
                       `value` already (see `outl_md::inline::InlineToken::from_borrowed`

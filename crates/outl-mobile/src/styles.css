@@ -6,6 +6,11 @@
 @import "@outl/shared/polish/styles";
 @import "@outl/shared/plugins/styles";
 
+/* Scan the shared package too: the inline ref/tag/link classes live only
+   in `MarkdownInline.tsx`, so without this Tailwind never emits them and
+   refs paint as plain text. Same line as the desktop's styles.css. */
+@source "../../outl-frontend-shared/src/**/*.{ts,tsx}";
+
 /* Spring-ish ease curves used across the app. Apple's UIKit defaults
    land somewhere between these two — `--ease-spring-out` is for sheets
    coming in (overshoots a hair); `--ease-spring-in` settles back to
@@ -271,4 +276,24 @@ input {
 .ios-scroll {
   -webkit-overflow-scrolling: touch;
   overflow-y: auto;
+}
+
+/*
+ * Refs, tags and links render as underlined text like the desktop (no
+ * chip), so the finger target comes from here instead: an invisible
+ * box at least 44pt tall around each one. It sits behind the text and
+ * overlaps neighbouring words a little, which is the same trade iOS
+ * makes for inline links.
+ */
+.outl-ref {
+  position: relative;
+}
+.outl-ref::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: 50%;
+  height: 44px;
+  transform: translateY(-50%);
 }
