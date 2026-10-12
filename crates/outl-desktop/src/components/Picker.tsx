@@ -14,6 +14,7 @@ import {
   searchPages,
 } from "@outl/shared/api/commands";
 import type { PageView } from "@outl/shared/api/types";
+import { findBlock } from "@outl/shared/outline";
 import { PageGlyph, SearchIcon } from "@outl/shared/icons";
 
 import { listShortcutBindings } from "../lib/api";
@@ -125,6 +126,11 @@ export function Picker(props: {
       const view = await openPageBySlug(item.hit.source_slug);
       props.onPicked(view);
       setAppState("selectedBlockId", item.hit.id);
+      // A hit with children opens zoomed into that block, so the
+      // match is the whole view and not one row on a long page. A
+      // leaf stays in page context with the cursor on it.
+      const node = findBlock(appState.outline, item.hit.id);
+      if (node && node.children.length > 0) setAppState("focusBlockId", item.hit.id);
       close();
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
