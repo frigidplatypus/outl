@@ -242,7 +242,7 @@ pub fn light() -> Palette {
         bg: bg.into(),
         bg_elev: "#f4f4f4".into(),
         fg: fg.into(),
-        fg_dim: gray.into(),
+        fg_dim: "#6e6e6e".into(), // 5.1:1 on bg, 4.6:1 on bg_elev
         fg_dimmer: "#bbbbbb".into(),
         border: gray.into(),
         hint: dark_gray.into(),
@@ -315,7 +315,7 @@ pub fn logseq_light() -> Palette {
         bg: bg.into(),
         bg_elev: bg_elev.into(),
         fg: fg.into(),
-        fg_dim: fg_dim.into(),
+        fg_dim: "#726f6c".into(), // 5.0:1 on bg, 4.7:1 on bg_elev
         fg_dimmer: fg_dimmer.into(),
         border: border.into(),
         hint: fg_dim.into(),
@@ -376,7 +376,7 @@ pub fn dracula() -> Palette {
         bg: bg.into(),
         bg_elev: "#21222c".into(),
         fg: fg.into(),
-        fg_dim: comment.into(),
+        fg_dim: "#8692b9".into(), // comment lifted to 4.6:1 on bg
         fg_dimmer: comment.into(),
         border: comment.into(),
         hint: comment.into(),
@@ -441,7 +441,7 @@ pub fn solarized_dark() -> Palette {
         bg: base03.into(),
         bg_elev: base02.into(),
         fg: base0.into(),
-        fg_dim: base01.into(),
+        fg_dim: "#7f9399".into(), // 4.7:1 on base03, 4:1 on base02 like base0
         fg_dimmer: base01.into(),
         border: base02.into(),
         hint: base1.into(),
@@ -567,7 +567,7 @@ pub fn monokai() -> Palette {
         bg: bg.into(),
         bg_elev: "#1e1f1c".into(),
         fg: fg.into(),
-        fg_dim: comment.into(),
+        fg_dim: "#939081".into(), // comment lifted to 4.6:1 on bg
         fg_dimmer: comment.into(),
         border: comment.into(),
         hint: comment.into(),
