@@ -33,6 +33,7 @@
 //!   and week strip read: every open task, and which days hold text.
 //! - [`theme`] — resolve a palette preset. Pure; no workspace access.
 //! - [`timeline`] — a page's history, read out of the op log.
+//! - [`trust`] — per-device activity and the plain Markdown export.
 //!   Distinct from [`history`]: that is this session's undo stack.
 //!   Read-only; there is no restore command.
 
@@ -53,3 +54,4 @@ pub mod tasks;
 pub mod template;
 pub mod theme;
 pub mod timeline;
+pub mod trust;

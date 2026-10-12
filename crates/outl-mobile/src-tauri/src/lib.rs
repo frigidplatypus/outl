@@ -86,8 +86,9 @@ use crate::commands::{
     set_block_remind, set_page_property, set_reminder_settings, snooze_presets, snooze_reminder,
 };
 use crate::commands::{
-    journal_days_with_content, list_action_support, list_open_tasks, list_shortcut_bindings,
-    page_timeline, resolve_embeds, run_auto_run_blocks, run_code_block,
+    device_activity, export_markdown, journal_days_with_content, list_action_support,
+    list_open_tasks, list_shortcut_bindings, page_timeline, resolve_embeds, run_auto_run_blocks,
+    run_code_block,
 };
 use crate::plugin_service::spawn_plugin_service;
 use crate::state::AppState;
@@ -385,6 +386,8 @@ pub fn run() {
             list_action_support,
             // Page history out of the op log (read-only). New on mobile.
             page_timeline,
+            device_activity,
+            export_markdown,
             // Theme
             list_themes,
             get_theme,
