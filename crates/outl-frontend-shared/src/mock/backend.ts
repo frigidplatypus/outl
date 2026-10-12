@@ -118,6 +118,23 @@ export function createMockBackend(ws = new MockWorkspace(), today = new Date()) 
         .slice(0, 25)
         .map(([p, n]) => ({ handle: `blk-${n.id}`, id: n.id, text: n.text, source_slug: p.meta.slug }));
     },
+    list_open_tasks: () => {
+      const tasks = [...ws.walk()]
+        .filter(([, n]) => n.todo === "TODO" || n.todo === "DOING")
+        .map(([p, n]) => ({
+          id: n.id,
+          source_slug: p.meta.slug,
+          status: n.todo === "DOING" ? "doing" : "todo",
+          text: n.text.replace(/^(TODO|DOING) /, ""),
+        }));
+      return { total: tasks.length, tasks };
+    },
+    journal_days_with_content: (a) =>
+      [...ws.pages.values()]
+        .filter((p) => p.meta.kind === "journal" && p.meta.slug >= String(a.from) && p.meta.slug <= String(a.to))
+        .filter((p) => p.blocks.some((b) => b.text.trim() !== ""))
+        .map((p) => p.meta.slug)
+        .sort(),
     page_backlinks: (a) => ({
       backlinks: backlinks(String(a.slug)),
       backlinks_order: settings.backlinks_order,

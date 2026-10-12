@@ -562,3 +562,24 @@ macro_rules! timeline_commands {
         }
     };
 }
+
+/// The overview mobile's bottom bar and week strip read: every open
+/// task, and which journal days hold text.
+#[macro_export]
+macro_rules! overview_commands {
+    ($state:ty) => {
+        $crate::tauri_commands! {
+            state = $state;
+
+            /// Open tasks (`TODO` / `DOING`) across every page.
+            fn list_open_tasks()
+                -> ::std::result::Result<$crate::commands::tasks::OpenTasks, String>
+                => $crate::commands::tasks::list_open_tasks;
+
+            /// Journal days in `from..=to` with at least one non-empty block.
+            fn journal_days_with_content(from: String, to: String)
+                -> ::std::result::Result<::std::vec::Vec<String>, String>
+                => $crate::commands::journal_days::journal_days_with_content;
+        }
+    };
+}

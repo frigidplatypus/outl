@@ -64,6 +64,11 @@ export class MockWorkspace {
       { text: "Read about daily notes in [[outl]]" },
       { text: "TODO Write the RFC for the journal stream #design" },
     ]);
+    this.add("journal", shiftDay(t, -3), [
+      { text: "DOING Sketch the week strip for mobile" },
+      { text: "Coffee with [[Ana]], talked about quick capture" },
+    ]);
+    this.add("journal", shiftDay(t, -4), [{ text: "Weekly review" }]);
     this.add("page", "outl", [
       { text: "Local-first outliner. Markdown on disk, CRDT underneath." },
       { text: "Clients", children: [{ text: "TUI" }, { text: "Desktop" }, { text: "Mobile" }] },

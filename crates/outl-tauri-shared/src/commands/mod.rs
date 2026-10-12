@@ -29,6 +29,8 @@
 //! - [`reminders`] — list / snooze / author `remind::` rules. The
 //!   *delivery* of the notification stays per-client (each OS has its
 //!   own scheduler); only the "what and when" is shared.
+//! - [`tasks`] and [`journal_days`]: the overview mobile's bottom bar
+//!   and week strip read: every open task, and which days hold text.
 //! - [`theme`] — resolve a palette preset. Pure; no workspace access.
 //! - [`timeline`] — a page's history, read out of the op log.
 //!   Distinct from [`history`]: that is this session's undo stack.
@@ -38,6 +40,7 @@ pub mod asset;
 pub mod block;
 pub mod exec;
 pub mod history;
+pub mod journal_days;
 pub mod open_with;
 pub mod page;
 mod page_backlinks;
@@ -46,6 +49,7 @@ pub mod plugin;
 pub mod property;
 pub mod reminders;
 pub mod shortcuts;
+pub mod tasks;
 pub mod template;
 pub mod theme;
 pub mod timeline;

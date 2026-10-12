@@ -25,6 +25,7 @@ use std::collections::BTreeSet;
 
 use outl_shortcuts::{Chord, ChordSequence, Key, Modifiers, Support};
 use outl_tauri_shared::commands::shortcuts::SupportDto;
+use outl_tauri_shared::commands::tasks::{OpenTasks, TaskHit};
 use outl_tauri_shared::plugin_dto::PluginKeybindingDto;
 use outl_tauri_shared::state::{BlockHit, RefProjectionFailed};
 
@@ -62,6 +63,24 @@ fn imported_asset_matches_its_interface() {
         markdown: "[invoice.pdf](assets/abc123.pdf)".into(),
     };
     assert_wire_shape(&dto, "ImportedAsset", &[]);
+}
+
+// --- @outl/shared/api/overview.ts ----------------------------------------
+
+#[test]
+fn open_tasks_match_their_interfaces() {
+    let hit = TaskHit {
+        id: "01J0000000000000000000000".into(),
+        source_slug: "2026-10-12".into(),
+        status: "todo".into(),
+        text: "call the bank".into(),
+    };
+    assert_wire_shape(&hit, "TaskHit", &[]);
+    let dto = OpenTasks {
+        total: 1,
+        tasks: vec![hit],
+    };
+    assert_wire_shape(&dto, "OpenTasks", &[]);
 }
 
 // --- outl-desktop/src/lib/api.ts (the shortcut catalog) -------------------
