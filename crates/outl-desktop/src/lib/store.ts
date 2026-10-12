@@ -8,6 +8,7 @@
  * because the chrome diverges; only pure helpers and DTOs go through
  * `@outl/shared`.
  */
+import { createSavedMarks } from "@outl/shared/trust";
 import { createStore, reconcile } from "solid-js/store";
 
 import type {
@@ -353,3 +354,10 @@ export function backlinksState(r: PageBacklinks) {
     namespaceMentionsTotal: r.namespace_backlinks_total,
   };
 }
+
+/**
+ * Per-block "saved to disk" marks. `OutlineView`'s commit marks a block
+ * once `edit_block` resolves (the op is in this device's log and the
+ * `.md` is rewritten); `BlockRow` renders the fading dot.
+ */
+export const savedMarks = createSavedMarks();

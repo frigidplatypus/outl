@@ -157,7 +157,10 @@ Promoting `PropertyEditor` itself to `@outl/shared` waits on mobile: its answer 
 ## Page history — `TimelinePanel.tsx`
 
 The `⏱` button in the page-header eyebrow opens `components/TimelinePanel.tsx`: what the op log says happened to this page, newest first (issue #241).
-Read-only, `Esc` or a click outside closes it, `appState.timelineOpen` is the flag.
+`Esc` or a click outside closes it, `appState.timelineOpen` is the flag.
+Edits render as a word diff (`@outl/shared/trust` `DiffText`).
+Two rows carry a restore, and `restorePlan` alone decides which: an edit puts the block's previous text back (`edit_block`), a deletion brings the lost text back as a new block at the end of the page (`create_block`).
+Both are new ops, so they sync and `Cmd+Z` takes them back; nothing rewinds the log. Moves, properties, and edits on a block now in the trash get no button.
 
 Three things a contributor should not undo:
 
@@ -530,3 +533,8 @@ One thing that bites every time: **testing on macOS needs a bundled, installed a
 4. `bun --filter outl-desktop test` (Vitest)
 5. `cd crates/outl-desktop && cargo tauri dev` — smoke open in a real window, click around the parts you touched.
 6. If you touched anything in `@outl/shared`, also run `bun --filter outl-mobile test` to confirm paridade.
+
+## Trust surfaces — sync settings and the saved mark
+
+- `components/TrustSection.tsx`, rendered inside `SyncPanel`: per-device op counts from `device_activity` (labelled "This device" / a short actor id, never a guessed name, since an actor is not a peer id) and the one-click Markdown export (`export_markdown`, a new folder next to the workspace). Presentation is `@outl/shared/trust`.
+- The saved mark: `savedMarks` in `lib/store.ts`; `OutlineView`'s commit marks a block when `edit_block` resolves and `BlockRow` renders the fading dot. Do not mark before the command resolves; the mark means "the op is on disk".

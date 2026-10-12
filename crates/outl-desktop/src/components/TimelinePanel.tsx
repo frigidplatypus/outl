@@ -2,11 +2,13 @@
  * Page history — what the op log says happened to the page that's open.
  *
  * Opened by the `⏱` button in the page header, closed with `Esc` or a
- * click outside. **Read-only**: it shows the past, it does not restore
- * it. `outl recover` is the one restore path that exists, and it covers
- * a narrow, provably-additive case (see `outl_actions::recover`); a
- * general "put this revision back" button needs its own safety
- * argument, which this panel deliberately does not assume.
+ * click outside. Edits render as a word diff, and two kinds of row carry
+ * a one-click restore, both decided by `@outl/shared/trust`'s
+ * `restorePlan`: an edit puts the block's previous text back, and a
+ * deletion brings the lost text back as a new block at the end of the
+ * page. Each is an ordinary edit or create, so it is new ops in the log
+ * (invariant 1), it syncs, and `Cmd+Z` takes it back. Nothing here
+ * rewinds the log or the tree.
  *
  * Not the undo stack. `Cmd+Z` walks *this session's* mutations;
  * this walks every device's, from the beginning of the workspace.
@@ -20,13 +22,16 @@
 
 import { For, Show, createResource } from "solid-js";
 
-import { pageTimeline } from "@outl/shared/api/commands";
-import type { TimelineEvent } from "@outl/shared/api/types";
+import { createBlock, editBlock, pageTimeline } from "@outl/shared/api/commands";
+import type { PageView, TimelineEvent } from "@outl/shared/api/types";
+import { findBlock } from "@outl/shared/outline";
+import { DiffText, restorePlan } from "@outl/shared/trust";
 
 import { appState, setAppState } from "../lib/store";
 
 export interface TimelinePanelDeps {
   setError: (message: string) => void;
+  applyView: (view: PageView) => void;
 }
 
 /**
@@ -89,7 +94,7 @@ export function TimelinePanel(props: TimelinePanelDeps) {
   // leaves `timeline.error` unset and the `Show` below falsy forever, so
   // a failed IPC call parks the panel on "Reading the op log…" while the
   // real message goes to a toast the user may already have dismissed.
-  const [timeline] = createResource(target, async (pageId) => {
+  const [timeline, { refetch }] = createResource(target, async (pageId) => {
     try {
       return await pageTimeline(pageId);
     } catch (e) {
@@ -99,6 +104,28 @@ export function TimelinePanel(props: TimelinePanelDeps) {
   });
 
   const failed = () => timeline.error as unknown;
+
+  /** The block's text right now, so a restore to what it already says
+   * is not offered. `undefined` when the block is not on screen. */
+  const currentText = (block: string) => {
+    return findBlock(appState.outline, block)?.text ?? undefined;
+  };
+
+  const restore = async (event: TimelineEvent) => {
+    const pageId = appState.page?.id;
+    const plan = restorePlan(event, currentText(event.block));
+    if (!pageId || !plan) return;
+    try {
+      const view =
+        plan.kind === "edit"
+          ? await editBlock(pageId, plan.block, plan.text)
+          : (await createBlock(pageId, { text: plan.text })).view;
+      props.applyView(view);
+      void refetch();
+    } catch (e) {
+      props.setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return (
     <Show when={appState.timelineOpen}>
@@ -147,7 +174,7 @@ export function TimelinePanel(props: TimelinePanelDeps) {
                 }
               >
                 <For each={timeline()?.events ?? []}>
-                  {(event) => <Row event={event} />}
+                  {(event) => <Row event={event} onRestore={restore} />}
                 </For>
               </Show>
             </Show>
@@ -172,10 +199,12 @@ export function TimelinePanel(props: TimelinePanelDeps) {
   );
 }
 
-function Row(props: { event: TimelineEvent }) {
+function Row(props: { event: TimelineEvent; onRestore: (e: TimelineEvent) => void }) {
   const e = () => props.event;
+  const plan = () =>
+    restorePlan(e(), findBlock(appState.outline, e().block)?.text ?? undefined);
   return (
-    <div class="border-b border-(--color-outl-border)/40 py-2 last:border-b-0">
+    <div class="group border-b border-(--color-outl-border)/40 py-2 last:border-b-0">
       <div class="flex items-baseline gap-2 text-xs opacity-60">
         <span class="font-mono">{formatAt(e().at_ms)}</span>
         <span>{label(e())}</span>
@@ -185,17 +214,26 @@ function Row(props: { event: TimelineEvent }) {
         <Show when={e().block_deleted && e().change !== "deleted"}>
           <span class="opacity-70">· block since deleted</span>
         </Show>
+        <Show when={plan()}>
+          {(p) => (
+            <button
+              type="button"
+              class="ml-auto rounded px-2 py-0.5 text-xs text-(--color-outl-accent) opacity-0 transition-opacity hover:bg-(--color-outl-accent)/12 focus:opacity-100 group-hover:opacity-100"
+              title={p().kind === "edit" ? "Put the text from before this edit back" : "Add this text back to the page"}
+              onClick={() => props.onRestore(e())}
+            >
+              {p().kind === "edit" ? "Restore this version" : "Bring it back"}
+            </button>
+          )}
+        </Show>
       </div>
 
       <Show when={e().change === "edited"}>
         {/* `!== null`, not truthiness: an edit from empty text to
             content carries `from: ""`, which is a real previous value. */}
-        <Show when={e().from !== null}>
-          <div class="mt-0.5 truncate font-mono text-[13px] text-(--color-outl-fg-dim) line-through decoration-1">
-            {firstLine(e().from) || "(empty)"}
-          </div>
-        </Show>
-        <div class="truncate font-mono text-[13px]">{firstLine(e().to)}</div>
+        <div class="mt-0.5 font-mono text-[13px] whitespace-pre-wrap break-words">
+          <DiffText from={e().from ?? ""} to={e().to ?? ""} />
+        </div>
       </Show>
 
       {/* The text a deletion took is the whole reason to look. */}

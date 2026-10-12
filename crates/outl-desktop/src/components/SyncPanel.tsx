@@ -28,6 +28,8 @@
 
 import { Show, createSignal, onCleanup, onMount } from "solid-js";
 
+import { TrustSection } from "./TrustSection";
+
 import {
   peerList,
   peerPairHost,
@@ -318,6 +320,8 @@ export function SyncPanel() {
           }
         />
       </div>
+
+      <TrustSection />
 
       {/* Pairing flow. */}
       <Show
