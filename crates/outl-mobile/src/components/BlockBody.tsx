@@ -311,6 +311,8 @@ export function BlockBody(props: {
                     >
                       <MarkdownInline
                         tokens={tokens}
+                        variant="inline"
+                        blockAssets
                         onRefClick={tap(props.onRefClick)}
                         onTagClick={tap(props.onTagClick)}
                         onLinkClick={tap(props.onLinkClick)}

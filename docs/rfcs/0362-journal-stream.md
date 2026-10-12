@@ -87,7 +87,7 @@ Motion is short and only ever opacity or transform: children slide in when a blo
 Reading gets one rhythm on both clients (`outl-reading`: 1.6 line height, kerning and ligatures, a little air between blocks). Body text uses `fg`, which clears 4.5:1 on all ten presets, and a test pins that.
 Focus mode fades the chrome and dims every row but the one being written, with a 68ch measure on desktop. It is a device preference, like scroll position. It ships as a button in both capsules; a keyboard chord needs an `Action`, which waits for `outl-shortcuts`' baselined files to be split.
 A new user gets three tips (blocks, links, daily) on an empty or blank page, in the same words on both clients, dismissed once per device.
-Known differences left on purpose: refs render as pills on mobile and underlined inline text on desktop (`MarkdownInline`'s `variant`, chosen for touch versus long reading), and the TODO glyph is a circle on mobile and a square on desktop. Changing either is a design call, not an alignment fix.
+The last two differences follow the desktop: mobile renders refs, tags and links as underlined text (`MarkdownInline` `variant="inline"`) and the TODO box as a square. Touch keeps a 44pt target on both, an invisible hit area around each ref and a 44pt button around the box.
 
 ## Speed and flow
 

@@ -178,6 +178,7 @@ export function BacklinksSection(props: BacklinksSectionProps): JSX.Element {
                                 fallback={
                                   <MarkdownInline
                                     tokens={link.source_block.tokens}
+                                    variant="inline"
                                   />
                                 }
                               >
