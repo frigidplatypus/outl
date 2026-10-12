@@ -12,3 +12,5 @@ export { createSavedMarks, type SavedMarks } from "./saved";
 export { DiffText } from "./DiffText";
 export { DeviceActivityList } from "./DeviceActivityList";
 export { ExportCard } from "./ExportCard";
+export { MergedEditsList, MergedEditsPanel } from "./MergedEditsList";
+export { visibleMerges, withoutMerge } from "./merges";

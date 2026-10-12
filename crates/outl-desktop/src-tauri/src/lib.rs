@@ -63,11 +63,11 @@ use crate::commands::{
     get_theme_config, import_asset_file, indent_block, instantiate_template_at,
     journal_days_with_content, known_property_keys, list_action_support, list_all_pages,
     list_open_tasks, list_reminders, list_shortcut_bindings, list_templates_cmd, list_themes,
-    mark_block_done, move_block_after, move_block_down, move_block_up, next_day, open_asset,
-    open_external_file, open_journal_for, open_page_by_slug, open_ref, open_today_journal,
-    outdent_block, outl_emoji_search, outl_peer_list, outl_peer_pair_host, outl_peer_pair_join,
-    outl_peer_remove, outl_peer_status, outl_sync_now, page_backlinks, page_timeline,
-    paste_block_after, paste_markdown_at, paste_plain_at, plugin_config_set,
+    mark_block_done, merged_edits, move_block_after, move_block_down, move_block_up, next_day,
+    open_asset, open_external_file, open_journal_for, open_page_by_slug, open_ref,
+    open_today_journal, outdent_block, outl_emoji_search, outl_peer_list, outl_peer_pair_host,
+    outl_peer_pair_join, outl_peer_remove, outl_peer_status, outl_sync_now, page_backlinks,
+    page_timeline, paste_block_after, paste_markdown_at, paste_plain_at, plugin_config_set,
     plugin_install_official, plugin_keybindings, plugin_list, plugin_registry_list, plugin_run,
     plugin_secret_remove, plugin_secret_set, plugin_set_enabled, plugin_settings_describe,
     plugin_sync_hooks, plugin_toolbar, plugin_transform, plugin_transformers, plugin_uninstall,
@@ -76,7 +76,7 @@ use crate::commands::{
     search_blocks, search_pages, search_persons, set_backlinks_order, set_block_collapsed,
     set_block_property, set_block_remind, set_page_property, set_reminder_settings, set_workspace,
     snooze_presets, snooze_reminder, split_block, today_slug_cmd, toggle_pin, toggle_quote,
-    toggle_todo, undo_page, update_settings, workspace_stats,
+    toggle_todo, undo_merged_edit, undo_page, update_settings, workspace_stats,
 };
 use crate::plugin_service::spawn_plugin_service;
 use crate::state::AppState;
@@ -417,6 +417,8 @@ pub fn run() {
             page_timeline,
             device_activity,
             export_markdown,
+            merged_edits,
+            undo_merged_edit,
             // Properties (`key:: value`) — catalogue + page-level writer
             known_property_keys,
             set_page_property,

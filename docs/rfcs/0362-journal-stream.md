@@ -79,7 +79,9 @@ Each restore is new ops, never a rewind of the log, so it syncs and undoes like 
 The sync settings show what the op log holds from each actor (`outl_actions::device_activity`), labelled honestly, since an actor id is not a peer id.
 `export_markdown` copies the clean `.md` files and assets into a new folder next to the workspace.
 A block shows a short "saved" dot once `edit_block` resolves.
-Not done here: a list of merged concurrent edits with an undo. The CRDT converges without recording that two edits raced, so showing it needs the engine to detect concurrency first; that is a follow-up with its own design.
+Merged concurrent edits are listed in the sync panel (desktop Sync settings, mobile Devices sheet) under "Edits merged from other devices". On each sync reload `merges::detect` compares the old and new trees: a new remote Edit whose HLC is older than this device's last Edit on the same block, where the block text changed, is a race the CRDT merged. Each entry shows a word diff of this device's text against the merged result and an Undo, which writes `edit_text` back to our text as new ops (so it syncs, and `Cmd+Z` reverts the undo). The log is per workspace, in memory, newest first, capped at 50.
+
+Limit: without causal context in the op the engine cannot tell every race. A peer edit made after ours but delivered late, or one whose clock runs ahead, is not listed; it is still merged and still in page history. Guard tests: `a_racing_peer_edit_is_listed_with_both_texts`, `a_peer_edit_with_no_local_edit_is_not_a_merge`, `the_log_is_newest_first_and_capped`.
 
 ## Polish you can feel
 

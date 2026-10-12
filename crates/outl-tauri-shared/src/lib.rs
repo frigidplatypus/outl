@@ -37,6 +37,7 @@ pub mod helpers;
 pub mod history_external;
 pub mod host;
 pub mod iroh_sync;
+pub mod merges;
 pub mod plugin_dto;
 pub mod plugin_service;
 mod plugin_thread;

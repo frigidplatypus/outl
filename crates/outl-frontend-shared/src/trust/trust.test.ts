@@ -6,6 +6,7 @@ import { deviceLabel, relativeAgo } from "./activity";
 import { wordDiff } from "./diff";
 import { restorePlan } from "./restore";
 import { createSavedMarks } from "./saved";
+import { visibleMerges, withoutMerge } from "./merges";
 
 const ev = (over: Partial<TimelineEvent>): TimelineEvent => ({
   at_ms: 1,
@@ -122,5 +123,27 @@ describe("createSavedMarks", () => {
       dispose();
     });
     vi.useRealTimers();
+  });
+});
+
+describe("merged edits log", () => {
+  const m = (id: string, ours: string, merged: string) => ({
+    id,
+    page_id: "p",
+    page_title: "Inbox",
+    block_id: "b",
+    ours,
+    merged,
+    peer_actor: "01JQ00000000000000009F3A2C",
+    at_ms: 1,
+  });
+
+  it("hides merges that left the text unchanged", () => {
+    expect(visibleMerges([m("a", "x", "x y"), m("b", "same", "same")]).map((e) => e.id)).toEqual(["a"]);
+  });
+
+  it("drops only the undone entry and keeps the order", () => {
+    const list = [m("a", "1", "2"), m("b", "3", "4"), m("c", "5", "6")];
+    expect(withoutMerge(list, "b").map((e) => e.id)).toEqual(["a", "c"]);
   });
 });

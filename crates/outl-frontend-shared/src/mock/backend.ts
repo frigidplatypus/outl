@@ -44,6 +44,18 @@ const palette = (name: unknown) =>
  * command shows up in the console instead of breaking the page.
  */
 export function createMockBackend(ws = new MockWorkspace(), today = new Date()) {
+  let mockMerges = [
+    {
+      id: "m1",
+      page_id: "p-inbox",
+      page_title: "Inbox",
+      block_id: "b1",
+      ours: "Call the venue about Friday",
+      merged: "Call the venue about Friday at 3pm",
+      peer_actor: "01JQ00000000000000009F3A2C",
+      at_ms: Date.now() - 6 * 60_000,
+    },
+  ];
   const todaySlug = journalSlug(today);
   const settings = {
     last_workspace: "/mock/workspace",
@@ -165,6 +177,11 @@ export function createMockBackend(ws = new MockWorkspace(), today = new Date()) 
         { actor: "01JQ00000000000000007B11E0", ops: 212, last_at_ms: Date.now() - 3 * 86_400_000, is_local: false },
       ],
     }),
+    merged_edits: () => mockMerges,
+    undo_merged_edit: (a) => {
+      mockMerges = mockMerges.filter((m) => m.id !== a.id);
+      return null;
+    },
     export_markdown: (a) => ({
       dir: `${String(a.destDir ?? "~/Documents")}/outl-export-2026-10-12-171500`,
       pages: ws.pages.size,
