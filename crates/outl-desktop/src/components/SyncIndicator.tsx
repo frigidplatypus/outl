@@ -6,6 +6,7 @@ import {
   syncNow,
 } from "@outl/shared/api/commands";
 import { peersOnline } from "@outl/shared/peers";
+import { createSettle } from "@outl/shared/polish";
 
 import { setAppState } from "../lib/store";
 import { onPeerOpsChanged } from "../lib/events";
@@ -35,6 +36,8 @@ export function SyncIndicator() {
   // null = first probe still running (dim); true / false = reachability.
   const [online, setOnline] = createSignal<boolean | null>(null);
   const [syncing, setSyncing] = createSignal(false);
+  // One soft pulse on the dot when a pass finishes, same as mobile.
+  const settling = createSettle(syncing);
   // When this window last saw a sync land: a pass it ran finished, or a
   // peer delivered ops. `null` until the first one, the tooltip says so.
   const [lastSynced, setLastSynced] = createSignal<number | null>(null);
@@ -128,7 +131,7 @@ export function SyncIndicator() {
             role="status"
             aria-live="polite"
             aria-hidden="true"
-            class="h-2.5 w-2.5 rounded-full"
+            class={`h-2.5 w-2.5 rounded-full${settling() ? " outl-sync-settle" : ""}`}
             style={{ background: color() }}
           />
         }
