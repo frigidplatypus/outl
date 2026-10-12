@@ -511,3 +511,9 @@ The two layers (Rust commands + storage, frontend pure logic), their tooling and
 - **Page history**: `components/HistorySheet.tsx`, opened from the page properties sheet (long-press the title, then "Page history"). Same `restorePlan` and `DiffText` as the desktop `TimelinePanel`; restores are new ops.
 - **Devices sheet** shows per-device op counts (`device_activity`) and the Markdown export (`export_markdown`), which lands next to the workspace, so in iCloud Drive it shows up in Files.
 - **Saved mark**: `lib/saved.ts`; `Journal`'s commit marks a block only after `edit_block` resolves, `BlockRow` renders the dot.
+
+## Polish: motion, focus mode, first-run tips
+
+- `BlockRow` wraps the row (not its children) in `outl-row` so focus mode dims rows without compounding, and slides children in with `outl-unfold` only on an unfold. `SyncDot` pulses once when a pass ends.
+- Focus mode is the capsule button between the sync dot and Settings, same as desktop. Header and `BottomBar` carry `outl-focus-hide` and fade to 0.18, never to 0, so the button stays tappable.
+- `PageSections` gets `blank` from `Journal` and shows `<FirstRunTips client="mobile" />`; `JournalEmpty` shows it on the start and empty-page states. The tip names the indent keys, never a swipe: a swipe deletes a row here.
