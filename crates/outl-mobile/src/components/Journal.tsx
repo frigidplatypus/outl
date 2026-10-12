@@ -75,6 +75,7 @@ import { PageAheadOfLogBanner, ParseWarningsBanner } from "@outl/shared/warnings
 import { createBacklinksKey } from "@outl/shared/namespace";
 import { parkCaret, spliceText } from "../lib/textarea";
 import { withTimeout } from "../lib/async";
+import { savedMarks } from "../lib/saved";
 import {
   type BlockSelection,
   selectionIsLive,
@@ -890,6 +891,7 @@ export function Journal() {
     if (commitInFlight === op) commitInFlight = null;
     setSyncing(false);
     if (next) {
+      savedMarks.mark(id);
       // Only drop out of edit mode once the backend confirmed the
       // save. If it failed, `withError` already surfaced the
       // message and we leave the editor open with the draft intact
@@ -1971,7 +1973,6 @@ export function Journal() {
         onMessage={(text) => setError(text)}
         onView={(v) => applyView(v)}
       />
-
     </div>
   );
 }

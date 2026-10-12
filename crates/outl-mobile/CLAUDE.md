@@ -38,7 +38,7 @@ outl-mobile (this crate)
    │       ├── property.rs         (known_property_keys — the key catalogue the Properties sheet's chips come from)
    │       ├── exec.rs (run_code_block / run_auto_run_blocks / resolve_embeds)
    │       ├── shortcuts.rs (list_shortcut_bindings / list_action_support — the invariant-12 matrix)
-   │       ├── timeline.rs (page_timeline — the command exists, no UI yet)
+   │       ├── timeline.rs (page_timeline, device_activity, export_markdown)
    │       └── theme.rs (list_themes / get_theme / get_theme_config)
    ├── gen/apple/.../main.mm       (NSMetadataQuery + NSFileCoordinator iCloud watcher)
    ├── gen/apple/.../OutlBackgroundRefresh.swift  (BGTaskScheduler windows + the beginBackgroundTask flush)
@@ -505,3 +505,9 @@ The two layers (Rust commands + storage, frontend pure logic), their tooling and
 3. `cargo test -p outl-mobile`
 4. `bun run test` (Vitest, frontend)
 5. Build pass: `cargo tauri ios build`
+
+## Trust surfaces
+
+- **Page history**: `components/HistorySheet.tsx`, opened from the page properties sheet (long-press the title, then "Page history"). Same `restorePlan` and `DiffText` as the desktop `TimelinePanel`; restores are new ops.
+- **Devices sheet** shows per-device op counts (`device_activity`) and the Markdown export (`export_markdown`), which lands next to the workspace, so in iCloud Drive it shows up in Files.
+- **Saved mark**: `lib/saved.ts`; `Journal`'s commit marks a block only after `edit_block` resolves, `BlockRow` renders the dot.
