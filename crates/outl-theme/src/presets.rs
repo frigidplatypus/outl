@@ -94,18 +94,27 @@ pub fn outl() -> Palette {
 /// [`outl`]'s structure with each hue darkened for a light canvas,
 /// the way [`logseq_light`] darkens its terminal-flavoured fields
 /// relative to its dark siblings.
+///
+/// Refreshed since: the purple-tinted canvas became paper white, the
+/// grays went cool and neutral, and the accent moved to violet-700 so
+/// it carries the chrome alone. Every fill pair now clears AA, which
+/// retired the insert-mode exemption in `tests/contrast.rs`.
 pub fn outl_light() -> Palette {
-    let bg = "#f6f4fb";
-    let bg_elev = "#ffffff";
-    let fg = "#0c0814";
-    let fg_dim = "#6f6a7d"; // rgba(28, 21, 48, 0.62) composited over `bg`
-    let fg_dimmer = "#9a96a6"; // rgba(28, 21, 48, 0.42) composited over `bg`
-    let border = "#d8d0e8";
-    let accent = "#7c3aed"; // brand violet, darkened from outl()'s #a78bfa for contrast on `bg`
-    let accent_soft = "#8b5cf6";
-    let accent_alt = "#65a30d"; // lime-600 — outl()'s lemon #d6ff47 is unreadable on light bg
-    let warn = "#b45309"; // amber-700, darkened from outl()'s #fbbf24
-    let blue = "#0284c7";
+    // Paper white with one violet accent and cool grays: the calm,
+    // single-accent light canvas, kept in outl's violet rather than a
+    // borrowed indigo. `bg_elev` sits a hair off white so popovers and
+    // sheets read as raised without a heavy shadow.
+    let bg = "#ffffff";
+    let bg_elev = "#f7f7fa";
+    let fg = "#111827"; // 17.7:1 on `bg`
+    let fg_dim = "#6b7280"; // 4.83:1 on `bg`, 4.6:1 on `bg_elev`
+    let fg_dimmer = "#9ca3af"; // decoration and struck-through text only
+    let border = "#e5e7eb";
+    let accent = "#6d28d9"; // violet-700, 7.1:1 on `bg`
+    let accent_soft = "#7c3aed";
+    let accent_alt = "#4d7c0f"; // lime-700: 4.99:1 under the white canvas, so insert mode reads
+    let warn = "#b45309"; // amber-700, 5.0:1
+    let blue = "#0369a1"; // sky-700, 5.9:1
     let magenta = "#a21caf";
 
     Palette {
@@ -122,7 +131,7 @@ pub fn outl_light() -> Palette {
         accent_alt: accent_alt.into(),
         warn: warn.into(),
         destructive: "#e11d48".into(), // rose-600, the value mobile already shipped
-        destructive_fg: "#ffffff".into(), // 4.70:1; this palette's own bg is 4.31 and fails
+        destructive_fg: "#ffffff".into(), // 4.70:1, and the canvas is white too
         ref_link_fg: accent.into(),
         tag_link_fg: magenta.into(),
         md_link_fg: blue.into(),

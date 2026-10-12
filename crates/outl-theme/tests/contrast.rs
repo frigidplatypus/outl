@@ -78,14 +78,6 @@ fn every_fill_pair_passes_contrast() {
             "status_visual",
             "nord15 #b48ead is 4.41:1, just under",
         ),
-        // outl-light is ours, so this one is a real bug rather than an
-        // inherited constraint: the lime insert-mode background wants a
-        // dark foreground, not the near-white canvas.
-        (
-            "outl-light",
-            "status_insert",
-            "lime #65a30d with the canvas on top is 2.83:1",
-        ),
     ];
 
     let mut offenders = Vec::new();
