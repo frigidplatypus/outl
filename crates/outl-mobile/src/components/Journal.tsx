@@ -25,7 +25,6 @@ import {
   deliverDueReminders,
   importAssetFile,
   listReminders,
-  nextDay,
   openAsset,
   openJournalFor,
   openPageBySlug,
@@ -38,7 +37,6 @@ import {
   pluginRun,
   pluginSyncHooks,
   pluginToolbar,
-  previousDay,
   redoPage,
   reloadWorkspace,
   runCodeBlock,
@@ -51,7 +49,6 @@ import {
   setBlockRemind,
   splitBlock,
   syncNow,
-  todaySlug,
   undoPage,
   workspaceStats,
 } from "@outl/shared/api/commands";
@@ -138,9 +135,17 @@ import {
   type PropertyScope,
 } from "./PropertiesSheet";
 import { Toast } from "./Toast";
-import {
-  ChevronLeft,
-} from "./JournalHeader";
+import { BottomBar, type BottomTab } from "./BottomBar";
+import { WeekStrip } from "./WeekStrip";
+import { TasksSheet } from "./TasksSheet";
+import { CaptureSheet } from "./CaptureSheet";
+import { JournalEmptyPage, JournalLoadFailed, JournalStartWriting } from "./JournalEmpty";
+import { JournalZoomBar } from "./JournalZoomBar";
+import type { SwitcherMode } from "./PageSwitcher";
+import { createDayNav } from "./Journal.day-nav";
+import { createCapture } from "./Journal.capture";
+import type { TaskHit } from "@outl/shared/api/overview";
+import { journalHeading } from "@outl/shared/journal";
 import { buildContextActions } from "./Journal.context-actions";
 
 /** Whether this build runs on Android. The web keyboard accessory bar
@@ -310,14 +315,6 @@ export function Journal() {
     HTMLTextAreaElement | null
   >(null);
   let activeTextarea: HTMLTextAreaElement | undefined;
-  // Today's journal slug. Re-resolved on mount and whenever the app
-  // returns to the foreground, so the affordance stays correct across a
-  // midnight rollover (the app can sit open past midnight: "today"
-  // changes but a value cached once on mount wouldn't). Single source of
-  // truth for every "is this today?" decision — `canJumpToday` here and
-  // `JournalHeader`'s label both read it, instead of resolving "today"
-  // independently and risking disagreement.
-  const [todaySlugValue, setTodaySlugValue] = createSignal<string | null>(null);
 
   // Monotonic reload generation. Every async reload path captures this at
   // start; a reload whose generation is no longer the latest is a stale read
@@ -524,37 +521,18 @@ export function Journal() {
     });
   }
 
-  // Resolve "today" up front and again every time the app comes back to
-  // the foreground (covers the midnight rollover). `disposed` guards the
-  // async setter so a resolution that lands after the component unmounts
-  // doesn't poke a torn-down signal.
-  let disposed = false;
-  function refreshTodaySlug() {
-    todaySlug()
-      .then((t) => {
-        if (!disposed) setTodaySlugValue(t);
-      })
-      .catch((e) => {
-        // Best effort; the affordance just stays hidden until we know
-        // today's slug. Log so a backend regression is still visible.
-        console.warn("failed to resolve today's slug", e);
-      });
-  }
-  refreshTodaySlug();
-  if (typeof document !== "undefined") {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") refreshTodaySlug();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    onCleanup(() => {
-      disposed = true;
-      document.removeEventListener("visibilitychange", onVisible);
-    });
-  } else {
-    onCleanup(() => {
-      disposed = true;
-    });
-  }
+  // Day navigation, today's slug and wake-to-today (`Journal.day-nav.ts`).
+  const dayNav = createDayNav({ view, editingId, applyView, withError });
+  const capture = createCapture({
+    view,
+    today: dayNav.today,
+    applyView,
+    withError,
+    notify: (text) => setError(text),
+  });
+  const [switcherMode, setSwitcherMode] = createSignal<SwitcherMode>("pages");
+  const [tasksOpen, setTasksOpen] = createSignal(false);
+  const [captureOpen, setCaptureOpen] = createSignal(false);
 
   // Drain a reload that was deferred because the user was editing. The moment
   // they leave edit mode (`editingId()` → null), apply the peer's changes that
@@ -1456,47 +1434,6 @@ export function Journal() {
     setRefreshing(false);
   }
 
-  async function handlePrevDay() {
-    const cur = view();
-    if (!cur || cur.page.kind !== "journal") return;
-    haptic("light");
-    const slug = await withError(() => previousDay(cur.page.slug));
-    if (slug) {
-      const next = await withError(() => openJournalFor(slug));
-      if (next) applyView(next);
-    }
-  }
-
-  async function handleNextDay() {
-    const cur = view();
-    if (!cur || cur.page.kind !== "journal") return;
-    haptic("light");
-    const slug = await withError(() => nextDay(cur.page.slug));
-    if (slug) {
-      const next = await withError(() => openJournalFor(slug));
-      if (next) applyView(next);
-    }
-  }
-
-  async function handleJumpToday() {
-    haptic("light");
-    const next = await withError(openTodayJournal);
-    if (next) applyView(next);
-  }
-
-  /**
-   * Calendar picked a day. The backend's `open_journal_for` opens-or-
-   * creates the journal page, so picking a day that has never been
-   * visited still lands on a fresh page ready for the user to type
-   * into — no "page doesn't exist" error.
-   */
-  async function handlePickDate(slug: string) {
-    setCalendarOpen(false);
-    haptic("light");
-    const next = await withError(() => openJournalFor(slug));
-    if (next) applyView(next);
-  }
-
   async function handleRefClick(target: string) {
     // One Tauri call — `openRef` runs the journal-vs-page decision
     // tree on the Rust side and creates the page if nothing exists,
@@ -1544,20 +1481,56 @@ export function Journal() {
   }
 
   /**
-   * Jump from a block-search hit (page switcher's "Blocks" mode,
-   * issue #19) to the page hosting it. A `BlockHit` carries only
-   * `source_slug` — no `kind` — so this can't branch like
-   * `handlePickPage` does; `openRef` already runs the journal-vs-page
-   * decision tree (same call `handleRefClick` makes for a tapped
-   * `[[ref]]`), so this delegates to it instead of duplicating that
-   * logic. There is no per-block scroll/highlight anywhere in this
-   * client yet (the backlinks jump doesn't do it either) — "jump"
-   * means "open the hosting page", matching that existing bar.
+   * Open the page a block lives on, zoomed into that block, for a
+   * block-search hit or a row in Tasks. `openRef` runs the
+   * journal-vs-page decision, since neither carries a page kind. The
+   * zoom goes on after `applyView`, which drops any zoom on a page
+   * switch; a block that has since moved away falls back to the full
+   * page like every other stale zoom.
    */
+  async function openBlock(slug: string, id: string) {
+    haptic("light");
+    const next = await withError(() => openRef(slug));
+    if (!next) return;
+    applyView(next);
+    setFocusBlockId(id);
+  }
+
   async function handleJumpToBlock(hit: BlockHit) {
     setSwitcherOpen(false);
-    await handleRefClick(hit.source_slug);
+    await openBlock(hit.source_slug, hit.id);
   }
+
+  function openTask(task: TaskHit) {
+    setTasksOpen(false);
+    void openBlock(task.source_slug, task.id);
+  }
+
+  /** Which bottom bar tab is lit: the open sheet, else Journal on a day. */
+  function activeTab(): BottomTab | null {
+    if (tasksOpen()) return "tasks";
+    if (switcherOpen()) return switcherMode() === "blocks" ? "search" : "pages";
+    return view()?.page.kind === "journal" ? "journal" : null;
+  }
+
+  function handleTab(tab: BottomTab) {
+    haptic("light");
+    setTasksOpen(tab === "tasks");
+    if (tab === "search" || tab === "pages") {
+      setSwitcherMode(tab === "search" ? "blocks" : "pages");
+      setSwitcherOpen(true);
+    } else setSwitcherOpen(false);
+    if (tab === "journal") void dayNav.jumpToday();
+  }
+
+  function handleCapture() {
+    if (capture.onToday()) void handleAppendBlock();
+    else {
+      haptic("light");
+      setCaptureOpen(true);
+    }
+  }
+
 
   /**
    * Insert a snippet (or open/close pair) into the active textarea
@@ -1614,23 +1587,36 @@ export function Journal() {
         peersUp={peersUp()}
         syncing={syncing()}
         refreshing={refreshing()}
-        todaySlug={todaySlugValue()}
+        todaySlug={dayNav.today()}
         toolbarButtons={toolbarButtons()}
         titleLongPress={titleLongPress}
-        onJumpToday={handleJumpToday}
-        onPrevDay={handlePrevDay}
-        onNextDay={handleNextDay}
+        onJumpToday={() => void dayNav.jumpToday()}
+        onPrevDay={() => void dayNav.prevDay()}
+        onNextDay={() => void dayNav.nextDay()}
         onFoldAll={handleFoldAll}
         onUnfoldAll={handleUnfoldAll}
         onRefresh={handleRefresh}
         onRunToolbarButton={(btn) => void runToolbarButton(btn)}
-        onOpenCalendar={() => setCalendarOpen(true)}
-        onOpenSwitcher={() => setSwitcherOpen(true)}
         onOpenReminders={() => setRemindersOpen(true)}
         onOpenPlugins={() => setPluginsOpen(true)}
         onOpenDevices={() => setDevicesOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
       />
+
+      <Show when={view()?.page.kind === "journal" ? view()!.page.slug : null}>
+        {(slug) => (
+          <WeekStrip
+            selectedSlug={slug()}
+            todaySlug={dayNav.today()}
+            contentVersion={view()}
+            onPick={(d) => void dayNav.pickDay(d)}
+            onPrevDay={() => void dayNav.prevDay()}
+            onNextDay={() => void dayNav.nextDay()}
+            onToday={() => void dayNav.jumpToday()}
+            onOpenCalendar={() => setCalendarOpen(true)}
+          />
+        )}
+      </Show>
 
       <main class="ios-scroll flex-1 pb-32">
         <PullToRefresh onRefresh={handleRefresh}>
@@ -1664,51 +1650,14 @@ export function Journal() {
               <Show when={loaded()} fallback={<SkeletonOutline />}>
                 <Show
                   when={loadFailed()}
-                  fallback={
-                    <button
-                      type="button"
-                      onClick={handleAppendBlock}
-                      class="flex w-full flex-col items-center px-5 py-16 text-center active:opacity-50"
-                    >
-                      <svg
-                        width="44"
-                        height="44"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        class="mb-3 text-(--color-outl-fg-dimmer)"
-                        aria-hidden="true"
-                      >
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
-                      </svg>
-                      <p class="text-[15px] text-(--color-outl-fg-dim)">
-                        Nothing here yet.
-                      </p>
-                      <p class="mt-1 text-[13px] text-(--color-outl-accent)">
-                        Tap to start writing
-                      </p>
-                    </button>
-                  }
+                  fallback={<JournalStartWriting onStart={handleAppendBlock} />}
                 >
-                  <div class="flex flex-col items-center px-5 py-12 text-center">
-                    <p class="text-[15px] text-(--color-outl-fg-dim)">
-                      Couldn't open the workspace.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLoaded(false);
-                        void loadTodayWithRetry();
-                      }}
-                      class="mt-3 rounded-full bg-(--color-outl-accent) px-5 py-2 text-[14px] font-medium text-(--color-outl-bg) active:opacity-70"
-                    >
-                      Retry
-                    </button>
-                  </div>
+                  <JournalLoadFailed
+                    onRetry={() => {
+                      setLoaded(false);
+                      void loadTodayWithRetry();
+                    }}
+                  />
                 </Show>
               </Show>
             }
@@ -1721,36 +1670,11 @@ export function Journal() {
                 ancestor. */}
             <Show when={focusView()}>
               {(fv) => (
-                <div class="mb-1 flex items-center gap-1 overflow-x-auto px-4 pt-1 pb-2">
-                  <button
-                    type="button"
-                    aria-label="Zoom out"
-                    onClick={handleZoomOut}
-                    class="flex shrink-0 items-center gap-1 rounded-full py-0.5 pr-2 pl-1 text-[13px] font-medium text-(--color-outl-accent) active:opacity-50"
-                  >
-                    <ChevronLeft />
-                    Back
-                  </button>
-                  <For each={fv().breadcrumb}>
-                    {(crumb) => (
-                      <>
-                        <span
-                          aria-hidden="true"
-                          class="shrink-0 text-[12px] text-(--color-outl-fg-dimmer)"
-                        >
-                          /
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setFocusBlockId(crumb.id)}
-                          class="max-w-[12rem] shrink-0 truncate text-[13px] text-(--color-outl-fg-dim) active:opacity-50"
-                        >
-                          {crumb.text || "Untitled"}
-                        </button>
-                      </>
-                    )}
-                  </For>
-                </div>
+                <JournalZoomBar
+                  breadcrumb={fv().breadcrumb}
+                  onZoomOut={handleZoomOut}
+                  onZoomTo={(id) => setFocusBlockId(id)}
+                />
               )}
             </Show>
             {/* An empty page used to render as nothing at all: no
@@ -1760,34 +1684,15 @@ export function Journal() {
                 were unreachable. Both doors live here, and the whole
                 block costs nothing on a page that has content. */}
             <Show when={outlineRoots().length === 0 && view()}>
-              <div class="flex flex-col items-center gap-4 py-16 text-center">
-                <p class="text-[15px] text-(--color-outl-fg-dim)">
-                  This page is empty
-                </p>
-                <div class="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void handleAppendBlock()}
-                    class="rounded-full bg-(--color-outl-accent) px-4 py-2 text-[15px] font-medium text-(--color-outl-bg) active:opacity-70"
-                  >
-                    Add a block
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!pageId()) return;
-                      haptic("light");
-                      setPropertiesTarget({ blockId: null, scope: "page" });
-                    }}
-                    class="rounded-full bg-(--color-outl-bg-elev) px-4 py-2 text-[15px] text-(--color-outl-fg) active:opacity-70"
-                  >
-                    Properties
-                  </button>
-                </div>
-                <p class="max-w-[16rem] text-[13px] text-(--color-outl-fg-dimmer)">
-                  Hold the title to edit page properties from anywhere.
-                </p>
-              </div>
+              <JournalEmptyPage
+                journal={view()?.page.kind === "journal"}
+                onAddBlock={() => void handleAppendBlock()}
+                onProperties={() => {
+                  if (!pageId()) return;
+                  haptic("light");
+                  setPropertiesTarget({ blockId: null, scope: "page" });
+                }}
+              />
             </Show>
             <For each={outlineRoots()}>
               {(block) => (
@@ -1870,34 +1775,14 @@ export function Journal() {
         </Show>
       </main>
 
-      {/* Hidden while a range selection is active — the FAB and the
-          selection toolbar both dock bottom-right/bottom-full-width
-          and "add a block" mid-batch-op is not a gesture the RFC asks
-          for; hiding it keeps the two floating surfaces from
-          overlapping. */}
-      <Show when={!editingId() && view() && selection() === null}>
-        <button
-          type="button"
-          aria-label="Add block"
-          onClick={handleAppendBlock}
-          class="outl-press fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-(--color-outl-accent) shadow-lg"
-          style="bottom: max(env(safe-area-inset-bottom), 20px);"
-        >
-          <svg
-            width="26"
-            height="26"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            stroke-width="2.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
-      </Show>
+      {/* Hidden while editing (the keyboard owns the bottom edge) and
+          during a range selection, whose toolbar docks in the same place. */}
+      <BottomBar
+        active={activeTab()}
+        hidden={editingId() !== null || selection() !== null || !view()}
+        onTab={handleTab}
+        onCapture={handleCapture}
+      />
 
       {/* Web keyboard accessory bar (suggester strip + edit toolbar).
           Android only — iOS keeps its native `OutlToolbarView`. Both
@@ -1922,6 +1807,25 @@ export function Journal() {
         onClose={() => setSwitcherOpen(false)}
         onPick={handlePickPage}
         onJumpToBlock={handleJumpToBlock}
+        initialMode={switcherMode()}
+      />
+
+      <TasksSheet
+        open={tasksOpen()}
+        todaySlug={dayNav.today()}
+        onClose={() => setTasksOpen(false)}
+        onOpenTask={openTask}
+      />
+
+      <CaptureSheet
+        open={captureOpen()}
+        target={(() => {
+          const t = dayNav.today();
+          const h = t ? journalHeading(t, t) : null;
+          return h ? `${h.title}, ${h.date}` : "Today";
+        })()}
+        onClose={() => setCaptureOpen(false)}
+        onSubmit={capture.captureToToday}
       />
 
       <Calendar
@@ -1929,9 +1833,12 @@ export function Journal() {
         selectedSlug={
           view()?.page.kind === "journal" ? (view()?.page.slug ?? null) : null
         }
-        todaySlug={todaySlugValue()}
+        todaySlug={dayNav.today()}
         onClose={() => setCalendarOpen(false)}
-        onPick={handlePickDate}
+        onPick={(slug) => {
+          setCalendarOpen(false);
+          void dayNav.pickDay(slug);
+        }}
       />
 
       <DevicesSheet

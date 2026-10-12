@@ -97,7 +97,7 @@ export function SwipeRow(props: SwipeRowProps): JSX.Element {
         {props.leftActionLabel ?? "Delete"}
       </div>
       <div
-        class="relative bg-(--color-outl-bg-elev)"
+        class="relative bg-(--color-outl-bg)"
         style={{
           transform: `translateX(${offset()}px)`,
           transition: animating() ? "transform 180ms cubic-bezier(0.4, 0, 0.2, 1)" : "none",
