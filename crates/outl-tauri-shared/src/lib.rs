@@ -34,6 +34,7 @@
 
 pub mod commands;
 pub mod helpers;
+pub mod history_external;
 pub mod host;
 pub mod iroh_sync;
 pub mod plugin_dto;
