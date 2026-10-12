@@ -108,6 +108,20 @@ pub enum Capability {
     /// session's stack: this reaches a deletion from any device, on
     /// any day, because it reads the op log rather than a stack.
     Trash,
+    /// Adding a block to the end of today's journal from wherever the
+    /// user is, in one gesture, without navigating there first.
+    ///
+    /// Distinct from `OpenToday`, which every client has: that moves
+    /// you, this keeps you where you are and only writes. Mobile's
+    /// bottom bar `+` is the reference shape.
+    QuickCapture,
+    /// One list of every open task (`TODO` / `DOING`) across the
+    /// workspace, each row opening its block.
+    ///
+    /// A ` ```query ` block with `status: open` answers the same
+    /// question on every client, inside a page; this is whether the
+    /// client has a place for it of its own.
+    TaskList,
 }
 
 impl Capability {
@@ -132,6 +146,8 @@ impl Capability {
         Capability::OpenExternalFile,
         Capability::TableRendering,
         Capability::Trash,
+        Capability::QuickCapture,
+        Capability::TaskList,
     ];
 }
 
@@ -143,7 +159,7 @@ mod tests {
     /// what makes forgetting impossible: it will not compile once a
     /// new variant exists until this function's `match` grows an arm
     /// for it too.
-    const EXPECTED_12: usize = 12;
+    const EXPECTED_14: usize = 14;
 
     fn name(cap: Capability) -> &'static str {
         match cap {
@@ -159,6 +175,8 @@ mod tests {
             Capability::OpenExternalFile => "OpenExternalFile",
             Capability::TableRendering => "TableRendering",
             Capability::Trash => "Trash",
+            Capability::QuickCapture => "QuickCapture",
+            Capability::TaskList => "TaskList",
         }
     }
 
@@ -175,9 +193,9 @@ mod tests {
         );
         assert_eq!(
             names.len(),
-            EXPECTED_12,
-            "Capability::ALL has {} entries but the enum has {EXPECTED_12} variants \
-             — add the new variant to Capability::ALL (and bump EXPECTED_12)",
+            EXPECTED_14,
+            "Capability::ALL has {} entries but the enum has {EXPECTED_14} variants \
+             — add the new variant to Capability::ALL (and bump EXPECTED_14)",
             names.len(),
         );
     }
