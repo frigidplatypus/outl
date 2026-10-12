@@ -53,6 +53,7 @@ ins("PBXGroup", f"""\t\t{ids['group']} /* {folder} */ = {{
 \t\t}};
 """)
 # main group + products
+assert "\t\t\t\t00ADA1A6367B132C265E551F /* outl-mobile_iOS */,\n" in s
 s = s.replace("\t\t\t\t00ADA1A6367B132C265E551F /* outl-mobile_iOS */,\n",
               f"\t\t\t\t00ADA1A6367B132C265E551F /* outl-mobile_iOS */,\n\t\t\t\t{ids['group']} /* {folder} */,\n", 1)
 s = s.replace("\t\t\t\t6B1DBE6C01DBA911F071B23C /* outl.app */,\n",
@@ -130,8 +131,9 @@ ins("PBXNativeTarget", f"""\t\t{ids['target']} /* {name} */ = {{
 \t\t\tproductType = "com.apple.product-type.app-extension";
 \t\t}};
 """)
-s = s.replace(f"\t\t\t\t{APP} /* outl-mobile_iOS */,\n\t\t\t);\n\t\t}};\n/* End PBXProject",
-              f"\t\t\t\t{APP} /* outl-mobile_iOS */,\n\t\t\t\t{ids['target']} /* {name} */,\n\t\t\t);\n\t\t}};\n/* End PBXProject", 1)
+s, hits = re.subn(r"(\n\t\t\ttargets = \(\n(?:\t\t\t\t\w{24} /\* [^*]+ \*/,\n)*)(\t\t\t\);)",
+                 lambda m: m.group(1) + f"\t\t\t\t{ids['target']} /* {name} */,\n" + m.group(2), s, count=1)
+assert hits == 1, "project targets list not found"
 
 def cfg(cid, cname):
     return f"""\t\t{cid} /* {cname} */ = {{
