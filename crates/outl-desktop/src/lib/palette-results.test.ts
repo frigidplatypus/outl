@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PageMeta } from "@outl/shared/api/types";
 
 import type { Binding } from "./api";
-import { paletteActions, paletteResults, sectionOf } from "./palette-results";
+import { CHORDLESS_ACTIONS, paletteActions, paletteResults, sectionOf } from "./palette-results";
 
 const page = (slug: string): PageMeta => ({ id: slug, slug, title: slug, kind: "page" });
 const cmdK = [{ mods: 8, key: { kind: "Char", value: "k" } }] as Binding["chord"];
@@ -18,7 +18,7 @@ const bindings: Binding[] = [
   { chord: cmdK, mode: "global", action: { kind: "Quit" }, description: "Quit" },
 ] as Binding[];
 
-const actions = paletteActions(bindings, (k) => k !== "Quit", true);
+const actions = paletteActions(bindings, (k) => k !== "Quit" && k !== "ExportMarkdown", true);
 
 describe("paletteActions", () => {
   it("keeps one row per handled global or normal action, first description wins", () => {
@@ -30,7 +30,7 @@ describe("paletteActions", () => {
 
   it("shows the Cmd chord on macOS and the Ctrl twin elsewhere", () => {
     expect(actions[0].chord).toEqual(cmdK);
-    const other = paletteActions(bindings, (k) => k !== "Quit", false);
+    const other = paletteActions(bindings, (k) => k !== "Quit" && k !== "ExportMarkdown", false);
     expect(other[0].chord).toEqual(ctrlK);
     expect(other[0].label).toBe("Open today's journal");
   });
@@ -61,5 +61,38 @@ describe("paletteResults", () => {
 
   it("shows every action for a bare >", () => {
     expect(paletteResults({ query: ">", pages: [], blocks, actions })).toHaveLength(2);
+  });
+});
+
+describe("tasks", () => {
+  const hit = (id: string, text: string) => ({ handle: id, id, text, source_slug: "p" });
+  const blocks = [hit("b1", "notes on milk"), hit("t1", "TODO buy milk"), hit("t2", "[x] milk run")];
+
+  it("splits task hits into their own section, before blocks", () => {
+    const r = paletteResults({ query: "milk", pages: [], blocks, actions: [] });
+    expect(r.map(sectionOf)).toEqual(["Tasks", "Tasks", "Blocks"]);
+    expect(r[0]).toMatchObject({ kind: "task", state: "todo" });
+    expect(r[1]).toMatchObject({ kind: "task", state: "done" });
+  });
+
+  it("caps tasks and blocks independently", () => {
+    const many = Array.from({ length: 9 }, (_, i) => hit(`t${i}`, `TODO milk ${i}`));
+    const r = paletteResults({ query: "milk", pages: [], blocks: [...many, hit("b", "milk")], actions: [] });
+    expect(r.filter((i) => i.kind === "task")).toHaveLength(5);
+    expect(r.filter((i) => i.kind === "block")).toHaveLength(1);
+  });
+});
+
+describe("chordless actions", () => {
+  it("lists Export as Markdown by name once it has a handler", () => {
+    const rows = paletteActions([], (k) => k === "ExportMarkdown", true);
+    expect(rows).toEqual([{ kind: "action", action: "ExportMarkdown", label: "Export as Markdown", chord: null }]);
+    const r = paletteResults({ query: "> export", pages: [], blocks: [], actions: rows });
+    expect(r).toHaveLength(1);
+  });
+
+  it("stays out when the client has no handler", () => {
+    expect(paletteActions([], () => false, true)).toEqual([]);
+    expect(CHORDLESS_ACTIONS.every((c) => c.label.length > 0)).toBe(true);
   });
 });

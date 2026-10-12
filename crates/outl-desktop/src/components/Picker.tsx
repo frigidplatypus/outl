@@ -230,7 +230,7 @@ export function Picker(props: {
               value={query()}
               onInput={(e) => setQuery(e.currentTarget.value)}
               onKeyDown={handleKey}
-              placeholder="Search pages and blocks, > for actions"
+              placeholder="Search pages, tasks and blocks, > for actions"
               class="w-full bg-transparent py-3 text-[15px] outline-none"
             />
           </div>
@@ -291,6 +291,22 @@ function PaletteRow(props: { item: PaletteItem }) {
         <span class="truncate">{item.page.title}</span>
         <span class="ml-auto shrink-0 font-mono text-[11px] text-(--color-outl-fg-dimmer)">
           {item.page.slug}
+        </span>
+      </>
+    );
+  }
+  if (item.kind === "task") {
+    return (
+      <>
+        <span
+          aria-label={item.state}
+          class={`w-3.5 shrink-0 text-center ${item.state === "done" ? "text-(--color-outl-accent)" : "text-(--color-outl-fg-dimmer)"}`}
+        >
+          {item.state === "done" ? "☑" : item.state === "doing" ? "◐" : "☐"}
+        </span>
+        <span class={`truncate ${item.state === "done" ? "line-through opacity-60" : ""}`}>{item.hit.text}</span>
+        <span class="ml-auto shrink-0 font-mono text-[11px] text-(--color-outl-fg-dimmer)">
+          {item.hit.source_slug}
         </span>
       </>
     );

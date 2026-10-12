@@ -58,6 +58,7 @@ import {
 
 import { redoPage, undoPage } from "./api";
 import { playPluginViews } from "./plugin-views";
+import { speedHandlers } from "./speed-handlers";
 import { cycleTodoInDraft, insertLink, wrapSelection } from "./markdown-wrap";
 import { type ActionHandlers } from "./shortcuts";
 import { appState, setAppState } from "./store";
@@ -293,9 +294,8 @@ export function buildHandlers(deps: DesktopHandlerDeps): ActionHandlers {
     ToggleHelp: () => {
       setAppState("helpOpen", !appState.helpOpen);
     },
-
+    ...speedHandlers(deps),
     // ── reminders (`remind::`) ────────────────────────────────────
-    //
     // Authoring writes a block property; the schedule is derived from
     // it on every scan in Rust, so editing the rule reschedules for
     // free and there is nothing to invalidate here.
