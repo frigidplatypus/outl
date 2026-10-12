@@ -301,3 +301,8 @@ The root [`CLAUDE.md`](../../CLAUDE.md#reuse-first) "Reuse-first" section docume
 2. `cargo clippy -p outl-actions -- -D warnings`
 3. `cargo test -p outl-actions`
 4. If you changed the public API surface, update the table in "Public surface" above and the matching entry in the root `CLAUDE.md`.
+
+## `activity` and `export_md`
+
+- `device_activity(ws, local)`: ops and newest HLC wall time per actor in the resident log, plus `complete` (false after a snapshot boot, when the counts only cover ops since the snapshot). The local actor always gets a row.
+- `export_markdown(root, dest_parent, stamp)`: copies `journals/**/*.md`, `pages/**/*.md` and `assets/**` into a fresh `outl-export-<stamp>` folder (suffixing `-2`, `-3` on collision). Sidecars, `ops/` and dotfiles stay behind. It is a copy, not a render: the `.md` on disk is already clean (invariant 2).

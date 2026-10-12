@@ -49,6 +49,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod activity;
 pub mod asset;
 pub mod backlinks;
 pub mod backlinks_index;
@@ -65,6 +66,7 @@ pub mod deeplink;
 pub mod desync;
 pub mod error;
 pub mod exec;
+pub mod export_md;
 pub mod history;
 pub mod index;
 pub mod journal;
@@ -93,6 +95,7 @@ pub mod todo;
 pub mod trash;
 pub mod tree;
 
+pub use activity::{device_activity, ActorActivity, DeviceActivity};
 pub use asset::{assets_dir, import_asset, import_asset_bytes, resolve_asset_path, ImportedAsset};
 pub use backlinks::{
     backlinks_for_page, backlinks_for_target, extract_refs, Backlink, BacklinkCrumb,
@@ -119,6 +122,7 @@ pub use deeplink::{parse_deep_link, DeepLinkError, DeepLinkTarget, DEEP_LINK_SCH
 pub use desync::{recover_desynced_projection, scan_for_desynced_projections};
 pub use error::ActionError;
 pub use exec::{run_code_block, ExecOutputDto, RunCodeBlockOutcome};
+pub use export_md::{export_markdown, ExportReport};
 pub use history::{restore_page_md, HistoryStacks, DEFAULT_HISTORY_CAP};
 pub use journal::{
     apply_all_pages_md, apply_page_md, apply_page_md_with_sidecar,
