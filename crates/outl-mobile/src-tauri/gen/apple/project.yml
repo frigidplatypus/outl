@@ -50,6 +50,20 @@ targets:
         CODE_SIGN_IDENTITY: Apple Development
     dependencies:
       - package: OutlKit
+  OutlShare:
+    type: app-extension
+    platform: iOS
+    sources: [OutlShare]
+    info:
+      path: OutlShare/Info.plist
+    entitlements:
+      path: OutlShare/OutlShare.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.outl.mobile-app.share
+        CODE_SIGN_IDENTITY: Apple Development
+    dependencies:
+      - package: OutlKit
   outl-mobile_iOS:
     type: application
     platform: iOS
@@ -104,6 +118,7 @@ targets:
       groups: [app]
     dependencies:
       - target: OutlWidget
+      - target: OutlShare
       - package: OutlKit
       - framework: libapp.a
         embed: false
