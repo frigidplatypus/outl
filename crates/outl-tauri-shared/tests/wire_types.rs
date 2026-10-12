@@ -59,6 +59,7 @@ use outl_tauri_shared::commands::property::PropertyKey;
 use outl_tauri_shared::commands::reminders::{ReminderDto, ReminderSettingsDto, SnoozePresetDto};
 use outl_tauri_shared::commands::theme::ThemeConfigDto;
 use outl_tauri_shared::commands::timeline::{PageTimelineDto, TimelineEventDto};
+use outl_tauri_shared::commands::trust::{ActorActivityDto, DeviceActivityDto, ExportReportDto};
 use outl_tauri_shared::state::{
     BacklinksReply, CreateBlockReply, CutBlockReply, ProjectionWriteFailed, TemplateDto,
     WorkspaceSummary,
@@ -335,6 +336,36 @@ fn page_timeline_matches_its_interface() {
         events: Vec::new(),
     };
     assert_wire_shape(&dto, "PageTimeline", &[]);
+}
+
+#[test]
+fn actor_activity_matches_its_interface() {
+    let dto = ActorActivityDto {
+        actor: "01JQ0000000000000000000005".into(),
+        ops: 12,
+        last_at_ms: 1_757_000_000_000,
+        is_local: true,
+    };
+    assert_wire_shape(&dto, "ActorActivity", &[]);
+}
+
+#[test]
+fn device_activity_matches_its_interface() {
+    let dto = DeviceActivityDto {
+        actors: Vec::new(),
+        complete: true,
+    };
+    assert_wire_shape(&dto, "DeviceActivity", &[]);
+}
+
+#[test]
+fn export_report_matches_its_interface() {
+    let dto = ExportReportDto {
+        dir: "/tmp/outl-export-x".into(),
+        pages: 3,
+        assets: 1,
+    };
+    assert_wire_shape(&dto, "ExportReport", &[]);
 }
 
 #[test]

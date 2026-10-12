@@ -559,6 +559,16 @@ macro_rules! timeline_commands {
                     String,
                 >
                 => $crate::commands::timeline::page_timeline;
+
+            /// What the op log holds from each device (sync panel).
+            fn device_activity()
+                -> ::std::result::Result<$crate::commands::trust::DeviceActivityDto, String>
+                => $crate::commands::trust::device_activity;
+
+            /// Copy every page and asset into a new folder (default: next to the workspace).
+            fn export_markdown(dest_dir: Option<String>)
+                -> ::std::result::Result<$crate::commands::trust::ExportReportDto, String>
+                => $crate::commands::trust::export_markdown;
         }
     };
 }

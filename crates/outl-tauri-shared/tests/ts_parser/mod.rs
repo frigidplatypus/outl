@@ -63,6 +63,7 @@ pub const MIRROR_FILES: &[&str] = &[
     "../outl-frontend-shared/src/api/plugins.ts",
     "../outl-frontend-shared/src/api/commands.ts",
     "../outl-frontend-shared/src/api/overview.ts",
+    "../outl-frontend-shared/src/api/trust.ts",
     "../outl-desktop/src/lib/api.ts",
     "../outl-desktop/src/lib/events.ts",
 ];
