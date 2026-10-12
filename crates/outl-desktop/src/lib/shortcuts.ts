@@ -60,7 +60,9 @@ function modsOf(e: KeyboardEvent): number {
     // against bindings like `ch('?')` that the TUI / catalog
     // expresses without the modifier.
     const k = e.key;
-    const isSymbolChar = k.length === 1 && !/[a-zA-Z]/.test(k);
+    // Space is a named key in the catalog (`Key::Space`), not a symbol,
+    // so `Cmd+Shift+Space` keeps its SHIFT bit.
+    const isSymbolChar = k.length === 1 && k !== " " && !/[a-zA-Z]/.test(k);
     if (!isSymbolChar) m |= MOD_SHIFT;
   }
   return m;
@@ -114,7 +116,7 @@ function eventToKey(e: KeyboardEvent): Key | null {
   return null;
 }
 
-function eventToChord(e: KeyboardEvent): Chord | null {
+export function eventToChord(e: KeyboardEvent): Chord | null {
   const key = eventToKey(e);
   if (!key) return null;
   return { mods: modsOf(e), key };
