@@ -93,19 +93,10 @@ pub fn outl() -> Palette {
 /// have no prior mobile-only value to recover — they mirror
 /// [`outl`]'s structure with each hue darkened for a light canvas,
 /// the way [`logseq_light`] darkens its terminal-flavoured fields
-/// relative to its dark siblings.
-///
-/// Refreshed since: the purple-tinted canvas became paper white, the
-/// grays went cool and neutral, and the accent moved to violet-700 so
-/// it carries the chrome alone. Every fill pair now clears AA, which
-/// retired the insert-mode exemption in `tests/contrast.rs`.
+/// relative to its dark siblings. Paper white, cool grays, one violet.
 pub fn outl_light() -> Palette {
-    // Paper white with one violet accent and cool grays: the calm,
-    // single-accent light canvas, kept in outl's violet rather than a
-    // borrowed indigo. `bg_elev` sits a hair off white so popovers and
-    // sheets read as raised without a heavy shadow.
     let bg = "#ffffff";
-    let bg_elev = "#f7f7fa";
+    let bg_elev = "#f7f7fa"; // a hair off white: sheets read as raised
     let fg = "#111827"; // 17.7:1 on `bg`
     let fg_dim = "#6b7280"; // 4.83:1 on `bg`, 4.6:1 on `bg_elev`
     let fg_dimmer = "#9ca3af"; // decoration and struck-through text only
