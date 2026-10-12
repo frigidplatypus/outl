@@ -15,6 +15,8 @@ mod capture;
 /// Chord constructors. Read its module doc before adding a row:
 /// `ch` / `pair` lowercase, which has already mis-spelt two chords.
 mod chords;
+mod focus;
+mod overlay;
 
 use chords::{
     ch, ctrl, ctrl_key, key, meta, meta_key, pair, pair_shift_second, shift, shift_ch,
@@ -766,21 +768,9 @@ pub fn default_bindings() -> Vec<Binding> {
             Action::MoveVisualRangeDown,
             "Move range down (Ctrl+Shift+Down)",
         ),
-        // ── Overlay (picker / palette have their own keys; arrow + Enter + Esc) ──
-        Binding::new(key(Key::Esc), Overlay, Action::ExitInsert, "Close overlay"),
-        Binding::new(
-            key(Key::Down),
-            Overlay,
-            Action::SelectionDown,
-            "Highlight next",
-        ),
-        Binding::new(
-            key(Key::Up),
-            Overlay,
-            Action::SelectionUp,
-            "Highlight previous",
-        ),
     ];
+    rows.extend(overlay::bindings());
     rows.extend(capture::bindings());
+    rows.extend(focus::bindings());
     rows
 }

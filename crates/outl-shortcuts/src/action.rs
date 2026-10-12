@@ -35,6 +35,8 @@ pub enum Action {
     QuickCapture,
     /// Copy the workspace out as plain Markdown (`export_markdown`).
     ExportMarkdown,
+    /// Fade the chrome and give the outline a reading measure.
+    ToggleFocusMode,
     /// Quit the application (TUI: `q q` chord; desktop: `Cmd+Q` via OS).
     Quit,
 
@@ -301,6 +303,7 @@ impl Action {
         Action::OpenSettings,
         Action::QuickCapture,
         Action::ExportMarkdown,
+        Action::ToggleFocusMode,
         Action::Quit,
         Action::OpenToday,
         Action::PrevDay,
@@ -397,6 +400,7 @@ mod all_tests {
             Action::OpenSettings => "OpenSettings",
             Action::QuickCapture => "QuickCapture",
             Action::ExportMarkdown => "ExportMarkdown",
+            Action::ToggleFocusMode => "ToggleFocusMode",
             Action::Quit => "Quit",
             Action::OpenToday => "OpenToday",
             Action::PrevDay => "PrevDay",
@@ -485,14 +489,14 @@ mod all_tests {
         );
         assert_eq!(
             names.len(),
-            EXPECTED_80,
-            "Action::ALL has {} entries but the enum has {EXPECTED_80} variants \
-             — add the new variant to Action::ALL (and bump EXPECTED_80)",
+            EXPECTED_81,
+            "Action::ALL has {} entries but the enum has {EXPECTED_81} variants \
+             — add the new variant to Action::ALL (and bump EXPECTED_81)",
             names.len(),
         );
     }
 
     /// Bumped together with a new variant. The `name` match above is
     /// what makes forgetting impossible: it will not compile.
-    const EXPECTED_80: usize = 80;
+    const EXPECTED_81: usize = 81;
 }
