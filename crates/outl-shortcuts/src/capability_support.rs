@@ -112,6 +112,22 @@ mod why {
     /// does not move, so there is no order to pin and nothing a
     /// lock would buy — this is a property of the input device, not
     /// work left undone.
+    /// Capture on the keyboard clients is two steps: jump to today,
+    /// then add the block. Every piece exists; the one-gesture shape
+    /// from mobile's bottom bar does not.
+    pub const TUI_CAPTURE_IS_TWO_STEPS: &str =
+        "There's no one-key capture here. Press `t` to jump to today's journal, then add the \
+         block there. Press `[` to go back to the day you were on.";
+    pub const DESKTOP_CAPTURE_IS_TWO_STEPS: &str =
+        "There's no one-click capture here. Press Cmd+J to open today's journal, then add the \
+         block at the end. The quick switcher (Cmd+P) takes you back.";
+
+    /// Only mobile has a Tasks tab. The query block answers the same
+    /// question inside any page, so the nudge points there.
+    pub const NO_TASK_LIST: &str =
+        "There's no task list here yet. Add a `query` code block with `status: open` to any page \
+         and it lists every open task in the workspace.";
+
     pub const NO_SOFT_KEYBOARD_BAR: &str =
         "There's no on-screen toolbar to pin here — these actions have fixed keyboard \
          shortcuts, so they never move.";
@@ -306,6 +322,22 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
             desktop: Missing(why::NO_TRASH_SURFACE),
             mobile: Missing(why::NO_TRASH_SURFACE),
         },
+        // Mobile: the bottom bar's `+` (`BottomBar.tsx` →
+        // `Journal.capture.ts::captureToToday`) appends to today's
+        // journal without leaving the open page.
+        Capability::QuickCapture => ClientSupport {
+            tui: Partial(why::TUI_CAPTURE_IS_TWO_STEPS),
+            desktop: Partial(why::DESKTOP_CAPTURE_IS_TWO_STEPS),
+            mobile: Full,
+        },
+        // Mobile: the bottom bar's Tasks tab (`TasksSheet.tsx`) over
+        // `list_open_tasks`. The command is registered on the desktop
+        // too; the gap there is the surface, not the data.
+        Capability::TaskList => ClientSupport {
+            tui: Missing(why::NO_TASK_LIST),
+            desktop: Missing(why::NO_TASK_LIST),
+            mobile: Full,
+        },
         Capability::ToolbarOrderLock => ClientSupport {
             tui: NotApplicable(why::NO_SOFT_KEYBOARD_BAR),
             desktop: NotApplicable(why::NO_SOFT_KEYBOARD_BAR),
@@ -371,7 +403,7 @@ mod tests {
                 let _ = s.get(client);
             }
         }
-        assert_eq!(Capability::ALL.len(), 12, "Capability::ALL changed size");
+        assert_eq!(Capability::ALL.len(), 14, "Capability::ALL changed size");
     }
 
     #[test]

@@ -168,6 +168,8 @@ the drift this RFC exists to prevent.
 | `OpenExternalFile` | — _A file manager has no terminal client to hand a file to — open the file in the desktop app, or paste its text into a block._ | ✅ | ❌ Opening a file into outl from another app isn't wired up on mobile yet — send it to a computer and open it there, or paste the text into a block. |
 | `TableRendering` | ⚠️ A table wider than the pane wraps instead of scrolling sideways — every row is still there, the columns just stop lining up. Widen the terminal, or open the page in the desktop app. | ✅ | ✅ |
 | `Trash` | ❌ Restoring a deleted block isn't in the app yet — run `outl trash list` in a terminal to see what was deleted, then `outl trash restore <id>`. | ❌ Restoring a deleted block isn't in the app yet — run `outl trash list` in a terminal to see what was deleted, then `outl trash restore <id>`. | ❌ Restoring a deleted block isn't in the app yet — run `outl trash list` in a terminal to see what was deleted, then `outl trash restore <id>`. |
+| `QuickCapture` | ⚠️ There's no one-key capture here. Press `t` to jump to today's journal, then add the block there. Press `[` to go back to the day you were on. | ⚠️ There's no one-click capture here. Press Cmd+J to open today's journal, then add the block at the end. The quick switcher (Cmd+P) takes you back. | ✅ |
+| `TaskList` | ❌ There's no task list here yet. Add a `query` code block with `status: open` to any page and it lists every open task in the workspace. | ❌ There's no task list here yet. Add a `query` code block with `status: open` to any page and it lists every open task in the workspace. | ✅ |
 <!-- END GENERATED: capability-parity -->
 
 ## What this table does not cover
