@@ -112,6 +112,9 @@ export function BlockRow(props: BlockRowProps): JSX.Element {
 
   return (
     <div class="relative">
+      {/* `outl-row` is the hook focus mode dims; it wraps the row only,
+          never the children, so nested rows don't compound the fade. */}
+      <div class="outl-row" data-editing={isEditing() ? "true" : "false"}>
       <SwipeRow
         leftActionLabel="Delete"
         disabled={selectionMode()}
@@ -180,6 +183,7 @@ export function BlockRow(props: BlockRowProps): JSX.Element {
           }
         />
       </SwipeRow>
+      </div>
       {/* Saved-to-disk: fades in when this block's commit lands, then out. */}
       <span
         aria-hidden="true"

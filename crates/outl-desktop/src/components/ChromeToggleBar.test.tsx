@@ -55,8 +55,23 @@ describe("ChromeToggleBar", () => {
     expect(l[2]).toBe("Reminders");
     expect(l[3]).toBe("Plugins");
     expect(l[4]).toMatch(/^Sync/);
-    expect(l[5]).toBe("Settings");
-    expect(l).toHaveLength(6);
+    expect(l[5]).toBe("Focus mode");
+    expect(l[6]).toBe("Settings");
+    expect(l).toHaveLength(7);
+  });
+
+  it("flips focus mode on <html> from its capsule button", () => {
+    const host = mount();
+    const btn = [...host.querySelectorAll("button")].find(
+      (b) => b.getAttribute("aria-label") === "Focus mode",
+    )!;
+    btn.click();
+    expect(document.documentElement.getAttribute("data-outl-focus")).toBe("on");
+    const back = [...host.querySelectorAll("button")].find(
+      (b) => b.getAttribute("aria-label") === "Leave focus mode",
+    )!;
+    back.click();
+    expect(document.documentElement.getAttribute("data-outl-focus")).toBe("off");
   });
 
   it("keeps only the sidebar toggle on the left and drops the help toggle", () => {

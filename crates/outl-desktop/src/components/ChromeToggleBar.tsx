@@ -1,5 +1,6 @@
 import { For, createSignal, onMount, type JSX } from "solid-js";
 
+import { focusMode } from "@outl/shared/polish";
 import { pluginRun, pluginToolbar } from "@outl/shared/api/commands";
 import type { PluginToolbarButton as ToolbarButtonEntry } from "@outl/shared/api/types";
 import { playPluginViews } from "../lib/plugin-views";
@@ -36,6 +37,14 @@ function Icon(props: { children: JSX.Element }) {
     </svg>
   );
 }
+
+/** Focus mode: four corners framing the text. Same path as mobile. */
+const FocusIcon = () => (
+  <Icon>
+    <path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4" />
+    <circle cx="12" cy="12" r="2" />
+  </Icon>
+);
 
 const FoldIcon = () => (
   <Icon>
@@ -173,6 +182,7 @@ function PluginToolbarButton(props: { entry: ToolbarButtonEntry }) {
  */
 export function ChromeToggleBar(props: { handlers?: ActionHandlers | null }) {
   const [toolbar, setToolbar] = createSignal<ToolbarButtonEntry[]>([]);
+  const focus = focusMode();
 
   // Plugins load lazily on the host's first request once the workspace is
   // open, so a fetch at mount may return empty on a cold boot. Best-effort:
@@ -188,7 +198,7 @@ export function ChromeToggleBar(props: { handlers?: ActionHandlers | null }) {
   });
 
   const capsule =
-    "fixed top-3 z-20 flex items-center gap-1 rounded-full border border-(--color-outl-border) bg-(--color-outl-bg-elev)/80 px-1.5 py-1 shadow-lg backdrop-blur-xl";
+    "outl-focus-hide fixed top-3 z-20 flex items-center gap-1 rounded-full border border-(--color-outl-border) bg-(--color-outl-bg-elev)/80 px-1.5 py-1 shadow-lg backdrop-blur-xl";
 
   return (
     <>
@@ -239,6 +249,13 @@ export function ChromeToggleBar(props: { handlers?: ActionHandlers | null }) {
         />
         {/* Click syncs now, right-click opens Settings → Sync. */}
         <SyncIndicator />
+        <ChromeToggle
+          glyph={<FocusIcon />}
+          active={focus.on()}
+          label={focus.on() ? "Leave focus mode" : "Focus mode"}
+          title="Focus mode"
+          onToggle={focus.toggle}
+        />
         <ChromeToggle
           glyph={<GearIcon />}
           active={appState.settingsOpen}

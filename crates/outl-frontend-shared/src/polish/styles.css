@@ -70,15 +70,16 @@
 }
 
 /* Focus mode: the chrome steps out, the text gets a reading measure. */
+/* The chrome only fades, it never goes away: on a touch screen there is
+   no hover to bring it back, and the way out of focus mode lives in it. */
 html[data-outl-focus="on"] .outl-focus-hide {
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0.18;
   transition: opacity var(--outl-motion-base) ease;
 }
 html[data-outl-focus="on"] .outl-focus-hide:hover,
-html[data-outl-focus="on"] .outl-focus-hide:focus-within {
+html[data-outl-focus="on"] .outl-focus-hide:focus-within,
+html[data-outl-focus="on"] .outl-focus-hide:active {
   opacity: 1;
-  pointer-events: auto;
 }
 html[data-outl-focus="on"] .outl-reading {
   max-width: var(--outl-read-measure);

@@ -1,4 +1,7 @@
+import { Show } from "solid-js";
+
 import { NamespaceMentions, NestedPages } from "@outl/shared/namespace";
+import { FirstRunTips } from "@outl/shared/polish";
 
 import { appState } from "../lib/store";
 
@@ -7,6 +10,8 @@ import { InlineBacklinks } from "./InlineBacklinks";
 export interface PageSectionsProps {
   /** Open a page by slug — the host owns navigation (`handleRefClick`). */
   onOpenPage: (slug: string) => void;
+  /** The page holds only empty blocks: show the first-run tips. */
+  blank?: boolean;
 }
 
 /**
@@ -30,6 +35,11 @@ export interface PageSectionsProps {
 export function PageSections(props: PageSectionsProps) {
   return (
     <>
+      <Show when={props.blank}>
+        <div class="mt-8">
+          <FirstRunTips client="desktop" />
+        </div>
+      </Show>
       <InlineBacklinks />
       <NestedPages
         class="mt-6"

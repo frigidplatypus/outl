@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, on, onCleanup, onMount } from "solid-js";
 
+import { FirstRunTips, isBlankOutline } from "@outl/shared/polish";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import {
@@ -884,7 +885,7 @@ export function OutlineView() {
       </header>
 
       <div class="min-w-0 flex-1 overflow-y-auto px-12 py-6">
-        <div class="mx-auto w-full max-w-3xl">
+        <div class="outl-reading mx-auto w-full max-w-3xl">
           <PageAheadOfLogBanner info={appState.mdAheadOfLog} client="desktop" />
           <ParseWarningsBanner warnings={appState.parseWarnings} />
           <Show when={appState.page}>
@@ -902,11 +903,10 @@ export function OutlineView() {
           <Show
             when={rootBlocks().length > 0}
             fallback={
-              // Page still loading (null) → skeleton that reserves the
-              // outline's shape so nothing jumps when the rows arrive.
-              // Page loaded but genuinely empty → the add-first-block
-              // affordance (also the zoomed-into-a-leaf case).
+              // Loading → a skeleton in the outline's shape. Loaded and empty
+              // (or zoomed into a leaf) → first-run tips and add-first-block.
               <Show when={appState.page} fallback={<OutlineSkeleton />}>
+                <FirstRunTips client="desktop" onStart={addFirstBlock} />
                 <button
                   type="button"
                   onClick={addFirstBlock}
@@ -932,7 +932,7 @@ export function OutlineView() {
 
           {/* Backlinks, nested pages, namespace mentions — in that
               order, below the outline (TUI parity). */}
-          <PageSections onOpenPage={(slug) => void handleRefClick(slug)} />
+          <PageSections blank={isBlankOutline(rootBlocks())} onOpenPage={(slug) => void handleRefClick(slug)} />
         </div>
       </div>
       {/* The error surface is the top-right `<ErrorToast />` (mounted in

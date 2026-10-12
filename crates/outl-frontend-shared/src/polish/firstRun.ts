@@ -16,7 +16,7 @@ export interface Tip {
 }
 
 export function firstRunTips(client: TipClient): Tip[] {
-  const indent = client === "desktop" ? "Tab and Shift+Tab" : "swipe right and left";
+  const indent = client === "desktop" ? "Tab and Shift+Tab" : "the indent keys above the keyboard";
   const today = client === "desktop" ? "⌘J" : "the Today button";
   return [
     {
@@ -38,6 +38,15 @@ export function firstRunTips(client: TipClient): Tip[] {
       body: `Your journal opens on today. Jump back to it any time with ${today}.`,
     },
   ];
+}
+
+/**
+ * A page that exists but holds nothing yet: at least one block, every
+ * one empty and childless. A fresh journal day lands here (it opens on
+ * one empty block), which is where a new user first looks.
+ */
+export function isBlankOutline(blocks: readonly { text: string; children: readonly unknown[] }[]): boolean {
+  return blocks.length > 0 && blocks.every((b) => b.text.trim() === "" && b.children.length === 0);
 }
 
 type Store = Pick<Storage, "getItem" | "setItem">;
