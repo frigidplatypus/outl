@@ -71,6 +71,16 @@ Owed by the implementation PR, none exist yet:
    - `a_peer_change_to_an_unfocused_day_keeps_focus_and_scroll`.
    - `days_far_off_screen_unmount`, with a block count bound so memory cannot grow with scroll length.
 
+## Trust you can see
+
+The same PR makes the engine's guarantees visible.
+Page history renders each edit as a word diff and offers a restore where one is safe: an edit's previous text goes back through `edit_block`, a deleted block's text comes back through `create_block`.
+Each restore is new ops, never a rewind of the log, so it syncs and undoes like any edit; moves and property changes get no button because their "before" depends on neighbours.
+The sync settings show what the op log holds from each actor (`outl_actions::device_activity`), labelled honestly, since an actor id is not a peer id.
+`export_markdown` copies the clean `.md` files and assets into a new folder next to the workspace.
+A block shows a short "saved" dot once `edit_block` resolves.
+Not done here: a list of merged concurrent edits with an undo. The CRDT converges without recording that two edits raced, so showing it needs the engine to detect concurrency first; that is a follow-up with its own design.
+
 ## Scope
 
 Not covered: mobile day swipe (a separate, smaller change with no RFC need), the iOS quick capture outside the app (it writes from another process, which is an op log and actor question with its own RFC), and any change to how journal pages are created or named (RFC 0107).
