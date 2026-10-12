@@ -2,13 +2,13 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Accepted (2026-10-12) |
 | **Issue** | [#363](https://github.com/outlmd/outl/issues/363) |
-| **PR** | [#362](https://github.com/outlmd/outl/pull/362) carries the Draft; the implementation gets its own PR |
+| **PR** | [#362](https://github.com/outlmd/outl/pull/362) carries this RFC and its implementation (accepted 2026-10-12, implemented in the same PR) |
 | **Date** | 2026-10-12 |
 | **Reference doc** | none yet; `UX.md` "Getting around on a phone" covers the in-app capture this extends |
 | **Invariant** | root `CLAUDE.md` invariant 7 (state that must converge goes through the op log) |
-| **Guarded by** | none yet, this is a Draft. The tests the implementation owes are listed under "How it cannot regress" |
+| **Guarded by** | the tests listed under "How it cannot regress" |
 
 ## Why
 
@@ -68,4 +68,4 @@ If the app is never opened, captures wait in the inbox indefinitely and do not s
 
 ## Scope
 
-Not covered here: Android (a widget, a share target and a quick settings tile have the same shape and should reuse this inbox), capture to a page other than today, and attachments in the share extension. Each needs its own issue once this is accepted.
+Not covered here: Android (a widget, a share target and a quick settings tile have the same shape and should reuse this inbox), capture to a page other than today, and attachments in the share extension. Each needs its own issue.
