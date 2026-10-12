@@ -52,3 +52,12 @@ pub const NO_MOBILE_STRIKE: &str =
 pub const NO_MOBILE_LINK: &str =
     "There's no link button on the mobile toolbar — type `[label](url)` by hand, or use \
      the `[[` button to link another page in the workspace.";
+
+/// The quick capture box is a GUI overlay (desktop global hotkey,
+/// mobile sheet). The terminal adds to today the ordinary way.
+pub const TUI_NO_CAPTURE: &str =
+    "The terminal has no capture box yet; open today's journal and add a block.";
+
+/// `export_markdown` is wired to the GUI clients only.
+pub const TUI_NO_EXPORT: &str =
+    "Export isn't in the terminal yet; the workspace `.md` files are already plain Markdown.";

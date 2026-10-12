@@ -160,9 +160,7 @@ macro_rules! row {
 
 use Support::{Full, Missing, Native, NotApplicable, Partial};
 
-/// The nudge text, one module over — see [invariant 12].
-///
-/// [invariant 12]: https://github.com/outlmd/outl/blob/main/CLAUDE.md
+/// The nudge text, one module over ([invariant 12](https://github.com/outlmd/outl/blob/main/CLAUDE.md)).
 mod why;
 
 /// Per-client support for every action in the catalog.
@@ -190,6 +188,8 @@ pub fn support(action: Action) -> ClientSupport {
         ),
         Action::ToggleBacklinks => row!(Full, Full, Full),
         Action::OpenSettings => row!(Full, Full, Full),
+        Action::QuickCapture => row!(Missing(why::TUI_NO_CAPTURE), Full, Full),
+        Action::ExportMarkdown => row!(Missing(why::TUI_NO_EXPORT), Full, Full),
         Action::Quit => row!(
             Full,
             Full,
@@ -529,7 +529,7 @@ mod tests {
                 let _ = s.get(client);
             }
         }
-        assert_eq!(Action::ALL.len(), 78, "Action::ALL changed size");
+        assert_eq!(Action::ALL.len(), 80, "Action::ALL changed size");
     }
 
     #[test]

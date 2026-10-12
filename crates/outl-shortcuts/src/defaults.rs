@@ -4,14 +4,14 @@
 //! shipping shortcuts) plus the OS-standard chrome bindings the
 //! desktop already relied on (`Cmd/Ctrl+P`, `Cmd/Ctrl+B`, etc.).
 //!
-//! Adding a binding here lights it up on both clients
-//! simultaneously — the TUI's chord adapter and the desktop's
-//! `KeyboardEvent` adapter both go through the same lookup.
+//! Adding a binding here lights it up on both clients at once: the TUI's
+//! chord adapter and the desktop's `KeyboardEvent` adapter share the lookup.
 
 use crate::action::Action;
 use crate::binding::{Binding, Mode};
 use crate::chord::Key;
 
+mod capture;
 /// Chord constructors. Read its module doc before adding a row:
 /// `ch` / `pair` lowercase, which has already mis-spelt two chords.
 mod chords;
@@ -23,18 +23,16 @@ use chords::{
 
 /// Every binding outl ships with by default.
 ///
-/// `Global` entries fire in every mode — those are the OS-standard
-/// chrome chords (`Cmd+P`, `Cmd+T`, `Cmd+,`, `Cmd+[`, `Cmd+]`,
-/// `Cmd+Shift+E`, `Cmd+Shift+B`). The TUI adapter doesn't emit
-/// `META` from crossterm, so on a terminal these manifest as their
-/// TUI-native variants (single letters, brackets, …).
+/// `Global` entries fire in every mode — those are the OS-standard chrome
+/// chords (`Cmd+P`, `Cmd+T`, `Cmd+,`, `Cmd+[`, `Cmd+]`, `Cmd+Shift+E`,
+/// `Cmd+Shift+B`). The TUI adapter doesn't emit `META` from crossterm, so
+/// on a terminal these manifest as their TUI-native variants.
 ///
 /// Two chords were deliberately freed up vs. the first cut:
 ///
-/// - `Cmd+B` is **reserved for `WrapBold`** in Insert mode, matching
-///   every markdown editor on the planet (Notion, Obsidian, Discord,
-///   Slack, Typora). It would be hostile to retrain users on a
-///   non-standard meaning.
+/// - `Cmd+B` is **reserved for `WrapBold`** in Insert mode, matching every
+///   markdown editor on the planet (Notion, Obsidian, Discord, Slack,
+///   Typora). Retraining users on a non-standard meaning would be hostile.
 /// - `Cmd+\` is **1Password's** global autofill shortcut on macOS.
 ///   Hijacking it breaks every user who has 1Password installed.
 ///
@@ -43,7 +41,7 @@ use chords::{
 pub fn default_bindings() -> Vec<Binding> {
     use Mode::*;
 
-    vec![
+    let mut rows = vec![
         // ── Global chrome (OS-standard, work in every mode) ───────
         Binding::new(meta('p'), Global, Action::OpenPicker, "Open quick switcher"),
         Binding::new(ctrl('p'), Global, Action::OpenPicker, "Open quick switcher"),
@@ -782,5 +780,7 @@ pub fn default_bindings() -> Vec<Binding> {
             Action::SelectionUp,
             "Highlight previous",
         ),
-    ]
+    ];
+    rows.extend(capture::bindings());
+    rows
 }

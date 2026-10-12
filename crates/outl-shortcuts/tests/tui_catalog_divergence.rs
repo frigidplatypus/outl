@@ -90,6 +90,14 @@ struct Divergence {
 /// move the chord into `AGREED` instead.
 const KNOWN_DIVERGENCES: &[Divergence] = &[
     Divergence {
+        chord: "Ctrl+Shift+Space",
+        mode: Mode::Global,
+        catalog: Action::QuickCapture,
+        tui_does: "nothing, there is no arm for Space with modifiers",
+        harm: Harm::Dead,
+        note: "Quick capture is a GUI box; support.rs records the TUI as Missing.",
+    },
+    Divergence {
         chord: "Ctrl+}",
         mode: Mode::Global,
         catalog: Action::ZoomIn,
@@ -370,7 +378,7 @@ fn the_divergence_list_has_not_silently_shrunk() {
     // one is a single keystroke. Pin the shape of the list.
     assert_eq!(
         KNOWN_DIVERGENCES.len(),
-        18,
+        19,
         "the known-divergence list changed size — if a divergence was genuinely \
          resolved, move the chord to AGREED and update this count in the same edit",
     );
