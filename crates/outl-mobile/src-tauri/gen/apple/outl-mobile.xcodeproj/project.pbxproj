@@ -368,6 +368,7 @@
 			targets = (
 				1A9BDF647CE25CAD1577771B /* outl-mobile_iOS */,
 				0363A1000000000000000008 /* OutlWidget */,
+				0363D4000000000000000008 /* OutlShare */,
 			);
 		};
 /* End PBXProject section */
