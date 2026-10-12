@@ -1427,17 +1427,10 @@ export function Journal() {
 
   async function handleRefresh() {
     const pid = pageId();
-    if (!pid) return;
-    // One pass at a time: a second tap on the sync dot (or a pull while
-    // the open/foreground sync runs) would only queue another dial.
-    if (refreshing() || syncing()) return;
+    if (!pid || refreshing() || syncing()) return; // one sync pass at a time
     setRefreshing(true);
     haptic("light");
-    try {
-      await pullAndReload();
-    } finally {
-      setRefreshing(false);
-    }
+    await pullAndReload().finally(() => setRefreshing(false));
   }
 
   async function handleRefClick(target: string) {
