@@ -7,7 +7,7 @@ Solid.js + Tailwind frontend, Rust backend that **must stay thin** — every wor
 
 1,978 lines in one component, still over 3x the `file-size-guard.sh` ceiling.
 The chrome came out first (`JournalChrome.tsx`), then the delete prompts (`JournalDeleteDialogs.tsx`) and the toolbar dispatch (`Journal.toolbar-dispatch.ts`); [issue 265](https://github.com/outlmd/outl/issues/265) phases 1-3 took the block ops, the selection state machine and the platform listeners out.
-Day navigation and wake-to-today live in `Journal.day-nav.ts`, quick capture in `Journal.capture.ts`, and the empty states and zoom bar in `JournalEmpty.tsx` and `JournalZoomBar.tsx`.
+Day navigation and wake-to-today live in `Journal.day-nav.ts`, quick capture in `Journal.capture.ts` (`outl://capture` opens its sheet through `openCapture` in `Journal.listeners.ts`), and the empty states and zoom bar in `JournalEmpty.tsx` and `JournalZoomBar.tsx`.
 The remaining seams are in that issue, and the props rule an extraction must not break is in `outl-frontend-shared/CLAUDE.md`.
 
 ## Layering
