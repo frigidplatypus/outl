@@ -75,3 +75,6 @@
   opacity: 0.55;
   margin: 18px 0 6px;
 }
+.outl-diff-removed + .outl-diff-added {
+  margin-left: 3px;
+}
