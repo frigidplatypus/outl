@@ -10,7 +10,10 @@
 //! per-op causal context it cannot be told apart, and it is not listed.
 //!
 //! The log is device-local view state (root invariant 7 does not apply:
-//! nothing here must converge), in memory, newest first, capped. Undo is
+//! nothing here must converge), newest first, capped at [`MERGE_LOG_CAP`],
+//! and persisted to `<root>/.outl/state/merges-<actor>.json` so it
+//! survives a restart. The file is named by this device's actor so two
+//! devices sharing a synced folder never overwrite each other's log. Undo is
 //! an ordinary `edit_text` back to this device's text from before the
 //! merge, so it is new ops, syncs, and `Cmd+Z` can step it back.
 
@@ -22,7 +25,7 @@ use outl_core::hlc::Hlc;
 use outl_core::id::{ActorId, NodeId};
 use outl_core::op::Op;
 use outl_core::workspace::Workspace;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::helpers::{finish_in_page, parse_node_id};
 use crate::host::AppHost;
@@ -32,7 +35,7 @@ use crate::state::PageView;
 pub const MERGE_LOG_CAP: usize = 50;
 
 /// One merged concurrent edit.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MergedEditDto {
     /// Stable id for undo: the block id plus the arriving op's HLC.
     pub id: String,
@@ -54,6 +57,41 @@ type Book = HashMap<PathBuf, Vec<MergedEditDto>>;
 fn book() -> &'static Mutex<Book> {
     static BOOK: OnceLock<Mutex<Book>> = OnceLock::new();
     BOOK.get_or_init(Mutex::default)
+}
+
+/// `<root>/.outl/state/merges-<actor>.json`.
+pub fn state_path(root: &Path, actor: ActorId) -> PathBuf {
+    root.join(".outl")
+        .join("state")
+        .join(format!("merges-{}.json", actor.0))
+}
+
+fn load(root: &Path, actor: ActorId) -> Vec<MergedEditDto> {
+    let mut log: Vec<MergedEditDto> = std::fs::read(state_path(root, actor))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    log.truncate(MERGE_LOG_CAP);
+    log
+}
+
+fn save(root: &Path, actor: ActorId, log: &[MergedEditDto]) {
+    let path = state_path(root, actor);
+    let write = || -> std::io::Result<()> {
+        std::fs::create_dir_all(path.parent().expect("state dir"))?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec(log)?)?;
+        std::fs::rename(&tmp, &path)
+    };
+    if let Err(e) = write() {
+        tracing::warn!("merges: could not persist {}: {e}", path.display());
+    }
+}
+
+/// The log for `root`, read from disk the first time this process asks.
+fn log_for<'a>(book: &'a mut Book, root: &Path, actor: ActorId) -> &'a mut Vec<MergedEditDto> {
+    book.entry(root.to_path_buf())
+        .or_insert_with(|| load(root, actor))
 }
 
 /// Blocks a reload merged concurrently, per the rule in the module doc.
@@ -104,40 +142,50 @@ pub fn detect(old: &Workspace, fresh: &Workspace, local: ActorId) -> Vec<MergedE
     out
 }
 
-/// Prepend `found` to the workspace's log, newest first, capped.
-pub fn record(root: &Path, mut found: Vec<MergedEditDto>) {
+/// Prepend `found` to the workspace's log, newest first, capped, and
+/// persist it. An entry already listed (same id) is not added twice.
+pub fn record(root: &Path, actor: ActorId, mut found: Vec<MergedEditDto>) {
     if found.is_empty() {
         return;
     }
     let Ok(mut book) = book().lock() else { return };
-    let log = book.entry(root.to_path_buf()).or_default();
+    let log = log_for(&mut book, root, actor);
+    found.retain(|f| !log.iter().any(|e| e.id == f.id));
     found.sort_by_key(|b| std::cmp::Reverse(b.at_ms));
     found.append(log);
     found.truncate(MERGE_LOG_CAP);
     *log = found;
+    save(root, actor, log);
 }
 
-fn take(root: &Path, id: &str) -> Option<MergedEditDto> {
+/// The listed entries for `root`, newest first.
+pub fn list(root: &Path, actor: ActorId) -> Vec<MergedEditDto> {
+    match book().lock() {
+        Ok(mut book) => log_for(&mut book, root, actor).clone(),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn take(root: &Path, actor: ActorId, id: &str) -> Option<MergedEditDto> {
     let mut book = book().lock().ok()?;
-    let log = book.get_mut(root)?;
+    let log = log_for(&mut book, root, actor);
     let at = log.iter().position(|e| e.id == id)?;
-    Some(log.remove(at))
+    let entry = log.remove(at);
+    save(root, actor, log);
+    Some(entry)
 }
 
-/// The merged edits recorded this session, newest first.
+/// The merged edits recorded on this device, newest first.
 pub fn merged_edits<S: AppHost>(state: &S) -> Result<Vec<MergedEditDto>, String> {
     let root = state.storage_root()?;
-    Ok(book()
-        .lock()
-        .ok()
-        .and_then(|b| b.get(&root).cloned())
-        .unwrap_or_default())
+    Ok(list(&root, state.hlc().actor()))
 }
 
 /// Put this device's pre-merge text back and drop the entry.
 pub fn undo_merged_edit<S: AppHost>(state: &S, id: String) -> Result<PageView, String> {
     let root = state.storage_root()?;
-    let entry = take(&root, &id).ok_or_else(|| "that merge is no longer listed".to_string())?;
+    let entry = take(&root, state.hlc().actor(), &id)
+        .ok_or_else(|| "that merge is no longer listed".to_string())?;
     let page = parse_node_id(&entry.page_id)?;
     let node = parse_node_id(&entry.block_id)?;
     let hlc = state.hlc().clone();

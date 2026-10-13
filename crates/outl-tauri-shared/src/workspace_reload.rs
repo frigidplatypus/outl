@@ -152,7 +152,7 @@ where
         if slot.as_ref().map(|ws| ws.log().len()) == before {
             if let (Some(old), Ok(root)) = (slot.as_ref(), state.storage_root()) {
                 let found = crate::merges::detect(old, &fresh, state.hlc().actor());
-                crate::merges::record(&root, found);
+                crate::merges::record(&root, state.hlc().actor(), found);
             }
             if let Some(history) = state.history() {
                 // Lock order is workspace -> history, the order every

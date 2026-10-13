@@ -6,10 +6,15 @@
 //! we held when we pushed. Ops this device holds above that floor are
 //! the ones the peer has not got yet, as far as we can know.
 //!
-//! The floor lives in memory, per workspace and per peer, and is only
-//! ever raised. A peer we have not exchanged with this session has no
-//! floor, so it reports "unknown" rather than a number we would have to
-//! invent. Counts are distinct ops per actor, the same unit the wire's
+//! The floor is kept per workspace and per peer and is only ever raised.
+//! It is persisted to `<root>/.outl/state/sync-pending.json` after every
+//! exchange and read back on first use, so a restart keeps the column
+//! instead of falling back to "unknown". A floor is a fact about the peer
+//! ("it holds at least N ops of actor A"), so merging a file written by
+//! another device by maximum is still true. The file is bounded to the
+//! [`MAX_PEERS`] most recently seen peers. A peer never exchanged with
+//! has no floor and reports "unknown" rather than a number we would have
+//! to invent. Counts are distinct ops per actor, the same unit the wire's
 //! vector clock uses, so a snapshot boot does not skew them.
 
 use std::collections::HashMap;
@@ -18,16 +23,79 @@ use std::sync::{Mutex, OnceLock};
 
 use anyhow::Result;
 use outl_core::id::ActorId;
+use serde::{Deserialize, Serialize};
 
 use crate::oplog::local_vector_clock;
 use crate::protocol::{ActorClock, SyncRequest};
 
 type Floor = HashMap<ActorId, u64>;
-type Book = HashMap<PathBuf, HashMap<String, Floor>>;
+
+/// What we know a peer holds, and when we last learned it (Unix ms).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PeerFloor {
+    floor: Floor,
+    seen_ms: i64,
+}
+
+type Book = HashMap<PathBuf, HashMap<String, PeerFloor>>;
+
+/// Peers kept on disk; the least recently seen are dropped past this.
+pub const MAX_PEERS: usize = 64;
 
 fn book() -> &'static Mutex<Book> {
     static BOOK: OnceLock<Mutex<Book>> = OnceLock::new();
     BOOK.get_or_init(Mutex::default)
+}
+
+/// `<root>/.outl/state/sync-pending.json`.
+pub fn state_path(root: &Path) -> PathBuf {
+    root.join(".outl").join("state").join("sync-pending.json")
+}
+
+fn load(root: &Path) -> HashMap<String, PeerFloor> {
+    std::fs::read(state_path(root))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn save(root: &Path, peers: &HashMap<String, PeerFloor>) {
+    let path = state_path(root);
+    let write = || -> std::io::Result<()> {
+        std::fs::create_dir_all(path.parent().expect("state dir"))?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec(peers)?)?;
+        std::fs::rename(&tmp, &path)
+    };
+    if let Err(e) = write() {
+        tracing::warn!("pending: could not persist {}: {e}", path.display());
+    }
+}
+
+/// The peers for `root`, read from disk the first time this process asks.
+fn peers_for<'a>(book: &'a mut Book, root: &Path) -> &'a mut HashMap<String, PeerFloor> {
+    book.entry(root.to_path_buf()).or_insert_with(|| load(root))
+}
+
+/// Drop the least recently seen peers past [`MAX_PEERS`].
+fn bound(peers: &mut HashMap<String, PeerFloor>) {
+    while peers.len() > MAX_PEERS {
+        let oldest = peers
+            .iter()
+            .min_by_key(|(_, p)| p.seen_ms)
+            .map(|(k, _)| k.clone());
+        match oldest {
+            Some(k) => peers.remove(&k),
+            None => break,
+        };
+    }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// Raise the floor for `peer` with every clock in `clocks`.
@@ -37,17 +105,27 @@ pub(crate) fn record_known(
     clocks: &[&HashMap<ActorId, ActorClock>],
 ) {
     let Ok(mut book) = book().lock() else { return };
-    let floor = book
-        .entry(workspace_root.to_path_buf())
-        .or_default()
-        .entry(peer.to_string())
-        .or_default();
+    let peers = peers_for(&mut book, workspace_root);
+    // Another device sharing this folder may have learned more; a floor
+    // is a fact about the peer, so taking the maximum stays true.
+    for (k, theirs) in load(workspace_root) {
+        let ours = peers.entry(k).or_default();
+        for (actor, n) in theirs.floor {
+            let slot = ours.floor.entry(actor).or_insert(0);
+            *slot = (*slot).max(n);
+        }
+        ours.seen_ms = ours.seen_ms.max(theirs.seen_ms);
+    }
+    let entry = peers.entry(peer.to_string()).or_default();
+    entry.seen_ms = now_ms();
     for clock in clocks {
         for (actor, c) in clock.iter() {
-            let slot = floor.entry(*actor).or_insert(0);
+            let slot = entry.floor.entry(*actor).or_insert(0);
             *slot = (*slot).max(c.count);
         }
     }
+    bound(peers);
+    save(workspace_root, peers);
 }
 
 /// Initiator, after the durable-ingest ack: the peer holds its own clock
@@ -78,10 +156,13 @@ pub(crate) fn pending_count(local: &HashMap<ActorId, ActorClock>, floor: &Floor)
 }
 
 /// Per peer node id, how many ops this device holds that the peer has not
-/// confirmed. Peers with no exchange this session are absent.
+/// confirmed. Peers never exchanged with (on any run) are absent.
 pub fn pending_by_peer(workspace_root: &Path, actor: ActorId) -> Result<HashMap<String, u64>> {
     let floors: HashMap<String, Floor> = match book().lock() {
-        Ok(book) => book.get(workspace_root).cloned().unwrap_or_default(),
+        Ok(mut book) => peers_for(&mut book, workspace_root)
+            .iter()
+            .map(|(k, p)| (k.clone(), p.floor.clone()))
+            .collect(),
         Err(_) => HashMap::new(),
     };
     if floors.is_empty() {
@@ -129,9 +210,46 @@ mod tests {
         assert_eq!(pending_count(&clock(&[(a, 4)]), &floor), 0);
     }
 
+    /// Forget the in-memory book for `root`, as a fresh process would.
+    fn restart(root: &Path) {
+        book().lock().unwrap().remove(root);
+    }
+
+    #[test]
+    fn floors_survive_a_restart() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = ActorId::new();
+        record_known(tmp.path(), "peer", &[&clock(&[(a, 6)])]);
+        restart(tmp.path());
+        let floors = peers_for(&mut book().lock().unwrap(), tmp.path()).clone();
+        assert_eq!(floors["peer"].floor[&a], 6);
+        assert!(state_path(tmp.path()).exists());
+    }
+
+    #[test]
+    fn a_corrupt_state_file_starts_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(state_path(tmp.path()).parent().unwrap()).unwrap();
+        std::fs::write(state_path(tmp.path()), "not json").unwrap();
+        assert!(peers_for(&mut book().lock().unwrap(), tmp.path()).is_empty());
+    }
+
+    #[test]
+    fn the_file_keeps_only_the_most_recent_peers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = ActorId::new();
+        for i in 0..(MAX_PEERS + 5) {
+            record_known(tmp.path(), &format!("peer-{i}"), &[&clock(&[(a, 1)])]);
+        }
+        restart(tmp.path());
+        let peers = peers_for(&mut book().lock().unwrap(), tmp.path()).clone();
+        assert_eq!(peers.len(), MAX_PEERS);
+    }
+
     #[test]
     fn floor_only_rises_and_merges_both_clocks() {
-        let root = PathBuf::from(format!("/tmp/outl-pending-test-{}", std::process::id()));
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
         let (a, b) = (ActorId::new(), ActorId::new());
         record_known(
             &root,
@@ -140,7 +258,7 @@ mod tests {
         );
         record_known(&root, "peer", &[&clock(&[(a, 1)])]);
         let floors = book().lock().unwrap().get(&root).cloned().unwrap();
-        let floor = &floors["peer"];
+        let floor = &floors["peer"].floor;
         assert_eq!(floor[&a], 5);
         assert_eq!(floor[&b], 4);
     }
