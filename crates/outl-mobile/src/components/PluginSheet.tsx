@@ -15,6 +15,7 @@ import {
 import type { PluginCommand, RegistryItem } from "@outl/shared/api/types";
 import { PluginSettings } from "@outl/shared/plugins";
 import { haptic } from "../lib/haptics";
+import { createSheetDrag } from "../lib/sheet-drag";
 
 /**
  * `<PluginSheet />` — the mobile plugin surface, two tabs:
@@ -137,6 +138,9 @@ export function PluginSheet(props: {
     }
   }
 
+  // Same drag-down-to-close as every other sheet.
+  const drag = createSheetDrag(() => props.onClose());
+
   return (
     <Show when={props.open}>
       <Portal>
@@ -148,10 +152,23 @@ export function PluginSheet(props: {
         >
           <div
             class="flex max-h-[80vh] flex-col overflow-hidden rounded-t-2xl bg-(--color-outl-bg-elev)"
-            style="padding-bottom: max(env(safe-area-inset-bottom), 16px);"
+            style={{
+              "padding-bottom": "max(env(safe-area-inset-bottom), 16px)",
+              transform: `translateY(${drag.translateY()}px)`,
+              transition: drag.dragging() ? "none" : "transform 220ms var(--ease-spring-in)",
+            }}
           >
-            <div class="flex justify-center py-2">
-              <div class="h-1 w-9 rounded-full bg-(--color-outl-fg-dim)/30" />
+            <div
+              class="flex cursor-grab justify-center py-2 active:cursor-grabbing"
+              style={{ "touch-action": "none" }}
+              onPointerDown={drag.onPointerDown}
+              onPointerMove={drag.onPointerMove}
+              onPointerUp={drag.onPointerUp}
+              onPointerCancel={drag.onPointerCancel}
+              aria-label="Drag to close"
+              role="button"
+            >
+              <div aria-hidden="true" class="h-1 w-9 rounded-full bg-(--color-outl-fg-dim)/30" />
             </div>
 
             {/* Tab switcher */}
