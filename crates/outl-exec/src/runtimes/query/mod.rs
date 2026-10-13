@@ -170,7 +170,7 @@ fn run_against(query: &dsl::Query, index: &WorkspaceIndex) -> Vec<QueryHit> {
         .collect()
 }
 
-fn build_query_from_params(p: &QueryParams) -> Result<dsl::Query, String> {
+pub(crate) fn build_query_from_params(p: &QueryParams) -> Result<dsl::Query, String> {
     let mut filters = Vec::new();
 
     // Each row is (positive value, negative value, builder). Pairing
@@ -216,15 +216,17 @@ fn build_query_from_params(p: &QueryParams) -> Result<dsl::Query, String> {
 
     let mut sort = Vec::new();
     for s in &p.sort {
-        // One parser for both front ends: a JS `sort: ["due:desc"]`
-        // and a block's `sort: due:desc` cannot drift apart.
-        sort.push(dsl::parse_sort_str(s)?);
+        // One splitter for both front ends: a JS `sort: ["due:desc",
+        // "created"]` and a block's `sort: due:desc, created` cannot
+        // drift apart, and one entry may itself be a comma list.
+        sort.extend(dsl::parse_sort_list(s)?);
     }
     Ok(dsl::Query {
         filters,
         sort,
         limit: p.limit,
         offset: p.offset,
+        projection: Default::default(),
     })
 }
 
@@ -372,5 +374,29 @@ mod tests {
         })
         .unwrap();
         assert_eq!(q.filters.len(), 4);
+    }
+
+    #[test]
+    fn structured_sort_entries_split_like_the_dsl_line() {
+        // A comma inside one entry is the same list the DSL's `sort:`
+        // line parses — one grammar, both front ends.
+        let q = build_query_from_params(&QueryParams {
+            sort: vec!["due:desc, created".into()],
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(q.sort.len(), 2);
+        assert_eq!(q.sort[0].key, dsl::SortKey::Prop("due".into()));
+        assert_eq!(q.sort[0].dir, dsl::Dir::Desc);
+        assert_eq!(q.sort[1].key, dsl::SortKey::Created);
+
+        // An empty part is an error here too, not a silently dropped
+        // criterion: the row order depends on every listed key.
+        let err = build_query_from_params(&QueryParams {
+            sort: vec!["due,".into()],
+            ..Default::default()
+        })
+        .unwrap_err();
+        assert!(err.contains("empty key"), "got {err:?}");
     }
 }

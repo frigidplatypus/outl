@@ -291,6 +291,7 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   `created` decodes the timestamp half of a block's ULID id (a `from_slug`-derived page root carries hash bits there, decodes to nothing, and sorts last), and `journal-date` orders by the hosting journal page's date.
   A descending sort reverses the blocks with a known value and keeps the unknown ones last — an unknown date is unknown, not maximal, and must not be smuggled to the top of a task list.
   `offset: N` skips N results after sorting, so `limit: 20` + `offset: 20` pages; the JS API mirrors both as `sort: "due:desc"` and `offset`.
+  Both front ends share one comma splitter (`dsl::parse_sort_list`): a JS `sort: "due, created"` or an array element containing commas parses exactly like the block's `sort:` line, and an empty part inside the list is an error on both sides rather than a silently dropped criterion.
 
 
 ### Fixed

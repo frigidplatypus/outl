@@ -221,9 +221,9 @@ Directive keys and the fixed vocabularies (`status: todo|doing|done|open`, `kind
 
 Each `sort:` entry is a key with an optional `:asc` / `:desc` suffix. Keys:
 
-- `page`, `status`, `text` — as before.
+- `page`, `status`, `text` — as before. `status` ranks TODO before DOING before DONE; a block with no task marker ranks as TODO, so under `sort: status:desc` it lands after the DONE blocks.
 - Any other word is a property key: sorted by that property's ISO-date value; a block whose value is missing or not a date sorts last.
-- `created` — the block's creation time, decoded from the timestamp half of its ULID id. A `from_slug`-derived id carries hash bits there instead of a clock, so it decodes to no creation time and sorts last. A hand-crafted id that happens to look like a timestamp between 2000 and 2100 sorts by it — a display-order key, not provenance.
+- `created` — the block's creation time, decoded from the timestamp half of its ULID id. A `from_slug`-derived id carries hash bits there instead of a clock, so it decodes to no creation time and sorts last. A hand-crafted id that happens to look like a timestamp between 2020 and 2100 sorts by it — a display-order key, not provenance.
 - `journal-date` — the hosting page's date, for journal pages; blocks on ordinary pages have none and sort last.
 
 ### Open work tasks, minus the parking lot

@@ -21,6 +21,9 @@
 //! it is a second opinion about what `foo` means, and the direction
 //! it drifts is the one that silently removes results.
 
+mod projection;
+pub use projection::{Column, Projection, Render};
+
 use std::fmt;
 
 use chrono::NaiveDate;
@@ -33,6 +36,10 @@ pub struct Query {
     pub limit: Option<usize>,
     /// Skip this many matches after sorting — `offset: 10`.
     pub offset: Option<usize>,
+    /// Output projection — columns, grouping, embed-vs-table rendering.
+    /// The flat DSL never populates it; `Default` is the embed-list
+    /// output the `query` runtime has always produced.
+    pub projection: Projection,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +51,19 @@ pub enum Filter {
     /// date strictly before / after the threshold.
     Before(String, NaiveDate),
     After(String, NaiveDate),
+    /// Date-field comparison: `journal-date < d` in the `liq` grammar,
+    /// and what `before` / `after` fold to there. `field` is a
+    /// property key (lowercased) or the literal `"journal-date"`,
+    /// which the engine resolves from the page slug, not properties.
+    /// Only the range operators reach this variant: `=` is folded to
+    /// an exact string comparison by the parser, so date equality and
+    /// property equality share one rule.
+    DateCmp(String, Cmp, NaiveDate),
+    /// Property comparison with a non-date value: `prop:k = v` where
+    /// `v` is not an ISO date, and `prop:k != v` always. Missing or
+    /// unparsable values are false under every operator, like
+    /// `DateCmp` and `Before` / `After`.
+    PropCmp(String, Cmp, String),
     /// Restrict hits to one hosting page, by slug.
     Page(String),
     Kind(KindFilter),
@@ -55,7 +75,44 @@ pub enum Filter {
     ///
     /// The parser strips exactly one `not-` prefix, so `not-not-tag`
     /// is an unknown key rather than a double negative nobody meant.
+    /// Not over `And` / `Or` is how the `liq` grammar expresses `not`
+    /// without exploding the variant count.
     Not(Box<Filter>),
+    /// Conjunction — every inner filter must match. Empty conjuncts
+    /// are unreachable from the parser; the engine treats them as
+    /// true so a folded predicate stays well-formed.
+    And(Vec<Filter>),
+    /// Disjunction — at least one inner filter must match, empty
+    /// meaning false, the dual of `And`.
+    Or(Vec<Filter>),
+}
+
+/// Comparison operators for `PropCmp` and `DateCmp`. `Ne` is only
+/// reachable through `Not(Eq)`, which is why no parser rule emits it
+/// directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cmp {
+    Eq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+}
+
+impl Cmp {
+    /// Applies the operator to a `Some` comparison of two operands.
+    /// Absent operands (missing property, unparsable date) are false
+    /// under every operator — uniform "missing never matches",
+    /// including under `Not`, same convention as `Before` / `After`.
+    pub(crate) fn holds(self, ordering: std::cmp::Ordering) -> bool {
+        match self {
+            Cmp::Eq => ordering == std::cmp::Ordering::Equal,
+            Cmp::Lt => ordering == std::cmp::Ordering::Less,
+            Cmp::LtEq => ordering != std::cmp::Ordering::Greater,
+            Cmp::Gt => ordering == std::cmp::Ordering::Greater,
+            Cmp::GtEq => ordering != std::cmp::Ordering::Less,
+        }
+    }
 }
 
 /// A `tag:` / `not-tag:` target: `#<name>`, lowercased.
@@ -256,15 +313,11 @@ pub fn parse(source: &str) -> Result<Query, ParseError> {
         // reversed ordering.
         match key {
             "sort" => {
-                for part in value.split(',') {
-                    let part = part.trim();
-                    if part.is_empty() {
-                        return Err(ParseError {
-                            line: i + 1,
-                            msg: "sort: empty key".into(),
-                        });
+                match parse_sort_list(value) {
+                    Ok(keys) => sort.extend(keys),
+                    Err(msg) => {
+                        return Err(ParseError { line: i + 1, msg });
                     }
-                    sort.push(parse_sort_spec(part, i)?);
                 }
                 continue;
             }
@@ -319,6 +372,7 @@ pub fn parse(source: &str) -> Result<Query, ParseError> {
         sort,
         limit,
         offset,
+        projection: Default::default(),
     })
 }
 
@@ -400,27 +454,21 @@ fn parse_text(v: &str, line_idx: usize) -> Result<String, ParseError> {
     Ok(v.to_string())
 }
 
-/// Parse one `sort:` criterion, `key` or `key:asc` / `key:desc`.
-///
-/// Shared with the structured API, which has no lines to report —
-/// that one calls [`parse_sort_str`] and maps the message itself.
-fn parse_sort_spec(v: &str, line_idx: usize) -> Result<Sort, ParseError> {
-    parse_sort_str(v).map_err(|msg| ParseError {
-        line: line_idx + 1,
-        msg,
-    })
+/// Split a comma-separated list of sort criteria and parse each one —
+/// the one splitter both front ends share: the DSL `sort:` line and
+/// the structured `QueryParams.sort` entries, so a JS
+/// `sort: ["due:desc", "created"]` and a block's
+/// `sort: due:desc, created` cannot drift apart. An empty part is an
+/// error, not a skip: a list that silently drops `due,` behind an
+/// ordering the caller did not ask about is the drift.
+pub fn parse_sort_list(v: &str) -> Result<Vec<Sort>, String> {
+    v.split(',').map(|part| parse_sort_str(part.trim())).collect()
 }
 
-/// [`parse_sort_spec`] without line context — the string-error twin,
-/// same shape as [`parse_duration_str`].
+/// One `sort:` criterion, `key` or `key:asc` / `key:desc`.
 ///
-/// The direction is a colon suffix because `split_kv` already took the
-/// directive's first colon: what reaches here is the value, and a
-/// property key can never contain a colon of its own — `sort: due:desc`
-/// is unambiguous, while a `-due` prefix would collide with hyphenated
-/// property names. Direction is strict like the rest of the
-/// vocabulary: `due:DESC` is a typo, not a case-tolerant `desc`, and a
-/// bare `due:` names a missing direction, not a property.
+/// [`parse_sort_str`] without line context is the structured twin;
+/// this one carries the DSL line number.
 pub fn parse_sort_str(v: &str) -> Result<Sort, String> {
     if v.is_empty() {
         return Err("sort: empty key".into());

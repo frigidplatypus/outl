@@ -278,13 +278,16 @@ fn js_value_to_query_params(
     let sort_val = obj
         .get(js_string!("sort"), ctx)
         .map_err(|e| e.to_string())?;
+    // The whole trimmed string goes in as one entry; the comma
+    // splitting lives in `dsl::parse_sort_list`, so the JS list
+    // grammar and the block grammar are literally one code path.
+    // Whole-empty means "no sorting"; an empty part inside the list
+    // errors there, the same way the DSL's `sort:` line does.
     if let Some(s) = sort_val.as_string() {
-        let raw = s.to_std_string_escaped();
-        for part in raw.split(',') {
-            let trimmed = part.trim();
-            if !trimmed.is_empty() {
-                params.sort.push(trimmed.to_string());
-            }
+        let trimmed = s.to_std_string_escaped();
+        let trimmed = trimmed.trim();
+        if !trimmed.is_empty() {
+            params.sort.push(trimmed.to_string());
         }
     }
     Ok(params)
@@ -487,6 +490,25 @@ mod tests {
         // Absent and null still mean "no filter".
         let p = params_from("({ notStatus: null })").unwrap();
         assert!(p.not_status.is_none());
+    }
+
+    #[cfg(feature = "lang-query")]
+    #[test]
+    fn a_js_sort_list_behaves_like_the_dsl_line() {
+        // The JS fence hands the whole comma list to the DSL splitter
+        // untouched, so both spellings of "two keys" agree — and an
+        // empty part errors on both instead of vanishing on one side.
+        let p = params_from("({ sort: 'due:desc, created' })").unwrap();
+        let q = super::super::query::build_query_from_params(&p).unwrap();
+        assert_eq!(q.sort.len(), 2);
+
+        let p = params_from("({ sort: 'due,' })").unwrap();
+        let err = super::super::query::build_query_from_params(&p).unwrap_err();
+        assert!(err.contains("empty key"), "got {err:?}");
+
+        // Whole-empty still means "no sorting", not an error.
+        let p = params_from("({ sort: '' })").unwrap();
+        assert!(p.sort.is_empty());
     }
 
     #[test]

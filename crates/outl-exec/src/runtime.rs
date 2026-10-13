@@ -174,6 +174,10 @@ pub enum OutputFormat {
     /// One child per non-empty stdout line, each rendered as a bullet.
     /// Lines are expected to be embed references (`!((blk-…))`).
     Embeds,
+    /// stdout is one GFM pipe table; the orchestrator renders it as a
+    /// single child block so TUI and desktop grid it whole. Used by the
+    /// `liq` runtime's `render table` clause.
+    Table,
 }
 
 /// Infrastructure-level errors.

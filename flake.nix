@@ -1,7 +1,7 @@
 # Nix flake for outl — consumed directly as a flake input. Full guide: FLAKE.md.
 #
-#   inputs.outl.url = "github:outlmd/outl";
-#   nix run github:outlmd/outl        # -> .#outl (stock upstream CLI/TUI/MCP)
+#   inputs.outl.url = "github:frigidplatypus/outl";
+#   nix run github:frigidplatypus/outl        # -> .#outl (stock upstream CLI/TUI/MCP)
 #
 # Packages (Linux x86_64 / aarch64):  outl, outl-desktop (stock upstream via the
 # pinned `upstream` input) and outl-dev, outl-desktop-dev (this branch's tree).
@@ -104,7 +104,7 @@
             gdk-pixbuf
             glib
             dbus
-            openssl
+            openssl_3
             libsoup_3
             librsvg
             libappindicator-gtk3
@@ -299,13 +299,10 @@
                 # terminal. Omit it and the lookup falls through to the brand
                 # PNG sizes installed above.
 
-                # makeWrapper errors on empty --prefix sources; $GST_PLUGIN_PATH
-                # and $GI_TYPELIB_PATH are only populated when the matching
-                # hooks/inputs are present, so pass them conditionally.
-                wrapArgs=( --prefix PATH : "${pkgs.desktop-file-utils}/bin:${pkgs.xdg-utils}/bin" )
-                [ -n "$GI_TYPELIB_PATH" ] && wrapArgs+=( --prefix GI_TYPELIB_PATH : "$GI_TYPELIB_PATH" )
-                [ -n "$GST_PLUGIN_PATH" ] && wrapArgs+=( --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_PATH" )
-                wrapProgram $out/bin/outl-desktop "''${wrapArgs[@]}"
+                wrapProgram $out/bin/outl-desktop \
+                  --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_PATH" \
+                  --prefix GI_TYPELIB_PATH : "$GI_TYPELIB_PATH" \
+                  --prefix PATH : "${pkgs.desktop-file-utils}/bin:${pkgs.xdg-utils}/bin"
               '';
 
               doCheck = false;
@@ -363,10 +360,7 @@
             pname = "outl-desktop-frontend";
             inherit version;
             src = projectSrc;
-            # Branch-specific: experimental's frontend tree diverges from dev's
-            # and from upstream, so this hash differs per branch by design.
-            # On frontend edits, copy `got: sha256-...` from the FOD mismatch.
-            outputHash = "sha256-WD1KU4TFCEOSZP+p/bFcmDxMHFQJ1N3jWNQvAJRQ/YM=";
+            outputHash = "sha256-bH3dyEP82lURXw9O/AtKiXtYzF/3VMyhTjwrN1fKIxQ=";
           };
 
           outl-desktop-dev = mkOutlDesktop {

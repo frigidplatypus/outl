@@ -198,11 +198,26 @@ fn matches(
                     .unwrap_or(false)
         }
         Filter::Text(needle) => entry.text_fold.contains(&needle.to_lowercase()),
+        Filter::DateCmp(field, cmp, date) => {
+            let field_date = if field == "journal-date" {
+                parse_journal_date(&entry.source_slug)
+            } else {
+                prop_date(&entry.properties, field)
+            };
+            field_date.is_some_and(|fd| cmp.holds(fd.cmp(date)))
+        }
+        Filter::PropCmp(key, cmp, want) => entry
+            .properties
+            .iter()
+            .filter(|(k, _)| k == key)
+            .any(|(_, v)| cmp.holds(v.cmp(want))),
         // Every `not-<key>` lands here. One `!` over the positive's
         // own arm is the whole implementation, which is what makes
         // `tag: x` plus `not-tag: x` return nothing: there is no
         // second matcher to disagree with the first.
         Filter::Not(inner) => !matches(inner, entry, status, is_journal, today),
+        Filter::And(inner) => inner.iter().all(|f| matches(f, entry, status, is_journal, today)),
+        Filter::Or(inner) => inner.iter().any(|f| matches(f, entry, status, is_journal, today)),
     }
 }
 
