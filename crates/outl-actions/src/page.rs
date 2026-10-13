@@ -41,6 +41,10 @@ pub const KIND_KEY: &str = "page-kind";
 /// property converges to a single value instead. See [`open_or_create`]
 /// and [`crate::page_repair_titles`].
 pub const TITLE_KEY: &str = "title";
+/// `alias::` page-level property — comma-separated alternative names
+/// the page answers to. Resolution, backlinks and autocomplete match
+/// these beside the title (issue #302).
+pub const ALIAS_KEY: &str = "alias";
 // `TYPE_KEY` / `PERSON_TYPE` / `search_persons` / `ensure_person_by_name`
 // live in the sibling `person` module so this file stays focused on the
 // page-model primitives (slug, kind, title, journal). The constants and
@@ -114,6 +118,14 @@ pub struct PageMeta {
     /// workspace index. Mirrors `WorkspaceIndex::PageEntry.page_type`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_type: Option<String>,
+    /// `alias::` page-level property — alternative names, parsed from
+    /// the comma-separated value. Empty when unset; serialised only
+    /// when non-empty so the wire stays small. Powers ref resolution
+    /// (`resolve_or_create_by_name`), backlinks (`keys_for_page`) and
+    /// autocomplete beside the title. Mirrors
+    /// `outl_md::index::PageEntry.aliases`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -242,6 +254,10 @@ pub fn page_meta(workspace: &Workspace, id: NodeId) -> Option<PageMeta> {
         }
         _ => None,
     };
+    let aliases = match workspace.tree().property(id, ALIAS_KEY) {
+        Some(PropValue::Text(s)) => outl_md::parse_alias_list(s),
+        _ => Vec::new(),
+    };
     Some(PageMeta {
         id: id.to_string(),
         slug,
@@ -250,6 +266,7 @@ pub fn page_meta(workspace: &Workspace, id: NodeId) -> Option<PageMeta> {
         icon,
         pinned,
         page_type,
+        aliases,
     })
 }
 

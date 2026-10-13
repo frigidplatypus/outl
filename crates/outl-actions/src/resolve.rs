@@ -103,9 +103,10 @@ pub fn open_or_create_by_ref(
 /// 2. **Slugified match → existing page**. So `avelino/outl` finds
 ///    the page stored as `avelino-outl` even when the user typed the
 ///    ref before the page existed.
-/// 3. **Case-insensitive title match → existing page**. So
+/// 3. **Case-insensitive title or alias match → existing page**. So
 ///    `Thiago Avelino` matches a pre-existing page whose user-typed
-///    title was `Thiago Avelino` even before the slug got computed.
+///    title was `Thiago Avelino` even before the slug got computed,
+///    and an `alias::` name resolves like the title.
 /// 4. **Create via [`open_or_create_by_name`]** with the typed string
 ///    as the title (slugified internally, [`PageKind::Page`]).
 ///
@@ -149,7 +150,10 @@ pub(crate) fn resolve_or_create_by_name(
     let lower = name.to_lowercase();
     if let Some(existing) = list_all(workspace)
         .into_iter()
-        .find(|p| p.title.to_lowercase() == lower)
+        .find(|p| {
+            p.title.to_lowercase() == lower
+                || p.aliases.iter().any(|a| a.to_lowercase() == lower)
+        })
     {
         use std::str::FromStr;
         if let Ok(id) = ulid::Ulid::from_str(&existing.id) {
@@ -239,6 +243,26 @@ mod tests {
         // same node (idempotent on the slugified form, not the raw input).
         let second = open_or_create_by_name(&mut w, &hlc, "avelino/outl", PageKind::Page).unwrap();
         assert_eq!(id, second);
+    }
+
+    #[test]
+    fn open_or_create_by_ref_matches_alias_case_insensitively() {
+        // `alias:: Big Apple, NYC` on the New York page: a typed
+        // `[[NYC]]` must reach that page instead of minting a second
+        // one titled "NYC" — the whole point of the property (issue
+        // #302). Comparison rides the title's case-insensitive arm.
+        let (mut w, hlc) = ws();
+        let created = open_or_create_by_name(&mut w, &hlc, "New York", PageKind::Page).unwrap();
+        crate::page::set_property(
+            &mut w,
+            &hlc,
+            created,
+            crate::page::ALIAS_KEY,
+            Some(outl_core::property::PropValue::Text("Big Apple, NYC".into())),
+        )
+        .unwrap();
+        let resolved = open_or_create_by_ref(&mut w, &hlc, "NYC").unwrap();
+        assert_eq!(created, resolved);
     }
 
     // Person-typed resolution (`@` mentions, `type:: person` marking)

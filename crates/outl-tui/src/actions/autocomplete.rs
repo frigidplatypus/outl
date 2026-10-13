@@ -164,7 +164,11 @@ impl App {
             .pages()
             .filter_map(|p| {
                 let title = p.title.clone();
-                crate::fuzzy::fuzzy_score(q, &title).map(|s| (s, title))
+                let score = std::iter::once(&title)
+                    .chain(p.aliases.iter())
+                    .filter_map(|n| crate::fuzzy::fuzzy_score(q, n))
+                    .max();
+                score.map(|s| (s, title))
             })
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
@@ -208,7 +212,11 @@ impl App {
             .pages()
             .filter_map(|p| {
                 let slug = p.slug.clone();
-                crate::fuzzy::fuzzy_score(q, &slug).map(|s| (s, slug))
+                let score = std::iter::once(&slug)
+                    .chain(p.aliases.iter())
+                    .filter_map(|n| crate::fuzzy::fuzzy_score(q, n))
+                    .max();
+                score.map(|s| (s, slug))
             })
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
@@ -240,7 +248,11 @@ impl App {
                     // ordering by title.
                     return Some((0, title));
                 }
-                crate::fuzzy::fuzzy_score(q, &title).map(|s| (s, title))
+                let score = std::iter::once(&title)
+                    .chain(p.aliases.iter())
+                    .filter_map(|n| crate::fuzzy::fuzzy_score(q, n))
+                    .max();
+                score.map(|s| (s, title))
             })
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
@@ -250,9 +262,15 @@ impl App {
         // typed casing is preserved so `@Vini` → `[[@Vini]]` and
         // `@vini` → `[[@vini]]`.
         if !q.is_empty()
-            && !result
-                .iter()
-                .any(|title| title.to_lowercase() == q.to_lowercase())
+            && !self
+                .index
+                .pages_by_type(outl_actions::PERSON_TYPE)
+                .any(|p| {
+                    p.title.to_lowercase() == q.to_lowercase()
+                        || p.aliases
+                            .iter()
+                            .any(|a| a.to_lowercase() == q.to_lowercase())
+                })
         {
             result.push(q.to_string());
         }
