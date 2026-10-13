@@ -148,13 +148,9 @@ pub(crate) fn resolve_or_create_by_name(
     // (see `open_with::import_into`). Fixing it here needs a cheap
     // title index first, not a reordering.
     let lower = name.to_lowercase();
-    if let Some(existing) = list_all(workspace)
-        .into_iter()
-        .find(|p| {
-            p.title.to_lowercase() == lower
-                || p.aliases.iter().any(|a| a.to_lowercase() == lower)
-        })
-    {
+    if let Some(existing) = list_all(workspace).into_iter().find(|p| {
+        p.title.to_lowercase() == lower || p.aliases.iter().any(|a| a.to_lowercase() == lower)
+    }) {
         use std::str::FromStr;
         if let Ok(id) = ulid::Ulid::from_str(&existing.id) {
             return Ok(NodeId(id));
@@ -258,7 +254,9 @@ mod tests {
             &hlc,
             created,
             crate::page::ALIAS_KEY,
-            Some(outl_core::property::PropValue::Text("Big Apple, NYC".into())),
+            Some(outl_core::property::PropValue::Text(
+                "Big Apple, NYC".into(),
+            )),
         )
         .unwrap();
         let resolved = open_or_create_by_ref(&mut w, &hlc, "NYC").unwrap();

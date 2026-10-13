@@ -163,12 +163,7 @@ impl App {
             .index
             .pages()
             .filter_map(|p| {
-                let title = p.title.clone();
-                let score = std::iter::once(&title)
-                    .chain(p.aliases.iter())
-                    .filter_map(|n| crate::fuzzy::fuzzy_score(q, n))
-                    .max();
-                score.map(|s| (s, title))
+                crate::fuzzy::best_score(q, &p.title, &p.aliases).map(|s| (s, p.title.clone()))
             })
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
@@ -211,12 +206,7 @@ impl App {
             .index
             .pages()
             .filter_map(|p| {
-                let slug = p.slug.clone();
-                let score = std::iter::once(&slug)
-                    .chain(p.aliases.iter())
-                    .filter_map(|n| crate::fuzzy::fuzzy_score(q, n))
-                    .max();
-                score.map(|s| (s, slug))
+                crate::fuzzy::best_score(q, &p.slug, &p.aliases).map(|s| (s, p.slug.clone()))
             })
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
@@ -248,11 +238,7 @@ impl App {
                     // ordering by title.
                     return Some((0, title));
                 }
-                let score = std::iter::once(&title)
-                    .chain(p.aliases.iter())
-                    .filter_map(|n| crate::fuzzy::fuzzy_score(q, n))
-                    .max();
-                score.map(|s| (s, title))
+                crate::fuzzy::best_score(q, &title, &p.aliases).map(|s| (s, title))
             })
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
@@ -261,15 +247,14 @@ impl App {
         // already match an existing person (case-insensitive). The
         // typed casing is preserved so `@Vini` → `[[@Vini]]` and
         // `@vini` → `[[@vini]]`.
+        let lower = q.to_lowercase();
         if !q.is_empty()
             && !self
                 .index
                 .pages_by_type(outl_actions::PERSON_TYPE)
                 .any(|p| {
-                    p.title.to_lowercase() == q.to_lowercase()
-                        || p.aliases
-                            .iter()
-                            .any(|a| a.to_lowercase() == q.to_lowercase())
+                    p.title.to_lowercase() == lower
+                        || p.aliases.iter().any(|a| a.to_lowercase() == lower)
                 })
         {
             result.push(q.to_string());

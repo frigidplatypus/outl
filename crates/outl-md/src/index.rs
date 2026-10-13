@@ -54,7 +54,7 @@ pub struct PageEntry {
     /// answers to (issue #302). Comma-separated on disk, trimmed,
     /// empties dropped; empty when unset. Each name resolves through
     /// [`WorkspaceIndex::by_title`] and matches beside the title in
-    /// [`pages_by_title_prefix`](Self::pages_by_title_prefix).
+    /// [`WorkspaceIndex::pages_by_title_prefix`].
     pub aliases: Vec<String>,
 }
 
