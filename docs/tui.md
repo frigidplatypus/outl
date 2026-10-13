@@ -120,6 +120,7 @@ No characters insert themselves — every key is a command.
 | `z R` / `z M` | Unfold all / fold all blocks on the current page (chord). `z M` skips leaf blocks — only blocks that already have children get folded; folding a leaf today is invisible, but would silently surface as "children appear collapsed" once the user added any underneath. |
 | `z z` | Center viewport vertically on the cursor (chord) |
 | `z i` / `z o` | Zoom in on the selected block / zoom out one level (chord). `z i` makes the block the outline root — only its subtree renders, with a breadcrumb of ancestors in the status chrome; `z o` pops one level back toward the full page (no-op at the page root). Pure local view state — never written to the op log, so it's per-device and never syncs. |
+| `z f` | Focus mode: hide the header, the warnings banner, the sidebar and the status bar so only the outline is left. Press again to bring them back. Session only. Not `F`, which is find-backward, and not `Ctrl+Shift+F`, which a terminal reports as `Ctrl+F`. |
 | `g v` | Re-enter Visual mode at the last captured range (chord) |
 | `o` / `O` | New block below / above |
 | `Enter` | Open `[[ref]]` / `#tag` / journal / block ref (`((blk-X))` / `!((blk-X))`) under cursor (otherwise edit). On a block ref it opens the source page and lands the cursor on the referenced block; orphan handles surface a status message and stay put. |
@@ -215,6 +216,19 @@ A range of blocks is highlighted.
 
 Several modal popups can appear over the main panes.
 They steal the keystream while open; `Esc` always closes them.
+
+### Sync panel (`:sync`)
+
+What each paired device is still waiting for, and the concurrent edits Yrs merged on this device, the same data the desktop Trust section and the mobile Devices sheet show.
+
+| Key | What it does |
+|-----|--------------|
+| `j` / `k` (or `↑` / `↓`) | Move between merged edits |
+| `Enter` | Open the page that holds the merged block |
+| `u` | Undo the merge: put your text from before it back. It is a normal edit, so it syncs |
+| `Esc` / `q` | Close |
+
+Both lists live in `.outl/state/` and survive a restart.
 
 ### Property editor (`g p`)
 
