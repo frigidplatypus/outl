@@ -295,7 +295,7 @@ export function BlockBody(props: {
                   : props.block.text.length;
                 return (
                   <p
-                    class="break-words text-[17px] leading-[1.42]"
+                    class="break-words text-[17px] leading-(--outl-block-leading)"
                     classList={{
                       "text-(--color-outl-fg-dimmer) line-through":
                         props.block.todo === "DONE",

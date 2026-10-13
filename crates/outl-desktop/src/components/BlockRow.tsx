@@ -272,7 +272,7 @@ export function BlockRow(props: {
             props.cb.onStartEdit(props.block.id);
           };
           const body = (
-            <div class={`min-w-0 flex-1 leading-snug ${bodyClass()}`}>
+            <div class={`min-w-0 flex-1 leading-(--outl-block-leading) ${bodyClass()}`}>
               <Show
                 when={isEditing()}
                 fallback={
