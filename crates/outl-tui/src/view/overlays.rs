@@ -123,7 +123,7 @@ pub(crate) fn render_autocomplete(
     f.render_widget(list, area);
 }
 
-fn centered_rect(full: Rect, w_pct: u16, h_pct: u16) -> Rect {
+pub(crate) fn centered_rect(full: Rect, w_pct: u16, h_pct: u16) -> Rect {
     let w = (full.width as u32 * w_pct as u32 / 100) as u16;
     let h = (full.height as u32 * h_pct as u32 / 100) as u16;
     Rect {

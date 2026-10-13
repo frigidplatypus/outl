@@ -72,6 +72,7 @@ pub mod history;
 pub mod index;
 pub mod journal;
 pub mod mentions;
+pub mod merges;
 pub mod namespace;
 pub mod open_with;
 pub mod outline;

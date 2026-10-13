@@ -37,6 +37,7 @@ pub(crate) mod plugins;
 pub(crate) mod properties;
 pub(crate) mod reminders;
 pub(crate) mod sidebar;
+pub(crate) mod sync_panel;
 pub(crate) mod text_ops;
 pub(crate) mod toast;
 pub(crate) mod visual;

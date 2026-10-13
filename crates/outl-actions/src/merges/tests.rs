@@ -1,5 +1,5 @@
 use super::*;
-use outl_actions::{append_block, edit_text, open_or_create_page as open_or_create, PageKind};
+use crate::{append_block, edit_text, open_or_create_page as open_or_create, PageKind};
 use outl_core::hlc::HlcGenerator;
 
 fn replay_into(ws: &Workspace, into: &mut Workspace) {

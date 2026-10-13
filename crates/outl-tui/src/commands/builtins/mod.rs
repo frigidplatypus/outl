@@ -47,8 +47,8 @@ use page::{PinCommand, PropBlockCommand, PropPageCommand};
 use refer::{ReferCommand, ReferEmbedCommand};
 use template::TemplateCommand;
 use workspace::{
-    HelpCommand, OpenCommand, PluginSettingsCommand, QuitCommand, RefreshCommand, TodayCommand,
-    WriteCommand,
+    HelpCommand, OpenCommand, PluginSettingsCommand, QuitCommand, RefreshCommand, SyncCommand,
+    TodayCommand, WriteCommand,
 };
 
 /// Hook for `super::CommandRegistry::with_builtins`.
@@ -66,6 +66,7 @@ pub(super) fn register_all(reg: &mut CommandRegistry) {
     reg.register(QuitCommand);
     reg.register(OpenCommand);
     reg.register(PluginSettingsCommand);
+    reg.register(SyncCommand);
 
     // exec — side-effecting actions
     reg.register(SearchCommand);

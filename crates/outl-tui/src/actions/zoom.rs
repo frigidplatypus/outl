@@ -24,6 +24,12 @@ use crate::state::App;
 use outl_md::outline_ops::flat_count;
 
 impl App {
+    /// `z f` — focus mode: hide the header, banner, sidebar and status
+    /// bar. Session only, like the sidebar toggle.
+    pub(crate) fn toggle_focus_mode(&mut self) {
+        self.focus_mode = !self.focus_mode;
+    }
+
     /// Zoom into the currently selected block (`z i`).
     ///
     /// Pushes the block's DFS path onto [`App::zoom_stack`] and moves

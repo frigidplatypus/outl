@@ -182,7 +182,7 @@ pub fn support(action: Action) -> ClientSupport {
         Action::OpenSettings => row!(Full, Full, Full),
         Action::QuickCapture => row!(Missing(why::TUI_NO_CAPTURE), Full, Full),
         Action::ExportMarkdown => row!(Missing(why::TUI_NO_EXPORT), Full, Full),
-        Action::ToggleFocusMode => row!(Missing(why::TUI_NO_FOCUS), Full, Full),
+        Action::ToggleFocusMode => row!(Full, Full, Full),
         Action::Quit => row!(
             Full,
             Full,

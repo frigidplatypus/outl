@@ -98,6 +98,7 @@ impl App {
             // `[display] backlinks_order` right after construction.
             backlinks_newest_first: true,
             show_sidebar: false,
+            focus_mode: false,
             sidebar_focus: None,
             sidebar_cursor: 0,
             pending_sidebar_delete: None,

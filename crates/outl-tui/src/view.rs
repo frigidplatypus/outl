@@ -26,6 +26,7 @@ pub(crate) mod overlays;
 mod properties;
 pub(crate) mod row_chrome;
 mod sidebar;
+mod sync_panel;
 mod table;
 mod toasts;
 mod warnings_banner;
@@ -93,6 +94,7 @@ pub(crate) fn render_app(f: &mut ratatui::Frame<'_>, app: &mut App) {
         Some(Overlay::Reminders(r)) => overlays::render_reminders(f, area, app, r),
         Some(Overlay::PluginSettings(ps)) => overlays::render_plugin_settings(f, area, app, ps),
         Some(Overlay::Properties(p)) => properties::render_properties(f, area, app, p),
+        Some(Overlay::SyncPanel(s)) => sync_panel::render_sync_panel(f, area, app, s),
         None => {}
     }
 
@@ -111,14 +113,21 @@ pub(crate) fn render_app(f: &mut ratatui::Frame<'_>, app: &mut App) {
 }
 
 fn render_main(f: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
-    let banner_h = warnings_banner::banner_height(app);
+    // Focus mode (`z f`) drops the header, banner, sidebar and status
+    // bar: the outline alone, the terminal's version of the GUI fade.
+    let chrome_h = if app.focus_mode { 0 } else { 3 };
+    let banner_h = if app.focus_mode {
+        0
+    } else {
+        warnings_banner::banner_height(app)
+    };
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(chrome_h),
             Constraint::Length(banner_h),
             Constraint::Min(5),
-            Constraint::Length(3),
+            Constraint::Length(chrome_h),
         ])
         .split(area);
 
@@ -134,7 +143,7 @@ fn render_main(f: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
     // Optional left sidebar: splits the middle row horizontally when
     // toggled on (`\` in Normal mode). Default off keeps the classic
     // single-pane layout intact for users who never opt in.
-    let body_area = if app.show_sidebar {
+    let body_area = if app.show_sidebar && !app.focus_mode {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([

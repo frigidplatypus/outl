@@ -58,10 +58,6 @@ pub const NO_MOBILE_LINK: &str =
 pub const TUI_NO_CAPTURE: &str =
     "The terminal has no capture box yet; open today's journal and add a block.";
 
-/// Focus mode fades GUI chrome; the terminal has no chrome to fade.
-pub const TUI_NO_FOCUS: &str =
-    "Focus mode is a desktop and mobile view; the terminal is already just the outline.";
-
 /// `export_markdown` is wired to the GUI clients only.
 pub const TUI_NO_EXPORT: &str =
     "Export isn't in the terminal yet; the workspace `.md` files are already plain Markdown.";

@@ -26,6 +26,7 @@ pub(crate) fn handle_overlay_key(app: &mut App, key: KeyEvent) -> Result<bool> {
         Some(Overlay::Reminders(_)) => handle_reminders_key(app, key),
         Some(Overlay::PluginSettings(_)) => handle_plugin_settings_key(app, key),
         Some(Overlay::Properties(_)) => handle_properties_key(app, key),
+        Some(Overlay::SyncPanel(_)) => crate::actions::sync_panel::handle_key(app, key),
         Some(Overlay::Error(_)) => {
             // Modal error popup: any key dismisses. Special-case Ctrl+C
             // so it still quits the whole TUI.
@@ -207,10 +208,8 @@ fn handle_template_picker_key(app: &mut App, key: KeyEvent) -> Result<bool> {
 /// Reminders overlay keys. Read-only navigation plus the two actions
 /// that make sense without leaving the list: snooze and jump.
 ///
-/// `d` (mark DONE) from the issue's sketch is deliberately absent for
-/// now — completing a task rewrites the block's text, and doing that
-/// from a list the user can't see the full block in is how you check
-/// off the wrong row.
+/// No `d` (DONE): rewriting a block from a list that hides it is how
+/// you check off the wrong row.
 fn handle_reminders_key(app: &mut App, key: KeyEvent) -> Result<bool> {
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => app.overlay = None,
