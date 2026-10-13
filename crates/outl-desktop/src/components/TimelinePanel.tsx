@@ -28,6 +28,7 @@ import { findBlock } from "@outl/shared/outline";
 import { DiffText, restorePlan } from "@outl/shared/trust";
 
 import { appState, setAppState } from "../lib/store";
+import { rovingKeydown } from "../lib/keyboard-reach";
 
 export interface TimelinePanelDeps {
   setError: (message: string) => void;
@@ -151,7 +152,7 @@ export function TimelinePanel(props: TimelinePanelDeps) {
             <span class="text-xs opacity-50">Esc to close</span>
           </header>
 
-          <div class="max-h-[64vh] overflow-y-auto px-5 py-3">
+          <div class="max-h-[64vh] overflow-y-auto px-5 py-3" onKeyDown={(e) => rovingKeydown(e, "vertical")}>
             <Show when={!failed()} fallback={
               <p class="py-6 text-center text-sm opacity-60">
                 Could not read the history: {String(failed())}

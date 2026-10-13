@@ -6,6 +6,7 @@ import { installTheme, pickSide, type ThemeConfig, type ThemeMode } from "@outl/
 import { getSettings, updateSettings, type Settings } from "../lib/api";
 import { appState, setAppState } from "../lib/store";
 import { SyncPanel } from "./SyncPanel";
+import { rovingKeydown } from "../lib/keyboard-reach";
 
 /**
  * Settings modal, opened via `Cmd/Ctrl+,`.
@@ -119,7 +120,10 @@ export function SettingsModal() {
             when={draft()}
             fallback={<div class="px-5 py-6 opacity-60">Loading…</div>}
           >
-            <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+            <div
+              class="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4"
+              onKeyDown={(e) => rovingKeydown(e, "vertical", { includeFields: true })}
+            >
               <label class="flex items-center justify-between gap-4">
                 <div>
                   <div class="text-sm font-medium">Vim mode</div>

@@ -89,3 +89,29 @@ describe("regions", () => {
     expect(document.activeElement?.id).toBe("s");
   });
 });
+
+describe("rovingKeydown in panels and forms", () => {
+  it("moves between checkboxes and buttons, and leaves text fields alone", () => {
+    html(`<div id="f"><input type="checkbox" id="c"/><input type="text" id="t"/><button id="b">b</button></div>`);
+    const f = document.getElementById("f")!;
+    f.addEventListener("keydown", (e) => rovingKeydown(e, "vertical"));
+    const c = document.getElementById("c")!;
+    c.focus();
+    c.dispatchEvent(key("ArrowDown"));
+    expect(document.activeElement?.id).toBe("b");
+    const t = document.getElementById("t")!;
+    t.focus();
+    t.dispatchEvent(key("ArrowDown"));
+    expect(document.activeElement).toBe(t);
+  });
+
+  it("with includeFields, arrows can reach a select in a form", () => {
+    html(`<div id="f"><input type="checkbox" id="c"/><select id="s"><option>a</option></select></div>`);
+    const f = document.getElementById("f")!;
+    f.addEventListener("keydown", (e) => rovingKeydown(e, "vertical", { includeFields: true }));
+    const c = document.getElementById("c")!;
+    c.focus();
+    c.dispatchEvent(key("ArrowDown"));
+    expect(document.activeElement?.id).toBe("s");
+  });
+});
