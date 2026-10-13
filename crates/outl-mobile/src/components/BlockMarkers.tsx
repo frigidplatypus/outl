@@ -101,21 +101,19 @@ export function BulletOrCheckbox(props: {
         <span
           class="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] border-[1.5px] transition-colors"
           classList={{
-            "border-(--color-outl-accent) bg-(--color-outl-accent)":
+            "border-(--color-outl-todo-done-fg) bg-(--color-outl-todo-done-fg)":
               props.todo === "DONE",
-            // DOING keeps the accent ring and gets a small accent dot
-            // instead of the full fill, so a started task reads as
-            // "open, underway" at a glance rather than as finished.
-            "border-(--color-outl-accent) bg-transparent":
-              props.todo === "DOING",
-            "border-(--color-outl-fg-dim) bg-transparent":
-              props.todo === "TODO",
+            // Theme task colours, as on desktop and in the TUI: open
+            // work (TODO, DOING) in todo-open, finished in todo-done.
+            // DOING adds a small dot so it reads as underway.
+            "border-(--color-outl-todo-open-fg) bg-transparent":
+              props.todo === "DOING" || props.todo === "TODO",
           }}
         >
           <Show when={props.todo === "DOING"}>
             <span
               aria-hidden="true"
-              class="h-[8px] w-[8px] rounded-[2px] bg-(--color-outl-accent)"
+              class="h-[8px] w-[8px] rounded-[2px] bg-(--color-outl-todo-open-fg)"
             />
           </Show>
           <Show when={props.todo === "DONE"}>
@@ -124,7 +122,7 @@ export function BulletOrCheckbox(props: {
               height="12"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="white"
+              stroke="var(--color-outl-bg)"
               stroke-width="3.5"
               stroke-linecap="round"
               stroke-linejoin="round"

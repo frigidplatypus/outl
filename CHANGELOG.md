@@ -31,6 +31,9 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Added
 
+- **Mobile command palette, and one look across desktop and phone.**
+  Type `>` in the phone's Search or Pages sheet to list actions (today, capture, tasks, reminders, calendar, sync, devices, plugins, settings, fold); a plain query shows matching actions under the pages, as the desktop palette does.
+  Block text and its edit box share one line height on both clients, so rows keep one rhythm and no longer jump when you start editing on the phone; task boxes use the theme's task colours on the phone too; the phone's debug footer (block and op counts) is gone, as it never was on desktop.
 - **iOS: capture without opening the app.**
   A home and lock screen widget opens the capture sheet, an "Add to today" App Intent works from Shortcuts, Siri and the Action Button, and a share extension saves text or a link.
   Extensions never touch the workspace: they drop a `<ULID>.json` into the App Group inbox and the app drains it into today's journal on launch and on a Darwin notification ([RFC 0363](docs/rfcs/0363-ios-quick-capture.md), [#363](https://github.com/outlmd/outl/issues/363)).

@@ -71,7 +71,7 @@ export function EditableTextarea(props: {
   return (
     <textarea
       ref={ref}
-      class="block w-full resize-none border-0 bg-transparent p-0 text-[17px] leading-snug outline-none"
+      class="block w-full resize-none border-0 bg-transparent p-0 text-[17px] leading-(--outl-block-leading) outline-none"
       rows="1"
       value={props.value}
       // Keep iOS QuickType (word prediction + autocorrect) ON — it's

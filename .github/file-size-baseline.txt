@@ -44,11 +44,11 @@
 657 crates/outl-md/src/matching.rs
 662 crates/outl-md/tests/inline.rs
 743 crates/outl-md/tests/mixed_version_sidecar.rs
-1974 crates/outl-mobile/src/components/Journal.tsx
+1957 crates/outl-mobile/src/components/Journal.tsx
 733 crates/outl-plugins/src/engine.rs
 640 crates/outl-plugins/src/host_tests.rs
 776 crates/outl-shortcuts/src/defaults.rs
-696 crates/outl-shortcuts/src/support.rs
+693 crates/outl-shortcuts/src/support.rs
 868 crates/outl-sync-iroh/src/engine.rs
 763 crates/outl-sync-iroh/src/engine_pairing.rs
 736 crates/outl-sync-iroh/src/engine_sync.rs

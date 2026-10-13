@@ -50,7 +50,6 @@ import {
   splitBlock,
   syncNow,
   undoPage,
-  workspaceStats,
 } from "@outl/shared/api/commands";
 import { utf16OffsetToCharOffset } from "@outl/shared/paste";
 import { isAssetLink } from "@outl/shared/links";
@@ -194,7 +193,6 @@ export function Journal() {
   // store it alongside `error` so callers can offer the affordance
   // without plumbing it through every async helper.
   const [errorRetry, setErrorRetry] = createSignal<(() => void) | null>(null);
-  const [stats] = createResource(workspaceStats);
   const [switcherOpen, setSwitcherOpen] = createSignal(false);
   const [calendarOpen, setCalendarOpen] = createSignal(false);
   const [devicesOpen, setDevicesOpen] = createSignal(false);
@@ -1754,12 +1752,6 @@ export function Journal() {
         </div>
         </PullToRefresh>
 
-        <Show when={stats()}>
-          <footer class="px-5 pt-3 pb-32 text-center text-[12px] text-(--color-outl-fg-dimmer)">
-            {stats()!.blocks} blocks · {stats()!.ops} ops · actor{" "}
-            {stats()!.actor.slice(0, 6)}
-          </footer>
-        </Show>
       </main>
 
       {/* Hidden while editing (the keyboard owns the bottom edge) and

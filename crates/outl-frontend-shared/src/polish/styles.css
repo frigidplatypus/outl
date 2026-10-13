@@ -12,6 +12,10 @@
   --outl-read-leading: 1.6;
   --outl-read-measure: 68ch;
   --outl-read-block-gap: 2px;
+  /* Block text and its edit textarea, on both clients. One value so a
+     row does not jump when it enters edit mode, and so desktop and
+     mobile rows share one rhythm (the size differs, the ratio does not). */
+  --outl-block-leading: 1.5;
 }
 
 /* Children of a block that was just unfolded slide in from the bullet. */
