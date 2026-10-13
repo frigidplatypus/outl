@@ -31,6 +31,19 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Added
 
+- **iOS: capture without opening the app.**
+  A home and lock screen widget opens the capture sheet, an "Add to today" App Intent works from Shortcuts, Siri and the Action Button, and a share extension saves text or a link.
+  Extensions never touch the workspace: they drop a `<ULID>.json` into the App Group inbox and the app drains it into today's journal on launch and on a Darwin notification ([RFC 0363](docs/rfcs/0363-ios-quick-capture.md), [#363](https://github.com/outlmd/outl/issues/363)).
+  Release builds unhook the extensions until their provisioning profiles exist; see `crates/outl-mobile/IOS-EXTENSIONS.md`.
+- **Trust you can see: page history, device activity, pending sync and merged edits.**
+  Desktop and mobile show a page's history as a diff you can restore from, what each device wrote, what each paired device still has to receive, and every concurrent edit Yrs merged with a one-step undo.
+  The pending floors and the merged log are device-local and survive a restart in `.outl/state/` (`sync-pending.json`, `merges-<actor>.json`), both capped.
+  The TUI gets the same panel as `:sync`.
+- **Undo steps over a peer's edit and a plugin write.**
+  Each arrives as its own undo step on the page, so `Cmd+Z` never mixes them with your typing.
+- **Plain Markdown export, quick capture from anywhere, focus mode.**
+  `export_markdown` on desktop and mobile; `Cmd/Ctrl+Shift+Space` opens capture on the desktop and `outl://capture` on the phone; focus mode is `Cmd/Ctrl+Shift+F` on the GUI clients and `z f` in the TUI.
+  Arrow keys move through the desktop panels and Settings, and phone sheets close with a drag.
 - **Mobile: a bottom bar, quick capture, a week strip and a task list.**
   The phone gets a bottom bar with Journal, Search, Tasks and Pages, and a capture button in the middle that always writes to today's journal without moving you off the page you are on.
   The journal header grows a week strip with a dot on each day that holds text, and a sideways swipe on the header or the strip changes day; rows keep their own swipes.
