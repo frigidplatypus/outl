@@ -223,6 +223,14 @@ export interface PageMeta {
    * `outl_md::index::PageEntry.page_type`.
    */
   page_type?: string | null;
+  /**
+   * `alias::` page-level property — alternative names the page answers
+   * to, parsed from the comma-separated value. Omitted when unset.
+   * Resolution, backlinks and autocomplete match these beside the
+   * title. Mirrors `outl_actions::PageMeta.aliases` and
+   * `outl_md::index::PageEntry.aliases`.
+   */
+  aliases?: string[];
 }
 
 /**

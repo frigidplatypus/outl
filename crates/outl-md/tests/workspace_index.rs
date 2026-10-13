@@ -302,6 +302,48 @@ fn title_prefix_lookup() {
 }
 
 #[test]
+fn alias_names_land_on_the_entry_and_resolve_like_the_title() {
+    let dir = write_workspace(&[(
+        "pages/new-york.md",
+        "title:: New York\nalias:: Big Apple, NYC\n\n- subway map\n",
+    )]);
+    let idx = WorkspaceIndex::build(dir.path());
+
+    let entry = idx.by_slug("new-york").unwrap();
+    assert_eq!(entry.aliases, ["Big Apple", "NYC"]);
+
+    // Every alias resolves through `by_title`, the lookup a ref uses —
+    // no second alias API for clients to discover.
+    assert_eq!(idx.by_title("NYC").unwrap().slug, "new-york");
+    assert_eq!(idx.by_title("Big Apple").unwrap().slug, "new-york");
+
+    // Autocomplete matches aliases beside titles; the page still shows
+    // once, ranked by its title.
+    let hits = idx.pages_by_title_prefix("nyc", 10);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].title, "New York");
+}
+
+#[test]
+fn patch_page_refreshes_alias_rows() {
+    let dir = write_workspace(&[(
+        "pages/new-york.md",
+        "title:: New York\nalias:: Big Apple, NYC\n\n- subway map\n",
+    )]);
+    let mut idx = WorkspaceIndex::build(dir.path());
+    assert!(idx.by_title("NYC").is_some());
+
+    // Rewriting the page with a shorter alias list must drop the rows
+    // the removed name held, so the old spelling stops resolving after
+    // the edit instead of shadowing whatever claims it next.
+    let new_page = parse("title:: New York\nalias:: Big Apple\n\n- subway map\n");
+    idx.patch_page(&dir.path().join("pages/new-york.md"), &new_page);
+
+    assert_eq!(idx.by_title("Big Apple").unwrap().slug, "new-york");
+    assert!(idx.by_title("NYC").is_none());
+}
+
+#[test]
 fn page_type_property_lands_on_the_page_entry() {
     let dir = write_workspace(&[
         (
