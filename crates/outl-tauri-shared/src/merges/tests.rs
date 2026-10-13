@@ -71,10 +71,8 @@ fn a_peer_edit_with_no_local_edit_is_not_a_merge() {
     assert!(detect(&old, &fresh, me).is_empty());
 }
 
-#[test]
-fn the_log_is_newest_first_and_capped() {
-    let root = PathBuf::from(format!("/tmp/outl-merges-{}", std::process::id()));
-    let entry = |n: u64| MergedEditDto {
+fn entry(n: u64) -> MergedEditDto {
+    MergedEditDto {
         id: n.to_string(),
         page_id: String::new(),
         page_title: String::new(),
@@ -83,12 +81,66 @@ fn the_log_is_newest_first_and_capped() {
         merged: String::new(),
         peer_actor: String::new(),
         at_ms: n,
-    };
-    record(&root, (0..40).map(entry).collect());
-    record(&root, (100..120).map(entry).collect());
-    let log = book().lock().unwrap().get(&root).cloned().unwrap();
+    }
+}
+
+fn fresh_root(tag: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("outl-merges-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    root
+}
+
+/// Drop the in-memory copy, as a new process would start without it.
+fn restart(root: &Path) {
+    book().lock().unwrap().remove(root);
+}
+
+const ME: ActorId = ActorId(ulid::Ulid::from_parts(1, 7));
+
+#[test]
+fn the_log_is_newest_first_and_capped() {
+    let root = fresh_root("cap");
+    record(&root, ME, (0..40).map(entry).collect());
+    record(&root, ME, (100..120).map(entry).collect());
+    let log = list(&root, ME);
     assert_eq!(log.len(), MERGE_LOG_CAP);
     assert_eq!(log[0].at_ms, 119);
-    assert!(take(&root, "119").is_some());
-    assert!(take(&root, "119").is_none(), "undo removes the entry");
+    assert!(take(&root, ME, "119").is_some());
+    assert!(take(&root, ME, "119").is_none(), "undo removes the entry");
+}
+
+#[test]
+fn the_log_survives_a_restart_and_so_does_an_undo() {
+    let root = fresh_root("restart");
+    record(&root, ME, (0..3).map(entry).collect());
+    restart(&root);
+    let ids: Vec<_> = list(&root, ME).into_iter().map(|e| e.id).collect();
+    assert_eq!(ids, ["2", "1", "0"]);
+    assert!(take(&root, ME, "1").is_some());
+    restart(&root);
+    let ids: Vec<_> = list(&root, ME).into_iter().map(|e| e.id).collect();
+    assert_eq!(ids, ["2", "0"], "an undone entry stays gone");
+}
+
+#[test]
+fn a_repeated_detection_is_listed_once() {
+    let root = fresh_root("dup");
+    record(&root, ME, vec![entry(5)]);
+    restart(&root);
+    record(&root, ME, vec![entry(5)]);
+    assert_eq!(list(&root, ME).len(), 1);
+}
+
+#[test]
+fn each_device_keeps_its_own_file_and_a_corrupt_one_starts_empty() {
+    let root = fresh_root("corrupt");
+    record(&root, ME, vec![entry(1)]);
+    assert!(state_path(&root, ME).exists());
+    assert_ne!(
+        state_path(&root, ME),
+        state_path(&root, ActorId(ulid::Ulid::from_parts(1, 8)))
+    );
+    std::fs::write(state_path(&root, ME), b"{not json").unwrap();
+    restart(&root);
+    assert!(list(&root, ME).is_empty());
 }
