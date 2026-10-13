@@ -66,6 +66,20 @@ If the app is never opened, captures wait in the inbox indefinitely and do not s
    - `capture_lands_in_the_day_it_was_made`: a capture stamped yesterday lands in yesterday's journal.
    - `partial_file_is_ignored`: a temp file with no rename is skipped and left for the next drain.
 
+## Implementation and what needs a Mac
+
+Landed in #362: the widget (`OutlWidget`, iOS 16+), the inbox writer in OutlKit, `drain_capture_inbox`, the App Intent "Add to today" with its App Shortcut (in the app, iOS 16+, `AppIntents` weak-linked), and the share extension (`OutlShare`, iOS 15+).
+CI covers the pure Swift (`swift test`), the Rust drain, the webview drain hooks, and an unsigned iOS Simulator build that compiles and embeds both extensions.
+
+Signing and device behaviour cannot be checked without Xcode and the Apple account:
+
+- **App Group** `group.app.outl.mobile-app`, enabled on `app.outl.mobile-app` and `app.outl.mobile-app.share`.
+- **App IDs** `app.outl.mobile-app.widget` and `app.outl.mobile-app.share`.
+- **Profiles**: regenerate the app's App Store profile with the App Group, plus one App Store profile per extension, stored as `WIDGET_PROVISIONING_PROFILE_BASE64` and `SHARE_PROVISIONING_PROFILE_BASE64`. Until both exist, the release job unhooks the extensions and drops the App Group, so it keeps shipping the app alone.
+- **Device run**: widget on the Home and Lock Screen opens the capture sheet; the Shortcut and the share sheet save a line that lands in today's journal on the next open, or within a second when the app is already open.
+
+The step-by-step list is `crates/outl-mobile/IOS-EXTENSIONS.md`.
+
 ## Scope
 
 Not covered here: Android (a widget, a share target and a quick settings tile have the same shape and should reuse this inbox), capture to a page other than today, and attachments in the share extension. Each needs its own issue.
