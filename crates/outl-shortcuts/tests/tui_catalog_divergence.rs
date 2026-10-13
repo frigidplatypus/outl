@@ -331,6 +331,7 @@ const AGREED: &[(&str, Mode, Action)] = &[
     ("z z", Mode::Normal, Action::CenterViewport),
     ("z i", Mode::Normal, Action::ZoomIn),
     ("z o", Mode::Normal, Action::ZoomOut),
+    ("z f", Mode::Normal, Action::ToggleFocusMode),
     ("g v", Mode::Normal, Action::ReselectLastVisual),
     ("Enter", Mode::Normal, Action::OpenRefUnderCursor),
     ("o", Mode::Normal, Action::NewBlockBelow),

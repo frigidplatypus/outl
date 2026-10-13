@@ -306,6 +306,10 @@ impl App {
             (Ok(ws), None) => ws,
             (Err(_), _) => return,
         };
+        // Concurrent edits Yrs merged go to the shared log the sync
+        // panel (`g y`) lists, the same rule the GUI clients run.
+        let found = outl_actions::merges::detect(&self.workspace, &fresh, self.hlc.actor());
+        outl_actions::merges::record(&self.workspace_root, self.hlc.actor(), found);
         self.workspace = fresh;
         // Peer ops landed; the backlink index is stale. Rebuild it
         // off-thread so the reload stays snappy.

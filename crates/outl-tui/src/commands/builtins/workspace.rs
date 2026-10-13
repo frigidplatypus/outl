@@ -169,3 +169,21 @@ impl SlashCommand for PluginSettingsCommand {
         Ok(false)
     }
 }
+
+/// `:sync` — per-device pending and the merged edits log, with undo.
+pub struct SyncCommand;
+
+impl SlashCommand for SyncCommand {
+    fn name(&self) -> &'static str {
+        "sync"
+    }
+
+    fn description(&self) -> &'static str {
+        "What each device is waiting for, and merged edits you can undo"
+    }
+
+    fn execute(&self, app: &mut App, _args: &str) -> Result<bool> {
+        app.open_sync_panel();
+        Ok(false)
+    }
+}

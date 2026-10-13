@@ -301,15 +301,16 @@ pub(crate) fn handle_normal_key(app: &mut App, key: KeyEvent) -> Result<bool> {
                 return Ok(false);
             }
             ('z', KeyCode::Char('R')) => {
-                // `zR` — unfold every block on the page (vim "reduce
-                // folding to nothing").
+                // `zR` — unfold every block (vim "reduce folding").
                 app.unfold_all();
                 return Ok(false);
             }
             ('z', KeyCode::Char('M')) => {
-                // `zM` — fold every block on the page (vim "more
-                // folding").
-                app.fold_all();
+                app.fold_all(); // `zM` — fold every block (vim "more folding").
+                return Ok(false);
+            }
+            ('z', KeyCode::Char('f')) => {
+                app.toggle_focus_mode(); // `Action::ToggleFocusMode`.
                 return Ok(false);
             }
             ('z', KeyCode::Char('z')) => {
@@ -325,8 +326,7 @@ pub(crate) fn handle_normal_key(app: &mut App, key: KeyEvent) -> Result<bool> {
                 return Ok(false);
             }
             ('z', KeyCode::Char('o')) => {
-                // `zo` — zoom out one level. `Action::ZoomOut`.
-                app.zoom_out();
+                app.zoom_out(); // `zo` — `Action::ZoomOut`.
                 return Ok(false);
             }
             _ => {} // fall through to normal handling

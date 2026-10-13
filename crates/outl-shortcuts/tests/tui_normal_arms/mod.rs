@@ -30,6 +30,7 @@ const PAIR_ARMS: &[&str] = &[
     r#"('g', KeyCode::Char('v'))"#,
     r#"('z', KeyCode::Char('R'))"#,
     r#"('z', KeyCode::Char('M'))"#,
+    r#"('z', KeyCode::Char('f'))"#,
     r#"('z', KeyCode::Char('z'))"#,
     r#"('z', KeyCode::Char('i'))"#,
     r#"('z', KeyCode::Char('o'))"#,

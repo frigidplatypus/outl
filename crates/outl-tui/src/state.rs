@@ -210,12 +210,11 @@ pub(crate) enum Overlay {
     /// has no background presence), but it must still let the user see
     /// and author what the GUI clients will deliver.
     Reminders(RemindersState),
-    /// Property editor for the selected block (or for the page).
-    ///
-    /// The discoverable counterpart to `:prop` / `:prop-page`: those
-    /// need you to remember the key, this one lists what is already
-    /// there and completes new keys from the workspace catalogue.
+    /// Property editor for the selected block (or for the page): the
+    /// discoverable counterpart to `:prop` / `:prop-page`.
     Properties(PropertiesState),
+    /// Per-device pending and the merged edits log, with undo (`:sync`).
+    SyncPanel(crate::actions::sync_panel::SyncPanelState),
 }
 
 /// Which set of properties [`Overlay::Properties`] is editing.
@@ -744,11 +743,10 @@ pub(crate) struct App {
     /// preference — it never goes through the op log.
     pub(crate) backlinks_newest_first: bool,
 
-    /// Whether the left sidebar (mini-calendar + pinned + recent) is
-    /// visible. Default `false` so first-time users land on the
-    /// classic single-pane layout — the toggle (`\`) opt-ins those who
-    /// want it. Persisted across the session in memory only.
+    /// Left sidebar visible (`\`). Off by default; session only.
     pub(crate) show_sidebar: bool,
+    /// Focus mode (`z f`): outline only, no header or status bar.
+    pub(crate) focus_mode: bool,
 
     /// Sidebar focus state. Tracks which section the user is browsing
     /// when the sidebar has focus (vs. the outline). `None` means the
