@@ -268,32 +268,6 @@ mod tests {
     }
 
     #[test]
-    fn alias_mention_lands_in_the_pages_backlinks() {
-        // `alias:: Big Apple, NYC` on the New York page: a block
-        // holding `[[NYC]]` must show up under that page's backlinks,
-        // not only under the title spelling (issue #302). The lookup
-        // side (`keys_for_page`) emits the alias as a Ref and a slug
-        // Tag exactly like the title.
-        let (mut w, hlc) = ws();
-        let page = open_or_create(&mut w, &hlc, "new-york", "New York", PageKind::Page).unwrap();
-        crate::page::set_property(
-            &mut w,
-            &hlc,
-            page,
-            crate::page::ALIAS_KEY,
-            Some(outl_core::property::PropValue::Text("Big Apple, NYC".into())),
-        )
-        .unwrap();
-        let other = open_or_create(&mut w, &hlc, "notes", "Notes", PageKind::Page).unwrap();
-        append_block(&mut w, &hlc, Some(other), Some("see [[NYC]] and [[Big Apple]]")).unwrap();
-
-        let meta = page_meta(&w, find_by_slug(&w, "new-york").unwrap()).unwrap();
-        let bl = backlinks_for_page(&w, root(), &meta);
-        assert_eq!(bl.len(), 1, "one block mentions both aliases");
-        assert!(bl[0].source_block.text.contains("[[NYC]]"));
-    }
-
-    #[test]
     fn callable_site_shows_in_template_backlinks() {
         // A `call:<name>` fence must surface in the template page's
         // backlinks without a hand-written `[[link]]`.

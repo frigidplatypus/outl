@@ -102,9 +102,7 @@ pub(super) fn check_alias_collisions(b: &mut Builder, ws: &Workspace) {
     }
     let collisions: Vec<(&String, &Vec<String>)> = claims
         .iter()
-        .filter(|(name, owners)| {
-            owners.len() > 1 && *alias_backed.get(*name).unwrap_or(&false)
-        })
+        .filter(|(name, owners)| owners.len() > 1 && *alias_backed.get(*name).unwrap_or(&false))
         .collect();
     if collisions.is_empty() {
         let with_aliases = metas.iter().filter(|m| !m.aliases.is_empty()).count();
