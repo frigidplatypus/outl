@@ -109,6 +109,7 @@ import { JournalDeleteDialogs } from "./JournalDeleteDialogs";
 import { PluginSheet } from "./PluginSheet";
 import { PluginViewOverlay } from "./PluginViewOverlay";
 import { PageSwitcher } from "./PageSwitcher";
+import type { MobileAction } from "../lib/palette-actions";
 import { PullToRefresh } from "./PullToRefresh";
 import { JournalChrome } from "./JournalChrome";
 import { BlockRow } from "./BlockRow";
@@ -378,22 +379,10 @@ export function Journal() {
   }
 
   /**
-   * Open the page a reminder is on and bring its block into view.
-   *
-   * Used by the notification tap, which is the one navigation the user
-   * did not initiate from inside the app: the banner is the context,
-   * so landing on the page without showing the block would leave them
-   * hunting for the line that just buzzed.
-   *
-   * Scroll, not zoom. `handleFocusBlock` makes a block the outline
-   * root, which is a deliberate gesture — doing it to someone who
-   * tapped a banner would hide the rest of their page and leave them
-   * pressing Back.
-   *
-   * The scroll is best-effort by design: the row may be inside a
-   * collapsed parent, or off the end of a long page. Failing to scroll
-   * still leaves the user on the right page, which is the part that
-   * matters.
+   * Open the page a reminder is on and scroll its block into view, for
+   * the notification tap. Scroll, not zoom: zooming would hide the rest
+   * of a page the user did not choose to narrow. Best effort; landing on
+   * the right page is the part that matters.
    */
   async function navigateToBlock(slug: string, blockId: string) {
     const v = await openPageBySlug(slug);
@@ -1135,23 +1124,9 @@ export function Journal() {
 
 
   /**
-   * Import a file (PDF, image, …) via the system document picker and
-   * attach its link as a new block right after `id`. On iOS the picker
-   * is the native document picker. The backend copies the file into
-   * `<root>/assets/` and returns the refreshed view; outl never renders
-   * the file — tapping the link opens it in the OS default viewer.
-   */
-  /**
-   * "Remind me…" — ask for a `remind::` rule in the block's own
-   * syntax and write it as a block property.
-   *
-   * A native time picker would be nicer, but the rule language is
-   * richer than a clock (`3pm every 1h until DONE`), and a picker
-   * that can only express the anchor would quietly hide the repeat.
-   * A prompt seeded with a sane default keeps the whole grammar
-   * reachable; the picker is the follow-up, not a substitute.
-   *
-   * An empty answer clears the rule — the "stop reminding me" path.
+   * "Remind me…": prompt for a `remind::` rule in the block's own syntax
+   * (a time picker could not express `3pm every 1h until DONE`) and write
+   * it as a block property. An empty answer clears the rule.
    */
   async function handleRemindMe(id: string) {
     const pid = pageId();
@@ -1521,6 +1496,21 @@ export function Journal() {
     if (tab === "journal") void dayNav.jumpToday();
   }
 
+  /** What each palette action opens (`lib/palette-actions.ts`). */
+  const paletteHandlers = (): Record<MobileAction, () => void> => ({
+    OpenToday: () => void dayNav.jumpToday(),
+    QuickCapture: () => setCaptureOpen(true),
+    TaskList: () => setTasksOpen(true),
+    OpenReminders: () => setRemindersOpen(true),
+    OpenCalendar: () => setCalendarOpen(true),
+    SyncNow: () => void handleRefresh(),
+    OpenDevices: () => setDevicesOpen(true),
+    OpenPlugins: () => setPluginsOpen(true),
+    OpenSettings: () => setSettingsOpen(true),
+    FoldAll: () => void handleFoldAll(),
+    UnfoldAll: () => void handleUnfoldAll(),
+  });
+
   function handleCapture() {
     if (capture.onToday()) void handleAppendBlock();
     else {
@@ -1805,6 +1795,7 @@ export function Journal() {
         onPick={handlePickPage}
         onJumpToBlock={handleJumpToBlock}
         initialMode={switcherMode()}
+        onAction={(a) => paletteHandlers()[a]()}
       />
 
       <TasksSheet

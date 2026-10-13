@@ -16,6 +16,8 @@ import {
   togglePin,
 } from "@outl/shared/api/commands";
 import { createSheetDrag } from "../lib/sheet-drag";
+import { isCommandQuery, matchActions, type MobileAction } from "../lib/palette-actions";
+import { PaletteActionRows } from "./PaletteActionRows";
 import { useKeyboardInset } from "../lib/viewport";
 
 interface PageSwitcherProps {
@@ -31,6 +33,8 @@ interface PageSwitcherProps {
   /** Scope the sheet opens on. The bottom bar's Search tab opens on
    *  blocks and its Pages tab on pages; the user can still flip it. */
   initialMode?: SwitcherMode;
+  /** Runs a palette action; the sheet closes first. `>` lists only these. */
+  onAction?: (action: MobileAction) => void;
 }
 
 /** Which half of the switcher is active — page navigation (original
@@ -138,6 +142,12 @@ export function PageSwitcher(props: PageSwitcherProps) {
       (a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false),
     );
   });
+
+  function runAction(action: MobileAction) {
+    setQuery("");
+    props.onClose();
+    props.onAction?.(action);
+  }
 
   function pickFirst() {
     if (mode() === "blocks") {
@@ -343,7 +353,7 @@ export function PageSwitcher(props: PageSwitcherProps) {
               type="text"
               autofocus
               placeholder={
-                mode() === "blocks" ? "Search blocks…" : "Search pages…"
+                mode() === "blocks" ? "Search blocks, > for actions" : "Search pages, > for actions"
               }
               value={query()}
               onInput={(e) => setQuery(e.currentTarget.value)}
@@ -354,7 +364,10 @@ export function PageSwitcher(props: PageSwitcherProps) {
                 // Spotlight / Raycast / Alfred. Esc dismisses.
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  pickFirst();
+                  if (isCommandQuery(query())) {
+                    const first = matchActions(query())[0];
+                    if (first) runAction(first.action);
+                  } else pickFirst();
                 } else if (e.key === "Escape") {
                   e.preventDefault();
                   props.onClose();
@@ -404,7 +417,7 @@ export function PageSwitcher(props: PageSwitcherProps) {
           </Show>
         </div>
         <div class="ios-scroll flex-1 px-2 pb-4">
-          <Show when={mode() === "pages"}>
+          <Show when={mode() === "pages" && !isCommandQuery(query())}>
           <Show
             when={filtered().length > 0}
             fallback={
@@ -508,7 +521,7 @@ export function PageSwitcher(props: PageSwitcherProps) {
             </For>
           </Show>
           </Show>
-          <Show when={mode() === "blocks"}>
+          <Show when={mode() === "blocks" && !isCommandQuery(query())}>
             <Show
               when={blockHits().length > 0}
               fallback={
@@ -551,6 +564,9 @@ export function PageSwitcher(props: PageSwitcherProps) {
                 )}
               </For>
             </Show>
+          </Show>
+          <Show when={props.onAction}>
+            <PaletteActionRows query={query()} onRun={runAction} />
           </Show>
         </div>
       </div>

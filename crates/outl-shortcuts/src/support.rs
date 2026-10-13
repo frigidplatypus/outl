@@ -167,11 +167,8 @@ pub fn support(action: Action) -> ClientSupport {
     match action {
         // ── chrome ───────────────────────────────────────────────
         Action::OpenPicker => row!(Full, Full, Full),
-        Action::OpenCommandPalette => row!(
-            Full,
-            Full,
-            Missing("The command palette isn't on mobile yet — use the slash menu inside a block.")
-        ),
+        // Mobile: type `>` in the Search or Pages sheet.
+        Action::OpenCommandPalette => row!(Full, Full, Full),
         Action::ToggleHelp => row!(Full, Full, Full),
         Action::ToggleSidebar => row!(
             Full,
