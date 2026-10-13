@@ -52,6 +52,9 @@ If a row below disagrees with what you observe in the app, **the code is right a
 | Previous journal day | `[` | `Cmd/Ctrl+[` | swipe right |
 | Next journal day | `]` | `Cmd/Ctrl+]` | swipe left |
 | Toggle sidebar | `Ctrl+E` | `Cmd/Ctrl+Shift+E` | _(single pane)_ |
+| Toggle focus mode (outline only) | `z f` (chord; `F` is find-backward and a terminal sees `Ctrl+Shift+F` as `Ctrl+F`) | `Cmd/Ctrl+Shift+F` | focus button in the capsule |
+| Quick capture to today | _open today and add a block_ | `Cmd/Ctrl+Shift+Space` (from anywhere) | capture button / `outl://capture` |
+| Sync panel (pending per device, merged edits, undo) | `:sync` | Settings, Sync | Devices sheet |
 | Toggle backlinks panel | `Ctrl+B` | `Cmd/Ctrl+Shift+B` | inline below outline |
 | Toggle backlinks order (newest/oldest) | `Ctrl+O` | direction button in the backlinks header | direction button in the backlinks header |
 | Open settings | _via `:settings`_ | `Cmd/Ctrl+,` | gear icon |
