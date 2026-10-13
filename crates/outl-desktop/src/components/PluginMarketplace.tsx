@@ -10,6 +10,7 @@ import {
 import type { RegistryItem } from "@outl/shared/api/types";
 import { PluginSettings } from "@outl/shared/plugins";
 import { appState, setAppState } from "../lib/store";
+import { rovingKeydown } from "../lib/keyboard-reach";
 
 /**
  * Plugin marketplace.
@@ -123,7 +124,7 @@ export function PluginMarketplace() {
             </div>
           </Show>
 
-          <div class="flex-1 overflow-y-auto">
+          <div class="flex-1 overflow-y-auto" onKeyDown={(e) => rovingKeydown(e, "vertical")}>
             <For each={filtered()}>
               {(i) => (
                 <div class="border-b border-(--color-outl-fg)/5">

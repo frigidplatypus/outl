@@ -16,10 +16,14 @@ const FOCUSABLE =
 
 export type Orientation = "horizontal" | "vertical";
 
+/** Inputs whose arrows mean nothing, so the list may take them. */
+const ARROWLESS_INPUTS = new Set(["checkbox", "button", "submit", "reset"]);
+
 function isTextField(el: Element | null): boolean {
   if (!el) return false;
   const tag = el.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (el as HTMLElement).isContentEditable;
+  if (tag === "INPUT") return !ARROWLESS_INPUTS.has((el as HTMLInputElement).type);
+  return tag === "TEXTAREA" || tag === "SELECT" || (el as HTMLElement).isContentEditable;
 }
 
 function visible(el: HTMLElement): boolean {
@@ -30,13 +34,21 @@ function focusables(root: Element): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(visible);
 }
 
-/** Wire as `onKeyDown` on a toolbar or list container. */
-export function rovingKeydown(e: KeyboardEvent, orientation: Orientation): void {
+/**
+ * Wire as `onKeyDown` on a toolbar or list container. With
+ * `includeFields` (forms such as Settings) arrows can land on a text
+ * field or select too; once there, arrows belong to it again.
+ */
+export function rovingKeydown(
+  e: KeyboardEvent,
+  orientation: Orientation,
+  opts: { includeFields?: boolean } = {},
+): void {
   const container = e.currentTarget as HTMLElement | null;
   if (!container || isTextField(e.target as Element)) return;
   const [prev, next] = orientation === "horizontal" ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"];
   if (![prev, next, "Home", "End"].includes(e.key)) return;
-  const items = focusables(container).filter((el) => !isTextField(el));
+  const items = focusables(container).filter((el) => opts.includeFields || !isTextField(el));
   if (items.length === 0) return;
   const at = items.indexOf(document.activeElement as HTMLElement);
   let to: number;

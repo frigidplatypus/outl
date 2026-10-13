@@ -32,6 +32,7 @@ import {
 import type { PageView, Reminder } from "@outl/shared/api/types";
 
 import { appState, setAppState } from "../lib/store";
+import { rovingKeydown } from "../lib/keyboard-reach";
 
 export interface RemindersPanelDeps {
   applyView: (view: PageView) => void;
@@ -134,7 +135,7 @@ export function RemindersPanel(props: RemindersPanelDeps) {
             </p>
           </Show>
 
-          <div class="max-h-[64vh] overflow-y-auto px-5 py-3">
+          <div class="max-h-[64vh] overflow-y-auto px-5 py-3" onKeyDown={(e) => rovingKeydown(e, "vertical")}>
             <Show
               when={(reminders() ?? []).length > 0}
               fallback={
