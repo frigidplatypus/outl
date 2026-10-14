@@ -1,4 +1,4 @@
-// swift-tools-version:5.7
+// swift-tools-version:5.9
 //
 // `OutlKit` hosts every piece of `outl-mobile`'s iOS-side logic that
 // can be expressed as pure Foundation — toolbar action ordering,
@@ -18,7 +18,7 @@ import PackageDescription
 let package = Package(
     name: "OutlKit",
     platforms: [
-        .iOS(.v15),
+        .iOS(.v17),
         .macOS(.v11),
     ],
     products: [

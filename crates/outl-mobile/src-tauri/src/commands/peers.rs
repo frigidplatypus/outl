@@ -34,8 +34,8 @@ outl_tauri_shared::peer_commands!(crate::state::AppState);
 /// Force an immediate P2P sync pass against every paired peer — the
 /// trigger behind the refresh button / pull-to-refresh.
 #[tauri::command]
-pub fn outl_sync_now(state: State<'_, AppState>) -> Result<(), String> {
-    shared::sync_now(state.inner())
+pub async fn outl_sync_now(state: State<'_, AppState>) -> Result<(), String> {
+    shared::sync_now(state.inner()).await
 }
 
 /// Host one pairing session and return the ticket **immediately**.

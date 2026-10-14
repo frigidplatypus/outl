@@ -34,7 +34,7 @@ import type { MdAheadOfLog, PageView } from "@outl/shared/api/types";
 
 import { PageAheadOfLogBanner, ParseWarningsBanner } from "@outl/shared/warnings";
 import { isAssetLink } from "@outl/shared/links";
-import { HistoryIcon, PageGlyph } from "@outl/shared/icons";
+import { HistoryIcon, PageGlyph, PaperclipIcon } from "@outl/shared/icons";
 import {
   collectBlockRefHandles,
   findBlock,
@@ -55,11 +55,11 @@ import {
 import { setPageProperty } from "../lib/api";
 import { spliceTextAtCaret } from "../lib/markdown-wrap";
 import {
-  appState, backlinksState,
-  emptyBacklinks,
+  appState, emptyBacklinks,
   savedMarks,
   setAppState,
   setOutline,
+  trackBacklinks,
 } from "../lib/store";
 import { BlockRow, type BlockCallbacks } from "./BlockRow";
 import { PageSections } from "./PageSections";
@@ -188,18 +188,18 @@ export function OutlineView() {
    * other pages pointing here), so refetching per edit is pure waste.
    * `on(slug)` fires once per navigation; the peer-reload path refetches
    * explicitly (`AppShell::refreshActivePage`) since it keeps the slug.
+   * Never awaited: `trackBacklinks` runs it behind the page, and the only
+   * thing that waits is that section (`UX.md` → Never block a keystroke).
    */
   createEffect(
     on(
       () => appState.page?.slug,
       (slug) => {
         if (!slug) return;
-        // Clear first: the `.catch` below swallows a failed fetch, and
-        // the nested-page rows are navigation buttons.
+        // Clear first: a failed fetch is swallowed, and the nested-page
+        // rows are navigation buttons.
         setAppState(emptyBacklinks());
-        pageBacklinks(slug)
-          .then((r) => setAppState(backlinksState(r)))
-          .catch(() => {});
+        void trackBacklinks(pageBacklinks(slug));
       },
     ),
   );
@@ -734,7 +734,10 @@ export function OutlineView() {
     // Classic Tailwind/flexbox/grid pitfall on both axes; the two
     // unlocks pair.
     <main class="flex h-full min-h-0 min-w-0 flex-col outline-none" data-outl-region="outline" tabIndex={-1}>
-      <header class="border-b border-(--color-outl-border)/30 px-12 pt-12 pb-8">
+      {/* No rule under the header: a full-width border read as two
+       *  stacked panes, not as a title naming the outline below it.
+       *  `pt-16` clears the chrome capsule, like the sidebar does. */}
+      <header class="px-12 pt-16 pb-3">
         <div class="mx-auto max-w-3xl">
           {/*
            * When zoomed (Roam/Workflowy focus) the header becomes the
@@ -771,23 +774,31 @@ export function OutlineView() {
                     </Show>
                     <span class="font-mono">{appState.page?.slug}</span>
                   </Show>
-                  {/*
-                   * The op log holds every revision of every block on
-                   * this page and nothing surfaced any of it until now
-                   * (issue #241). Read-only, so it sits in the eyebrow
-                   * next to the page's identity rather than in the
-                   * editing chrome.
-                   */}
+                  {/* Page chrome that is not the title: attach a file,
+                   *  and page history (issue #241). A labelled `Attach
+                   *  file` button over the first block put UI between
+                   *  the title and the page's own text. */}
                   <Show when={appState.page}>
-                    <button
-                      type="button"
-                      class="ml-auto opacity-50 hover:opacity-100"
-                      title="Page history"
-                      aria-label="Page history"
-                      onClick={() => setAppState("timelineOpen", true)}
-                    >
-                      <HistoryIcon />
-                    </button>
+                    <span class="ml-auto flex items-center gap-2.5">
+                      <button
+                        type="button"
+                        class="opacity-50 hover:opacity-100"
+                        title="Attach a file (PDF, image) as a new block"
+                        aria-label="Attach a file"
+                        onClick={attachFile}
+                      >
+                        <PaperclipIcon />
+                      </button>
+                      <button
+                        type="button"
+                        class="opacity-50 hover:opacity-100"
+                        title="Page history"
+                        aria-label="Page history"
+                        onClick={() => setAppState("timelineOpen", true)}
+                      >
+                        <HistoryIcon />
+                      </button>
+                    </span>
                   </Show>
                 </div>
 
@@ -884,22 +895,10 @@ export function OutlineView() {
         </div>
       </header>
 
-      <div class="min-w-0 flex-1 overflow-y-auto px-12 py-6">
+      <div class="min-w-0 flex-1 overflow-y-auto px-12 pt-1 pb-6">
         <div class="outl-reading mx-auto w-full max-w-3xl">
           <PageAheadOfLogBanner info={appState.mdAheadOfLog} client="desktop" />
           <ParseWarningsBanner warnings={appState.parseWarnings} />
-          <Show when={appState.page}>
-            <div class="mb-2 flex justify-end">
-              <button
-                type="button"
-                onClick={attachFile}
-                title="Attach a file (PDF, image) as a new block"
-                class="rounded px-2 py-1 text-xs opacity-50 hover:bg-(--color-outl-fg)/5 hover:opacity-100"
-              >
-                📎 Attach file
-              </button>
-            </div>
-          </Show>
           <Show
             when={rootBlocks().length > 0}
             fallback={

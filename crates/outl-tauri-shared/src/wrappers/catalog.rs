@@ -23,11 +23,11 @@ macro_rules! asset_commands {
 
             /// Read an asset's bytes back as a `data:` URL the webview
             /// renders inline (image, PDF).
-            fn read_asset_data_url(url: String) -> ::std::result::Result<String, String>
+            async fn read_asset_data_url(url: String) -> ::std::result::Result<String, String>
                 => $crate::commands::asset::read_asset_data_url;
 
             /// Copy a file into the workspace's asset store.
-            fn import_asset_file(source_path: String)
+            async fn import_asset_file(source_path: String)
                 -> ::std::result::Result<::outl_actions::ImportedAsset, String>
                 => $crate::commands::asset::import_asset_file;
 
@@ -157,8 +157,9 @@ macro_rules! block_commands {
                 -> ::std::result::Result<String, String>
                 => $crate::commands::block::copy_markdown;
 
-            /// The `((block-ref))` handle for a block.
-            fn copy_block_ref(id: String)
+            /// The `((block-ref))` handle for a block. Rebuilds the
+            /// index from disk, so never synchronous.
+            async fn copy_block_ref(id: String)
                 -> ::std::result::Result<String, String>
                 => $crate::commands::block::copy_block_ref;
         }
@@ -181,7 +182,7 @@ macro_rules! open_with_commands {
             /// Import an external text file and return its page. A file
             /// already imported under this path navigates instead of
             /// importing a second copy.
-            fn open_external_file(source_path: String)
+            async fn open_external_file(source_path: String)
                 -> ::std::result::Result<$crate::state::PageView, String>
                 => $crate::commands::open_with::open_external_file;
         }
@@ -196,17 +197,17 @@ macro_rules! exec_commands {
             state = $state;
 
             /// Execute one fenced code block and record its output.
-            fn run_code_block(page_id: String, block_id: String)
+            async fn run_code_block(page_id: String, block_id: String)
                 -> ::std::result::Result<$crate::commands::exec::RunCodeBlockReply, String>
                 => $crate::commands::exec::run_code_block;
 
             /// Execute every `auto-run` block on a page.
-            fn run_auto_run_blocks(page_id: String)
+            async fn run_auto_run_blocks(page_id: String)
                 -> ::std::result::Result<$crate::commands::exec::AutoRunReply, String>
                 => $crate::commands::exec::run_auto_run_blocks;
 
             /// Resolve `{{embed}}` handles to their current content.
-            fn resolve_embeds(handles: Vec<String>)
+            async fn resolve_embeds(handles: Vec<String>)
                 -> ::std::result::Result<
                     ::std::collections::HashMap<String, $crate::commands::exec::EmbedContent>,
                     String,
@@ -262,8 +263,8 @@ macro_rules! page_commands {
                 -> ::std::result::Result<::std::vec::Vec<::outl_actions::PageMeta>, String>
                 => $crate::commands::page::search_persons;
 
-            /// Full-text block search.
-            fn search_blocks(query: String)
+            /// Full-text block search. Rebuilds the index from disk.
+            async fn search_blocks(query: String)
                 -> ::std::result::Result<::std::vec::Vec<$crate::state::BlockHit>, String>
                 => $crate::commands::page::search_blocks;
 
@@ -275,20 +276,22 @@ macro_rules! page_commands {
                 >
                 => plain $crate::commands::page::emoji_search;
 
-            /// Open (creating if absent) today's journal.
-            fn open_today_journal()
+            /// Open (creating if absent) today's journal. Async because
+            /// it waits on the mutex the background reconcile holds for
+            /// ~314 ms right after `workspace-ready`.
+            async fn open_today_journal()
                 -> ::std::result::Result<$crate::state::PageView, String>
-                => $crate::commands::page::open_today_journal;
+                => $crate::commands::page_open::open_today_journal;
 
             /// Open the journal for an ISO date slug.
-            fn open_journal_for(slug: String)
+            async fn open_journal_for(slug: String)
                 -> ::std::result::Result<$crate::state::PageView, String>
-                => $crate::commands::page::open_journal_for;
+                => $crate::commands::page_open::open_journal_for;
 
             /// Open a page by slug.
-            fn open_page_by_slug(slug: String)
+            async fn open_page_by_slug(slug: String)
                 -> ::std::result::Result<$crate::state::PageView, String>
-                => $crate::commands::page::open_page_by_slug;
+                => $crate::commands::page_open::open_page_by_slug;
 
             /// The day before an ISO date slug.
             fn previous_day(slug: String) -> ::std::result::Result<String, String>
@@ -317,7 +320,7 @@ macro_rules! page_commands {
                 => $crate::commands::page::toggle_pin;
 
             /// Move a page to the trash root and drop its projection.
-            fn delete_page(slug: String)
+            async fn delete_page(slug: String)
                 -> ::std::result::Result<$crate::state::PageView, String>
                 => $crate::commands::page::delete_page;
 
@@ -351,7 +354,7 @@ macro_rules! peer_commands {
             state = $state;
 
             /// Known peers from `peers.json`.
-            fn outl_peer_list()
+            async fn outl_peer_list()
                 -> ::std::result::Result<
                     ::std::vec::Vec<$crate::commands::peers::PeerDto>,
                     String,
@@ -359,11 +362,12 @@ macro_rules! peer_commands {
                 => $crate::commands::peers::peer_list;
 
             /// Forget a peer.
-            fn outl_peer_remove(id: String) -> ::std::result::Result<bool, String>
+            async fn outl_peer_remove(id: String) -> ::std::result::Result<bool, String>
                 => $crate::commands::peers::peer_remove;
 
-            /// Live reachability probe for every known peer.
-            fn outl_peer_status()
+            /// Live reachability probe for every known peer. Polled every
+            /// 5s and reads the whole op log — never synchronous.
+            async fn outl_peer_status()
                 -> ::std::result::Result<
                     ::std::vec::Vec<$crate::commands::peers::PeerStatusDto>,
                     String,
@@ -553,7 +557,7 @@ macro_rules! timeline_commands {
             state = $state;
 
             /// Every change to a page, newest first, read from the op log.
-            fn page_timeline(page_id: String, limit: Option<usize>)
+            async fn page_timeline(page_id: String, limit: Option<usize>)
                 -> ::std::result::Result<
                     $crate::commands::timeline::PageTimelineDto,
                     String,
@@ -561,12 +565,12 @@ macro_rules! timeline_commands {
                 => $crate::commands::timeline::page_timeline;
 
             /// What the op log holds from each device (sync panel).
-            fn device_activity()
+            async fn device_activity()
                 -> ::std::result::Result<$crate::commands::trust::DeviceActivityDto, String>
                 => $crate::commands::trust::device_activity;
 
             /// Copy every page and asset into a new folder (default: next to the workspace).
-            fn export_markdown(dest_dir: Option<String>)
+            async fn export_markdown(dest_dir: Option<String>)
                 -> ::std::result::Result<$crate::commands::trust::ExportReportDto, String>
                 => $crate::commands::trust::export_markdown;
         }
@@ -582,12 +586,12 @@ macro_rules! overview_commands {
             state = $state;
 
             /// Open tasks (`TODO` / `DOING`) across every page.
-            fn list_open_tasks()
+            async fn list_open_tasks()
                 -> ::std::result::Result<$crate::commands::tasks::OpenTasks, String>
                 => $crate::commands::tasks::list_open_tasks;
 
             /// Journal days in `from..=to` with at least one non-empty block.
-            fn journal_days_with_content(from: String, to: String)
+            async fn journal_days_with_content(from: String, to: String)
                 -> ::std::result::Result<::std::vec::Vec<String>, String>
                 => $crate::commands::journal_days::journal_days_with_content;
         }

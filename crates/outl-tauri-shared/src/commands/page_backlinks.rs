@@ -21,6 +21,7 @@ use outl_actions::{
 use outl_core::workspace::Workspace;
 use parking_lot::Mutex;
 
+use crate::offload;
 use crate::state::{BacklinksReply, ERR_LOADING};
 
 /// Resolve a page's backlinks off the Tauri IPC/main thread, from the
@@ -44,7 +45,13 @@ pub(crate) async fn compute_backlinks_offloaded(
     root: PathBuf,
     slug: String,
 ) -> Result<BacklinksReply, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    // The command this module's shape was first proven by, now routed
+    // through the shared owner of that shape (`crate::offload`) so there
+    // is one `spawn_blocking` call site and one join-error wording. The
+    // lock dance below stays hand-rolled on purpose: its retry loop
+    // `continue`s out of the locked region, which `offload::locked`
+    // cannot express, and every line of it is load-bearing.
+    offload::run("page_backlinks", move || {
         // Phase 1: page list + this page's meta, under a BRIEF workspace
         // lock. `list_pages` reads page roots only — it never materializes
         // block text, so this doesn't trip the #179 freeze.
@@ -62,9 +69,12 @@ pub(crate) async fn compute_backlinks_offloaded(
             None => {
                 // Host without a cached slot: one-shot from-disk build.
                 let idx = build_backlink_index_from_disk(&metas, &root);
-                let guard = workspace.lock();
-                let ws = guard.as_ref().ok_or_else(|| ERR_LOADING.to_string())?;
-                return Ok(finish_lookup(ws, &idx, &meta, &metas, backlinks_order));
+                let split = {
+                    let guard = workspace.lock();
+                    let ws = guard.as_ref().ok_or_else(|| ERR_LOADING.to_string())?;
+                    idx.for_page_split(ws, &meta)
+                };
+                return Ok(shape_reply(split, &meta, &metas, backlinks_order));
             }
         };
         // Phase 2: build the index FROM DISK when stale — reads the `.md`
@@ -74,7 +84,13 @@ pub(crate) async fn compute_backlinks_offloaded(
         // edit waiting on the workspace lock.
         //
         // Phase 3: O(refs) lookup under a brief lock (`for_page` reads the
-        // page's own `template::` property; no block-text scan).
+        // page's own `template::` property; no block-text scan). Only the
+        // lookup is under it: a synchronous `#[tauri::command]` runs on the
+        // IPC thread, so whatever this holds the workspace for is time the
+        // window is not taking keystrokes (`UX.md` → Never block a
+        // keystroke). Sorting, the shallow projection and the namespace
+        // walk need no `Workspace`, so `shape_reply` runs after both locks
+        // drop.
         //
         // **Workspace first, then the index — never the other way round.**
         // A commit holds the workspace lock for the whole of
@@ -99,34 +115,33 @@ pub(crate) async fn compute_backlinks_offloaded(
                     *g = Some(fresh);
                 }
             }
-            let guard = workspace.lock();
-            let ws = guard.as_ref().ok_or_else(|| ERR_LOADING.to_string())?;
-            let g = index.lock();
-            if let Some(idx) = g.as_ref() {
-                return Ok(finish_lookup(ws, idx, &meta, &metas, backlinks_order));
-            }
-            // Invalidated between the build and the lookup: drop both
-            // locks and rebuild.
+            let split = {
+                let guard = workspace.lock();
+                let ws = guard.as_ref().ok_or_else(|| ERR_LOADING.to_string())?;
+                let g = index.lock();
+                match g.as_ref() {
+                    Some(idx) => idx.for_page_split(ws, &meta),
+                    // Invalidated between the build and the lookup: drop
+                    // both locks and rebuild.
+                    None => continue,
+                }
+            };
+            return Ok(shape_reply(split, &meta, &metas, backlinks_order));
         }
         // Commits are invalidating faster than the cache refills; serve a
         // one-shot from-disk build directly, same as the host-without-a-slot
         // path above (marginally stale is fine, the next refresh re-caches).
         let idx = build_backlink_index_from_disk(&metas, &root);
-        let guard = workspace.lock();
-        let ws = guard.as_ref().ok_or_else(|| ERR_LOADING.to_string())?;
-        Ok(finish_lookup(ws, &idx, &meta, &metas, backlinks_order))
+        let split = {
+            let guard = workspace.lock();
+            let ws = guard.as_ref().ok_or_else(|| ERR_LOADING.to_string())?;
+            idx.for_page_split(ws, &meta)
+        };
+        Ok(shape_reply(split, &meta, &metas, backlinks_order))
     })
     .await
-    .map_err(|e| format!("backlinks task join: {e}"))?
 }
 
-/// Look a page up in `index` and shape the reply. GUI rows render only
-/// `source_block.tokens`, so each hit ships through `into_shallow` to
-/// keep the subtree off the IPC wire.
-///
-/// Takes the already-locked `&Workspace` (`for_page` reads the page's
-/// `template::` property) rather than the `Arc<Mutex<…>>`: the caller owns
-/// the lock order, and the only safe one here is workspace → index.
 /// How many namespace-only backlinks ride the wire per page.
 ///
 /// The set is unbounded — a namespace with thousands of mentions is
@@ -136,14 +151,22 @@ pub(crate) async fn compute_backlinks_offloaded(
 /// payload, carries the scale.
 pub(crate) const NAMESPACE_BACKLINK_CAP: usize = 50;
 
-fn finish_lookup(
-    ws: &Workspace,
-    index: &BacklinkIndex,
+/// Shape a looked-up [`SplitBacklinks`] into the reply, **holding no
+/// lock**. GUI rows render only `source_block.tokens`, so each hit ships
+/// through `into_shallow` to keep the subtree off the IPC wire.
+///
+/// Takes the split rather than the index + `&Workspace` on purpose: the
+/// lookup is the only part that needs the workspace, and every sync
+/// `#[tauri::command]` runs on the IPC thread, so time spent holding that
+/// lock is time the window spends not accepting keystrokes. Sorting, the
+/// `O(hits)` shallow projection and the `O(pages)` namespace walk all run
+/// after the caller's locks drop.
+fn shape_reply(
+    split: outl_actions::SplitBacklinks,
     meta: &PageMeta,
     metas: &[PageMeta],
     backlinks_order: outl_config::BacklinksOrder,
 ) -> BacklinksReply {
-    let split = index.for_page_split(ws, meta);
     let mut backlinks: Vec<_> = split.direct.into_iter().map(|b| b.into_shallow()).collect();
     sort_backlinks(&mut backlinks, backlinks_order.newest_first());
 

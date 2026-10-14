@@ -129,6 +129,20 @@ export const LinkIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const PaperclipIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M20 11.5 12 19.5a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7.5-7.5" />
+  </Svg>
+);
+
+export const ImageIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+    <path d="M3.5 16l4.5-4.5 4 4 3-3 5 5" />
+    <circle cx="9" cy="9.5" r="1.4" />
+  </Svg>
+);
+
 export const ChevronDownIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="m6 9 6 6 6-6" />

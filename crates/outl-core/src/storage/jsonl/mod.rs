@@ -27,6 +27,7 @@
 //! a cap through [`JsonlStorage::open_with_cap`] from `[storage] lru_cap`.
 
 mod append;
+mod census;
 mod read;
 #[cfg(test)]
 mod read_robustness;

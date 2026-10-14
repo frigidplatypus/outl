@@ -99,7 +99,7 @@ Pairing is **not** reimplemented — `Onboarding` renders the real `<SyncPanel /
 ### Sync status dot (always-visible)
 
 `<SyncIndicator />` sits in the top-right capsule of `<ChromeToggleBar />`, right before Settings, so the mesh state is glanceable without opening Settings.
-The capsule mirrors the mobile top bar (`outl-mobile/src/components/JournalChrome.tsx`): fold all, unfold all, plugin toolbar buttons, reminders, plugins, sync dot, settings, same icons and order. The sidebar toggle (no mobile twin) sits alone top-left, and the sidebar pads its top so the capsule never covers search. Keep the two bars in the same order when adding a control.
+The capsule mirrors the mobile top bar (`outl-mobile/src/components/JournalChrome.tsx`): fold all, unfold all, plugin toolbar buttons, reminders, plugins, sync dot, settings, same icons and order. The sidebar toggle (no mobile twin) sits alone top-left, and the sidebar pads its top so the capsule never covers search; the page header (`OutlineView`) pads its own top the same way, so the eyebrow's attach and history icons clear the right capsule. Keep the two bars in the same order when adding a control.
 The dot's tooltip shows the reachability state and when this window last saw a sync land (a finished pass or a `peer-ops-changed`).
 Green = at least one iroh peer reachable, orange = none, dim = first probe still running, spinner while a sync pass runs.
 Clicking syncs now (`syncNow()` then `reloadWorkspace()`, same pass as the Sync panel's Refresh); clicks during a pass are ignored.
@@ -122,6 +122,12 @@ The backend `delete_page` Tauri command is the shared `outl_tauri_shared::comman
 The two look alike and answer different questions — backlinks are blocks that point *at* this page, nested pages live *under* its namespace — which is why the second is **not** gated on `backlinksOpen`.
 Folding the toggles together would hide one when the user muted the other.
 `OutlineView.tsx` refetches backlinks via `createEffect(on(slug, …))` — per navigation, not per commit (the "Esc is slow" fix; rationale in the code comment).
+
+All three fetch sites (that effect, `AppShell::refreshActivePage`, `toggleBacklinkTodo`) go through `trackBacklinks` in `lib/store.ts`, and none of them is awaited on a render or keystroke path.
+It owns `appState.backlinksLoading`, which `<InlineBacklinks />` is the **only** reader of.
+The scan is `O(blocks-in-workspace)`, so the section carries its own `loading…` mark and its own placeholder rows while the outline keeps the caret and the keystrokes.
+A page-wide load state here is the regression [`UX.md` → Never block a keystroke](../../UX.md#2-never-block-a-keystroke) now names; `InlineBacklinks.test.tsx` → "backlinks load behind the page" is the net.
+A refetch keeps the rows it already has (blanking them reads as "this page lost its references"); only a first load shows the placeholder.
 
 ### Toggling a task from a backlink row (issue #144)
 

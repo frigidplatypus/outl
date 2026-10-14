@@ -38,7 +38,7 @@ public final class OutlBrandChrome: NSObject {
     }
 
     private static func apply() {
-        guard let win = keyWindow() else {
+        guard let win = OutlWindows.key else {
             if windowRetries >= 20 {
                 return
             }
@@ -74,16 +74,6 @@ public final class OutlBrandChrome: NSObject {
         }
     }
 
-    private static func keyWindow() -> UIWindow? {
-        for scene in UIApplication.shared.connectedScenes {
-            guard let ws = scene as? UIWindowScene else { continue }
-            if #available(iOS 15.0, *) {
-                if let w = ws.keyWindow { return w }
-            }
-            if let w = ws.windows.first { return w }
-        }
-        return UIApplication.shared.windows.first
-    }
 
     private static func uiColor(from c: BrandColor) -> UIColor {
         let comps = c.components

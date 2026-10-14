@@ -169,7 +169,7 @@ export function PluginMarketplace() {
                           type="button"
                           disabled={busyId() === i.id}
                           onClick={() => void install(i)}
-                          class="rounded bg-(--color-outl-accent) px-3 py-1 text-sm font-medium text-(--color-outl-bg) hover:opacity-90 disabled:opacity-50"
+                          class="rounded bg-(--color-outl-accent) px-3 py-1 text-sm font-medium text-(--color-outl-accent-fg) hover:opacity-90 disabled:opacity-50"
                         >
                           {busyId() === i.id ? "installing…" : "Install"}
                         </button>

@@ -22,7 +22,7 @@
  * `invoke()` directly.
  */
 
-import { Show, createEffect, createResource, createSignal, onCleanup, onMount } from "solid-js";
+import { Show, createEffect, createResource, createSignal, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 // Static import (NOT `await import(...)`): on iOS the WKWebView custom scheme
 // can't fetch the separate chunk Vite emits for a dynamic plugin import, so the
@@ -57,6 +57,32 @@ import { Toast } from "./Toast";
 interface DevicesSheetProps {
   open: boolean;
   onClose: () => void;
+}
+
+/**
+ * The live sync feed, as its own component so the subscription's lifetime
+ * is the panel being on screen.
+ *
+ * `createSyncProgress` listens for `sync-progress` and its handler calls
+ * `resolve_page_labels` once per received batch. In the parent's body that
+ * ran from app start, for a panel nobody had opened — and every one of
+ * those calls is a Tauri command, which on iOS is served from the main
+ * thread (wry) and therefore competes with the journal's own first paint.
+ * Mounted under the sheet's `<Show>`, it subscribes on the first open and
+ * `onCleanup`s on close.
+ */
+function SyncFeed(props: { peers: PeerDto[] }) {
+  const sync = createSyncProgress();
+  return (
+    <Show when={sync.current() || sync.feed().length > 0}>
+      <div class="mb-2 text-[13px] font-semibold uppercase tracking-wider text-(--color-outl-fg-dim)">
+        Syncing
+      </div>
+      <div class="mb-4">
+        <SyncProgressView current={sync.current()} feed={sync.feed()} peers={props.peers} />
+      </div>
+    </Show>
+  );
 }
 
 /** localStorage key for this device's advertised pairing name. Per-install
@@ -148,9 +174,6 @@ export function DevicesSheet(props: DevicesSheetProps) {
   const [hostTicket, setHostTicket] = createSignal<string | null>(null);
   const [toast, setToast] = createSignal<string | null>(null);
   const [deviceName, setDeviceName] = createSignal(loadDeviceName());
-  // Live sync progress (snapshot %, ops counts, "page X synced" feed). Cosmetic;
-  // subscribes to the `sync-progress` event, unsubscribes on cleanup.
-  const sync = createSyncProgress();
 
   function updateDeviceName(value: string) {
     setDeviceName(value);
@@ -185,7 +208,16 @@ export function DevicesSheet(props: DevicesSheetProps) {
   let unlistenPaired: (() => void) | undefined;
   let unlistenFailed: (() => void) | undefined;
 
-  onMount(async () => {
+  /**
+   * Everything this sheet needs from outside the webview. Armed on the
+   * first open, not at boot: `hostname()` and both `listen()` calls go
+   * through the Tauri bridge, which on iOS is the main thread, and
+   * pairing can only start from inside this sheet — so there is nothing
+   * for them to catch while it has never been opened. Armed once and
+   * then left alone (a close does not unsubscribe), because a pairing
+   * handshake outlives a drag-to-dismiss.
+   */
+  async function armPairingBridges() {
     // Pre-fill the name field with the OS device name when the user
     // hasn't chosen one. Re-check after the async resolve so a fast edit
     // mid-resolve isn't clobbered.
@@ -203,19 +235,24 @@ export function DevicesSheet(props: DevicesSheetProps) {
       setHostTicket(null);
       setToast(`Pairing failed: ${ev.payload}`);
     });
-  });
+  }
 
   onCleanup(() => {
     unlistenPaired?.();
     unlistenFailed?.();
   });
 
-  // Side effects on the sheet's open/close edges: refresh the device
-  // list when it opens, drop any in-flight host ticket when it closes
-  // so the camera/QR isn't left up on the next open.
+  // Side effects on the sheet's open/close edges: arm the bridges and
+  // refresh the device list when it opens, drop any in-flight host ticket
+  // when it closes so the camera/QR isn't left up on the next open.
+  let armed = false;
   let wasOpen = false;
   createEffect(() => {
     const open = props.open;
+    if (open && !armed) {
+      armed = true;
+      void armPairingBridges();
+    }
     if (open && !wasOpen) void refresh();
     if (!open && wasOpen) setHostTicket(null);
     wasOpen = open;
@@ -366,7 +403,7 @@ export function DevicesSheet(props: DevicesSheetProps) {
             type="button"
             onClick={handleScan}
             disabled={scanning() || busy()}
-            class="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-(--color-outl-accent) px-4 py-3 text-[16px] font-semibold text-(--color-outl-bg) active:opacity-80 disabled:opacity-50"
+            class="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-(--color-outl-accent) px-4 py-3 text-[16px] font-semibold text-(--color-outl-accent-fg) active:opacity-80 disabled:opacity-50"
           >
             <svg
               width="20"
@@ -416,14 +453,7 @@ export function DevicesSheet(props: DevicesSheetProps) {
             )}
           </Show>
 
-          <Show when={sync.current() || sync.feed().length > 0}>
-            <div class="mb-2 text-[13px] font-semibold uppercase tracking-wider text-(--color-outl-fg-dim)">
-              Syncing
-            </div>
-            <div class="mb-4">
-              <SyncProgressView current={sync.current()} feed={sync.feed()} peers={peers()} />
-            </div>
-          </Show>
+          <SyncFeed peers={peers()} />
 
           <div class="mb-2 text-[13px] font-semibold uppercase tracking-wider text-(--color-outl-fg-dim)">
             Paired devices

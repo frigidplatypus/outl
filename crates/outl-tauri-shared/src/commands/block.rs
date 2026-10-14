@@ -447,13 +447,20 @@ pub fn copy_markdown<S: AppHost>(state: &S, block_ids: Vec<String>) -> Result<St
 /// silently disagrees with the sidecar's expanded form and never
 /// resolves. Errors when the block has no sidecar entry yet (created
 /// this session, not saved) — an unresolvable ref is worse than none.
-pub fn copy_block_ref<S: AppHost>(state: &S, id: String) -> Result<String, String> {
+///
+/// Async for the same reason `search_blocks` is: that index build reads
+/// and parses every `.md` + sidecar in the workspace, which is not work
+/// the IPC thread may do ([`crate::offload`]).
+pub async fn copy_block_ref<S: AppHost>(state: &S, id: String) -> Result<String, String> {
     let node = parse_node_id(&id)?;
     let root = state.storage_root()?;
-    let index = WorkspaceIndex::build(&root);
-    let entry = index
-        .block_index()
-        .get(node)
-        .ok_or_else(|| "no ref handle yet — save and retry".to_string())?;
-    Ok(format!("(({}))", entry.ref_handle))
+    crate::offload::run("copy_block_ref", move || {
+        let index = WorkspaceIndex::build(&root);
+        let entry = index
+            .block_index()
+            .get(node)
+            .ok_or_else(|| "no ref handle yet — save and retry".to_string())?;
+        Ok(format!("(({}))", entry.ref_handle))
+    })
+    .await
 }

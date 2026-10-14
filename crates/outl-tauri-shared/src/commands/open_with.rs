@@ -33,7 +33,7 @@ use outl_actions::open_with::{
 use outl_actions::{apply_page_md_with_sidecar_guarded, ActionError};
 use outl_core::id::NodeId;
 
-use crate::commands::page::open_page_by_slug;
+use crate::commands::page_open::open_page_by_slug;
 use crate::helpers::{finish_in_page_with, normalize_picker_path, with_ws, with_ws_mut};
 use crate::host::AppHost;
 use crate::state::PageView;
@@ -54,7 +54,15 @@ const RESOLVE_ATTEMPTS: usize = 3;
 /// time. Re-importing would duplicate every block, and overwriting
 /// would delete whatever the user wrote on the page afterwards; see
 /// [`outl_actions::open_with`] for the full reasoning.
-pub fn open_external_file<S: AppHost>(state: &S, source_path: String) -> Result<PageView, String> {
+/// **Async because `open_page_by_slug` is**, not because the import
+/// moved off the IPC thread. The already-imported branch hands off to
+/// that command, which now runs on the blocking pool; the import branch
+/// still goes through [`finish_in_page_with`], which needs the borrowed
+/// host and is the one set [`crate::offload`] records as not yet movable.
+pub async fn open_external_file<S: AppHost>(
+    state: &S,
+    source_path: String,
+) -> Result<PageView, String> {
     let normalized = normalize_picker_path(&source_path);
     let path = Path::new(&normalized);
 
@@ -80,7 +88,7 @@ pub fn open_external_file<S: AppHost>(state: &S, source_path: String) -> Result<
         // since grown past the cap or stopped being UTF-8 must not stop
         // the user reaching the page it already produced.
         if matches!(target, OpenWithTarget::Existing { .. }) {
-            return open_page_by_slug(state, target.slug().to_string());
+            return open_page_by_slug(state, target.slug().to_string()).await;
         }
 
         // Read outside the lock: the file lives outside the workspace and

@@ -19,9 +19,10 @@ use outl_core::hlc::HlcGenerator;
 use outl_core::id::ActorId;
 use outl_core::workspace::Workspace;
 use outl_exec::RuntimeRegistry;
-use outl_tauri_shared::commands::page::open_page_by_slug;
+use outl_tauri_shared::commands::page_open::open_page_by_slug;
 use outl_tauri_shared::host::AppHost;
 use parking_lot::Mutex;
+use tauri::async_runtime::block_on;
 use tempfile::TempDir;
 
 /// Minimal [`AppHost`]: the open path only needs a workspace, an HLC and
@@ -92,7 +93,8 @@ fn opening_a_page_whose_md_outran_the_log_tells_the_user_so() {
     std::fs::write(&md_path, "- first\n- only ever on disk\n").unwrap();
     restamp_sidecar_as_faithful(&md_path);
 
-    let view = open_page_by_slug(&host, "notes".to_string()).expect("the page must still open");
+    let view =
+        block_on(open_page_by_slug(&host, "notes".to_string())).expect("the page must still open");
 
     let ahead = view
         .md_ahead_of_log
@@ -119,7 +121,8 @@ fn the_page_still_opens_and_still_shows_what_is_on_disk() {
     std::fs::write(&md_path, "- first\n- only ever on disk\n").unwrap();
     restamp_sidecar_as_faithful(&md_path);
 
-    let view = open_page_by_slug(&host, "notes".to_string()).expect("the page must still open");
+    let view =
+        block_on(open_page_by_slug(&host, "notes".to_string())).expect("the page must still open");
 
     let rendered: Vec<&str> = view.outline.iter().map(|n| n.text.as_str()).collect();
     assert_eq!(
@@ -141,7 +144,7 @@ fn the_page_still_opens_and_still_shows_what_is_on_disk() {
 fn a_healthy_page_carries_no_notice() {
     let (_tmp, host, _md_path) = host_with_page("first");
 
-    let view = open_page_by_slug(&host, "notes".to_string()).unwrap();
+    let view = block_on(open_page_by_slug(&host, "notes".to_string())).unwrap();
 
     assert!(view.md_ahead_of_log.is_none());
 }
@@ -160,7 +163,7 @@ fn a_healthy_page_carries_no_notice() {
 fn an_open_reply_marks_itself_as_having_run_the_check() {
     let (_tmp, host, md_path) = host_with_page("first");
 
-    let healthy = open_page_by_slug(&host, "notes".to_string()).unwrap();
+    let healthy = block_on(open_page_by_slug(&host, "notes".to_string())).unwrap();
     assert!(
         healthy.md_ahead_of_log_checked,
         "a healthy open still ran the check — absent must mean healthy, not unknown"
@@ -168,7 +171,7 @@ fn an_open_reply_marks_itself_as_having_run_the_check() {
 
     std::fs::write(&md_path, "- first\n- only ever on disk\n").unwrap();
     restamp_sidecar_as_faithful(&md_path);
-    let ahead = open_page_by_slug(&host, "notes".to_string()).unwrap();
+    let ahead = block_on(open_page_by_slug(&host, "notes".to_string())).unwrap();
     assert!(
         ahead.md_ahead_of_log_checked && ahead.md_ahead_of_log.is_some(),
         "the refusing open must carry both halves"

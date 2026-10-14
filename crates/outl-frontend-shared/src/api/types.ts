@@ -28,10 +28,10 @@ export interface Palette {
   border: string;
   hint: string;
   accent: string;
+  accent_fg: string;
   accent_soft: string;
   accent_alt: string;
   warn: string;
-  /** Destructive action colour — delete, remove, irreversible. */
   destructive: string;
   destructive_fg: string;
   ref_link_fg: string;

@@ -16,7 +16,7 @@ export function JournalLoadFailed(props: { onRetry: () => void }) {
       <button
         type="button"
         onClick={props.onRetry}
-        class="mt-3 rounded-full bg-(--color-outl-accent) px-5 py-2 text-[14px] font-medium text-(--color-outl-bg) active:opacity-70"
+        class="mt-3 rounded-full bg-(--color-outl-accent) px-5 py-2 text-[14px] font-medium text-(--color-outl-accent-fg) active:opacity-70"
       >
         Retry
       </button>
@@ -81,7 +81,7 @@ export function JournalEmptyPage(props: {
         <button
           type="button"
           onClick={props.onAddBlock}
-          class="rounded-full bg-(--color-outl-accent) px-4 py-2 text-[15px] font-medium text-(--color-outl-bg) active:opacity-70"
+          class="rounded-full bg-(--color-outl-accent) px-4 py-2 text-[15px] font-medium text-(--color-outl-accent-fg) active:opacity-70"
         >
           Add a block
         </button>

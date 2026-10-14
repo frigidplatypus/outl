@@ -80,7 +80,7 @@ export function Onboarding(props: {
           <button
             type="button"
             onClick={() => props.onFinish()}
-            class="mt-2 rounded-md bg-(--color-outl-accent) px-4 py-2 text-sm font-medium text-(--color-outl-bg) hover:opacity-90"
+            class="mt-2 rounded-md bg-(--color-outl-accent) px-4 py-2 text-sm font-medium text-(--color-outl-accent-fg) hover:opacity-90"
           >
             {FINISH_CTA}
           </button>

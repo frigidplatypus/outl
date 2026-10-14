@@ -8,9 +8,9 @@
 //!   `settings.last_workspace` is already set, so the WebView starts
 //!   painting before we touch the filesystem. Starts the FS watcher and
 //!   wires the iroh transport into the swap-capable `AppState` slots.
-//! - [`spawn_background_reconcile`] — the orphan-md pass on a worker
-//!   thread, lock released between pages, so the first paint is never
-//!   blocked (mobile runs the same pass inline instead).
+//! - [`spawn_background_reconcile`] — the desktop's one-line adapter onto
+//!   `outl_tauri_shared::reconcile`, which owns the pass itself for both
+//!   clients (the two copies had drifted; see that module's docs).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -29,147 +29,35 @@ pub(crate) use outl_tauri_shared::workspace_open::{
     load_or_create_actor, open_workspace_at, WorkspaceGuards,
 };
 
-/// Background reconcile pass for pages whose `.md` is ahead of the
-/// op log: pages authored via vim, pulled from peers without a
-/// sidecar, imported by `outl serve`, etc. Run as a separate worker
-/// thread so the first paint is never blocked.
+/// Run the shared background reconcile sweep and emit
+/// `workspace-reconciled` if it moved the tree.
 ///
-/// Each page is reconciled under a lock that is **released between
-/// iterations** so the frontend can read the workspace (build the
-/// outline, render the picker, run autocomplete queries) without
-/// waiting for the whole batch to finish. Pages that just got
-/// materialised become visible to the next read, no full reload
-/// required.
+/// The pass — which phases chunk their lock, which two cannot and why,
+/// and why the whole-workspace ones wait out the launch window — belongs
+/// to [`outl_tauri_shared::reconcile`]. Mobile runs the identical sweep;
+/// the only thing that was ever desktop-specific is this event.
 ///
-/// Emits `workspace-reconciled` when the pass changed the tree, and
 /// `AppShell.tsx` (`onReconciled`) re-reads the active page and its lazy
 /// backlinks reply on it — the repaired `title::` values and the
 /// nested-pages rows would otherwise stay stale on the open screen until
-/// the next navigation. The event fires only on completion of the
-/// batch, not per-page — keystroke-grained refreshes would be noisier
-/// than they help.
+/// the next navigation. It fires once on completion of the sweep, not
+/// per-page: keystroke-grained refreshes would be noisier than they help.
 pub(crate) fn spawn_background_reconcile(
     workspace_slot: Arc<Mutex<Option<Workspace>>>,
     storage_root: PathBuf,
     hlc: HlcGenerator,
     app: tauri::AppHandle,
 ) {
-    thread::spawn(move || {
-        let engine = outl_actions::SyncEngine::new(storage_root.clone(), hlc.actor());
-        let orphans_log = engine.orphans_log();
-        // Filesystem walk needs no workspace lock.
-        let orphans = engine.scan_for_orphans();
-        let mut changed = false;
-        if !orphans.is_empty() {
-            info!(
-                "background reconcile: {} orphan(s) to process",
-                orphans.len()
-            );
-            let started = std::time::Instant::now();
-            for path in &orphans {
-                // **The user gets the lock first.** `lock()` is FIFO, so a
-                // batch this long would hand the frontend every other
-                // turn and still keep the disk busy in between. `try_lock`
-                // means a click never waits on a migration: the pass steps
-                // aside and comes back.
-                //
-                // Retried, never skipped: `continue` on a busy lock would
-                // step over the page for good, and a page silently left
-                // unreconciled is the whole class of bug this pass exists
-                // to close.
-                let took = loop {
-                    let Some(mut slot) = workspace_slot.try_lock() else {
-                        std::thread::sleep(std::time::Duration::from_millis(20));
-                        continue;
-                    };
-                    let Some(ws) = slot.as_mut() else {
-                        // Workspace was closed (user picked another) —
-                        // abort the rest of the batch cleanly.
-                        return;
-                    };
-                    let page_started = std::time::Instant::now();
-                    // Never `None` — level-3 fallout is a delete, and it
-                    // has to be recorded before it happens (`outl-md`
-                    // hard rule).
-                    if let Err(e) =
-                        outl_md::reconcile::reconcile_md(ws, &hlc, path, Some(&orphans_log))
-                    {
-                        warn!("orphan reconcile failed for {}: {e}", path.display());
-                    } else {
-                        changed = true;
-                    }
-                    break page_started.elapsed();
-                };
-                // Yield in proportion to the work, *outside* the lock.
-                // Without this the pass reacquires immediately and keeps
-                // the disk saturated for the whole batch — technically a
-                // worker thread, and a frozen app all the same, because
-                // the UI reads the same disk to paint. Measured before:
-                // 2,827 files, 24.7s at 8% CPU, all of it `fsync`.
-                outl_tauri_shared::workspace_open::yield_to_user(took);
-            }
-            info!(
-                "background reconcile complete: {} page(s) in {:?}",
-                orphans.len(),
-                started.elapsed()
-            );
-        }
-
-        // Repair journal titles doubled by concurrent offline creation
-        // (two devices auto-created the same day's journal; each wrote the
-        // slug as the root's Yrs text and the two concurrent inserts
-        // concatenated). Runs regardless of orphans — a clean workspace is
-        // a cheap no-op — and off the boot path. One lock, released after.
-        {
-            let mut slot = workspace_slot.lock();
-            let Some(ws) = slot.as_mut() else {
-                return;
-            };
-            match outl_actions::repair_doubled_journal_titles(ws, &hlc) {
-                Ok(0) => {}
-                Ok(n) => {
-                    info!("repaired {n} doubled journal title(s)");
-                    changed = true;
-                }
-                Err(e) => warn!("doubled-title repair: {e}"),
-            }
-        }
-
-        // Give an ingested page back the namespaced `title::` it never
-        // got (issue 275). `outl_actions::namespace` reads a page's
-        // hierarchy off its title, and a page that arrived as a `.md`
-        // has none — so the nested-pages section rendered empty for
-        // every namespace on an imported graph. The names are still in
-        // the mentions; this joins them back. Same shape as the repair
-        // above: idempotent, off the boot path, a no-op when clean.
-        {
-            let mut slot = workspace_slot.lock();
-            let Some(ws) = slot.as_mut() else {
-                return;
-            };
-            match outl_actions::repair_namespaced_titles(ws, &hlc) {
-                Ok(report) if report.is_clean() => {}
-                Ok(report) => {
-                    if !report.repaired.is_empty() {
-                        info!("recovered {} namespaced title(s)", report.repaired.len());
-                        changed = true;
-                    }
-                    // Reported, never guessed: two spellings of one slug
-                    // would make the choice a coin flip in the op log.
-                    for (slug, names) in &report.ambiguous {
-                        warn!("namespace title for `{slug}` is ambiguous: {names:?}");
-                    }
-                }
-                Err(e) => warn!("namespaced-title repair: {e}"),
-            }
-        }
-
-        if changed {
+    let _ = outl_tauri_shared::reconcile::spawn_background_reconcile(
+        workspace_slot,
+        storage_root,
+        hlc,
+        move || {
             if let Err(e) = app.emit("workspace-reconciled", ()) {
                 warn!("emit workspace-reconciled: {e}");
             }
-        }
-    });
+        },
+    );
 }
 
 /// Background opener used at boot when `settings.last_workspace` is

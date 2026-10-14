@@ -46,10 +46,17 @@ pub struct OpenTasks {
 }
 
 /// List the workspace's open tasks.
-pub fn list_open_tasks<S: AppHost>(state: &S) -> Result<OpenTasks, String> {
+///
+/// Async: the index build reads and parses every `.md` + sidecar in the
+/// workspace, and mobile fires this from the bottom bar on mount — the
+/// IPC thread may not do that work ([`crate::offload`]).
+pub async fn list_open_tasks<S: AppHost>(state: &S) -> Result<OpenTasks, String> {
     let root = state.storage_root()?;
-    let index = WorkspaceIndex::build(&root);
-    Ok(collect_open_tasks(index.iter_blocks(), TASK_LIMIT))
+    crate::offload::run("list_open_tasks", move || {
+        let index = WorkspaceIndex::build(&root);
+        Ok(collect_open_tasks(index.iter_blocks(), TASK_LIMIT))
+    })
+    .await
 }
 
 /// The selection and ordering behind [`list_open_tasks`], split out so

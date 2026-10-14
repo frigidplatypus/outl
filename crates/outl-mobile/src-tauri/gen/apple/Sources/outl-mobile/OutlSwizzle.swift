@@ -128,7 +128,7 @@ public final class OutlSwizzle: NSObject {
     /// down-drag inside the editor partially dismisses the keyboard
     /// and drags the toolbar along — confusing UX.
     private static func disableInteractiveDismiss() {
-        guard let win = keyWindow(),
+        guard let win = OutlWindows.key,
               let web = OutlToolbarView.findWebView(in: win)
         else {
             if dismissRetries >= 10 { return }
@@ -147,7 +147,7 @@ public final class OutlSwizzle: NSObject {
     private static var bindRetries = 0
 
     private static func bindWebView() {
-        guard let win = keyWindow(),
+        guard let win = OutlWindows.key,
               let web = OutlToolbarView.findWebView(in: win)
         else {
             if bindRetries >= 20 { return }
@@ -165,13 +165,32 @@ public final class OutlSwizzle: NSObject {
         NSLog("[outl] bound suggester webview (overlay-driven)")
     }
 
-    // MARK: - Helpers
+}
 
-    private static func keyWindow() -> UIWindow? {
-        for scene in UIApplication.shared.connectedScenes {
-            guard let ws = scene as? UIWindowScene else { continue }
-            if let w = ws.windows.first { return w }
+/// Where the app's key window comes from, for every file in this target.
+///
+/// Six call sites asked `UIApplication.shared.windows.first`, deprecated
+/// since iOS 15 and wrong on any multi-scene layout: it answers with a
+/// window from whichever scene the array happens to start with. Two of
+/// them had grown their own scene walk on top of it, which is how one
+/// lookup ends up with three spellings and only some of them current.
+enum OutlWindows {
+
+    /// The foreground scene's key window, else any window at all.
+    ///
+    /// The second pass is not a formality: a Darwin notification from an
+    /// extension and a background refresh both run with no scene
+    /// `foregroundActive`, and the deprecated call used to find a window
+    /// for them. Dropping it would make those paths silently no-op.
+    static var key: UIWindow? {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        for scene in scenes where scene.activationState == .foregroundActive {
+            if let w = scene.keyWindow ?? scene.windows.first { return w }
         }
-        return UIApplication.shared.windows.first
+        for scene in scenes {
+            if let w = scene.keyWindow ?? scene.windows.first { return w }
+        }
+        return nil
     }
 }

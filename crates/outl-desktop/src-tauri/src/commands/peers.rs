@@ -30,6 +30,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::iroh_sync::{no_endpoint_reason, NoEndpoint};
 use crate::state::AppState;
 use outl_tauri_shared::commands::peers as shared;
+use outl_tauri_shared::offload;
 use outl_tauri_shared::AppHost;
 
 outl_tauri_shared::peer_commands!(crate::state::AppState);
@@ -48,17 +49,23 @@ outl_tauri_shared::peer_commands!(crate::state::AppState);
 /// Before reporting that, it contends for the endpoint once more; see
 /// [`retry_endpoint`] for why Refresh is the right place to re-run the
 /// election.
+///
+/// **Async.** The shared body is O(1) (an enqueue on the transport's
+/// channel), but [`retry_endpoint`] is not — it binds a QUIC endpoint and
+/// reaches a relay. A synchronous command runs that on the IPC thread,
+/// which under `wry` is the UI main thread, and Refresh is exactly when
+/// it happens.
 #[tauri::command]
-pub fn outl_sync_now(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn outl_sync_now(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     // Read and release: `retry_endpoint` writes the same slot.
     let wired = state.iroh_transport.lock().is_some();
     if !wired {
-        retry_endpoint(&app, state.inner());
+        retry_endpoint(&app, state.inner()).await;
         if let Some(notice) = degraded_endpoint_notice() {
             return Err(notice);
         }
     }
-    shared::sync_now(state.inner())
+    shared::sync_now(state.inner()).await
 }
 
 /// Contend for the device endpoint one more time, when this window has none.
@@ -75,7 +82,13 @@ pub fn outl_sync_now(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
 /// re-contending there would bind an endpoint the user switched off. A `None`
 /// reason with no transport means the boot opener has not wired yet, and a
 /// second concurrent pass would race it for the same lease.
-fn retry_endpoint(app: &AppHandle, state: &AppState) {
+///
+/// The election itself runs on the blocking pool: `build_default_transport`
+/// takes a cross-process `flock`, binds a QUIC endpoint and dials a relay,
+/// none of which belongs on the IPC thread ([`outl_tauri_shared::offload`]).
+/// Everything it writes is behind an `Arc<Mutex<_>>` already, so the job
+/// needs nothing borrowed.
+async fn retry_endpoint(app: &AppHandle, state: &AppState) {
     match no_endpoint_reason() {
         Some(NoEndpoint::HeldByAnotherProcess) | Some(NoEndpoint::Unavailable(_)) => {}
         None | Some(NoEndpoint::P2pDisabled) => return,
@@ -83,13 +96,21 @@ fn retry_endpoint(app: &AppHandle, state: &AppState) {
     let Some(root) = state.storage_root.lock().clone() else {
         return;
     };
-    crate::iroh_sync::wire_iroh_transport(
-        &state.iroh_transport,
-        &state.iroh_pairing,
-        root,
-        state.hlc.actor(),
-        app.clone(),
-    );
+    let transport = state.iroh_transport.clone();
+    let pairing = state.iroh_pairing.clone();
+    let actor = state.hlc.actor();
+    let app = app.clone();
+    if let Err(e) = offload::run("retry_endpoint", move || {
+        crate::iroh_sync::wire_iroh_transport(&transport, &pairing, root, actor, app);
+        Ok(())
+    })
+    .await
+    {
+        // A join error, never a failed election — `wire_iroh_transport`
+        // records its own outcome in `no_endpoint_reason`, which the
+        // caller reads next.
+        tracing::warn!("endpoint retry did not run: {e}");
+    }
 }
 
 /// The Refresh error for a window with no transport, or `None` when the state

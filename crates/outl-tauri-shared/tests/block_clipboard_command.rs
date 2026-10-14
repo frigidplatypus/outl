@@ -26,6 +26,10 @@ use outl_exec::RuntimeRegistry;
 use outl_tauri_shared::commands::block::{copy_block_ref, cut_block, paste_block_after};
 use outl_tauri_shared::host::AppHost;
 use parking_lot::Mutex;
+// `copy_block_ref` is `async` because it builds a `WorkspaceIndex` from
+// disk and must not do that on the IPC thread (`outl_tauri_shared::offload`).
+// A plain `#[test]` has no executor, so drive it on Tauri's own runtime.
+use tauri::async_runtime::block_on;
 use tempfile::TempDir;
 
 /// Minimal [`AppHost`] — no projection writer, no backlink index slot,
@@ -154,7 +158,7 @@ fn cut_block_clipboard_round_trips_through_paste_block_after() {
 fn copy_block_ref_returns_the_same_handle_the_workspace_index_would_resolve() {
     let (_tmp, host, _page, block) = host_with_block("ref me");
 
-    let token = copy_block_ref(&host, block.to_string()).expect("copy_block_ref");
+    let token = block_on(copy_block_ref(&host, block.to_string())).expect("copy_block_ref");
 
     assert!(
         token.starts_with("((") && token.ends_with("))"),
@@ -190,7 +194,7 @@ fn copy_block_ref_errors_on_a_block_with_no_sidecar_entry_yet() {
         registry: Arc::new(RuntimeRegistry::new()),
     };
 
-    let err = copy_block_ref(&host, block.to_string()).unwrap_err();
+    let err = block_on(copy_block_ref(&host, block.to_string())).unwrap_err();
     assert!(
         err.contains("save and retry"),
         "an unresolvable ref must fail loudly instead of returning a dead handle, got {err:?}"

@@ -1,10 +1,12 @@
 //! Page / journal navigation command bodies.
+//!
+//! The three *open* commands live in [`super::page_open`] — same surface,
+//! different problem (see that module's doc).
 
 use outl_actions::{
-    find_by_slug, journal_slug, journal_title, list_pages, next_journal_date, open_journal,
-    open_or_create_by_name, open_or_create_by_ref, open_today, page_meta as page_meta_action,
-    previous_journal_date, remove_page_projection, search_persons as action_search_persons, today,
-    PageKind, PageMeta,
+    find_by_slug, journal_slug, journal_title, list_pages, next_journal_date,
+    open_or_create_by_ref, open_today, page_meta as page_meta_action, previous_journal_date,
+    remove_page_projection, search_persons as action_search_persons, today, PageMeta,
 };
 
 use outl_md::index::WorkspaceIndex;
@@ -16,6 +18,7 @@ use crate::helpers::{
     with_ws_mut,
 };
 use crate::host::AppHost;
+use crate::offload;
 use crate::state::{BacklinksReply, BlockHit, PageView};
 
 pub fn list_all_pages<S: AppHost>(state: &S) -> Result<Vec<PageMeta>, String> {
@@ -81,14 +84,21 @@ pub fn search_persons<S: AppHost>(state: &S, query: String) -> Result<Vec<PageMe
 /// (see `BlockRow.refreshSuggest`) to keep the rebuild off the keystroke
 /// hot path. Caching the index in `AppState` (invalidated on reload /
 /// commit / peer ops) is the real fix and is tracked as a follow-up.
-pub fn search_blocks<S: AppHost>(state: &S, query: String) -> Result<Vec<BlockHit>, String> {
+///
+/// Until then the rebuild at least runs off the IPC thread
+/// ([`crate::offload`]): a debounce decides how *often* an O(workspace)
+/// disk scan happens, never where it runs.
+pub async fn search_blocks<S: AppHost>(state: &S, query: String) -> Result<Vec<BlockHit>, String> {
     let root = state.storage_root()?;
-    let index = WorkspaceIndex::build(&root);
-    Ok(collect_block_hits(
-        index.block_index(),
-        query.trim(),
-        BLOCK_HIT_LIMIT,
-    ))
+    offload::run("search_blocks", move || {
+        let index = WorkspaceIndex::build(&root);
+        Ok(collect_block_hits(
+            index.block_index(),
+            query.trim(),
+            BLOCK_HIT_LIMIT,
+        ))
+    })
+    .await
 }
 
 /// Popup size shared by the empty-query and matched-query paths.
@@ -150,75 +160,6 @@ fn block_snippet(text: &str) -> String {
 /// short-circuits to an empty vec (matches the helper's contract).
 pub fn emoji_search(query: String, limit: usize) -> Result<Vec<outl_md::emoji::EmojiHit>, String> {
     Ok(outl_md::emoji::search(&query, limit))
-}
-
-pub fn open_today_journal<S: AppHost>(state: &S) -> Result<PageView, String> {
-    let root = state.storage_root()?;
-    let id = with_ws_mut(state, |ws| {
-        open_today(ws, state.hlc()).map_err(|e| e.to_string())
-    })?;
-    with_ws(state, |ws| {
-        // Refresh the `.md` the view reads when a peer's ops moved the tree
-        // past the stale projection (issue #166); a no-op when in sync.
-        // A refusal comes back as `md_ahead_of_log` and rides the view to
-        // the user — the page still opens.
-        let ahead = reproject_stale_md(ws, &root, id, "open_today_journal").ahead_of_log;
-        let view = build_page_view(ws, &root, id).map_err(|e| e.to_string())?;
-        Ok(view.with_ahead_of_log_check(ahead))
-    })
-}
-
-pub fn open_journal_for<S: AppHost>(state: &S, slug: String) -> Result<PageView, String> {
-    let root = state.storage_root()?;
-    let date = parse_date(&slug)?;
-    let id = with_ws_mut(state, |ws| {
-        open_journal(ws, state.hlc(), date).map_err(|e| e.to_string())
-    })?;
-    with_ws(state, |ws| {
-        let ahead =
-            reproject_stale_md(ws, &root, id, &format!("open_journal_for {slug}")).ahead_of_log;
-        let view = build_page_view(ws, &root, id).map_err(|e| e.to_string())?;
-        Ok(view.with_ahead_of_log_check(ahead))
-    })
-}
-
-/// The command name says "slug" for backward-compat with the frontend,
-/// but the input is whatever the user typed / clicked — try the literal
-/// first (programmatic callers and the picker pass a clean slug), then
-/// fall through to `open_or_create_by_name`, which slugifies the input
-/// for the disk path and keeps the original as the page title. That way
-/// clicking a ref to a page that doesn't exist still opens a fresh page
-/// in the same round-trip.
-///
-/// Before building the view, lazily project the page's `.md` + sidecar
-/// **only when the `.md` is absent from disk**. Without this, a page
-/// synced from a peer exists in the in-memory CRDT tree (so it shows up
-/// in search) but its `.md` was never written on this device;
-/// `read_page_outline` reads through `outl_md::read_for_rewrite`, where
-/// a **missing** file legitimately returns `""` (an unreadable one is an
-/// error), `parse("")` produces an empty outline, and the page opens
-/// blank (issue #120).
-/// The `_if_absent` guard avoids rewriting the `.outl` sidecar on every
-/// open: `build_sidecar` stamps `last_synced_at: now()`, so an
-/// unconditional projection would create constant sync churn on the
-/// hottest nav path even when nothing changed.
-pub fn open_page_by_slug<S: AppHost>(state: &S, slug: String) -> Result<PageView, String> {
-    let root = state.storage_root()?;
-    let existing = with_ws(state, |ws| Ok(find_by_slug(ws, &slug)))?;
-    let id = match existing {
-        Some(id) => id,
-        None => with_ws_mut(state, |ws| {
-            open_or_create_by_name(ws, state.hlc(), &slug, PageKind::Page)
-                .map_err(|e| e.to_string())
-        })?,
-    };
-    let ahead = with_ws_mut(state, |ws| {
-        Ok(reproject_stale_md(ws, &root, id, &format!("open_page_by_slug {slug}")).ahead_of_log)
-    })?;
-    with_ws(state, |ws| {
-        let view = build_page_view(ws, &root, id).map_err(|e| e.to_string())?;
-        Ok(view.with_ahead_of_log_check(ahead))
-    })
 }
 
 /// Compute `slug`'s backlinks lazily, off the page-open path.
@@ -418,37 +359,49 @@ pub fn toggle_pin<S: AppHost>(state: &S, page_id: String) -> Result<PageView, St
 /// A missing slug surfaces as a string error; the frontend shows a
 /// toast instead of silently navigating away. Confirm before calling
 /// — this command does not re-prompt.
-pub fn delete_page<S: AppHost>(state: &S, slug: String) -> Result<PageView, String> {
+///
+/// Async for the reason [`crate::commands::page_open`] documents: it
+/// takes the workspace mutex, unlinks two files and then builds today's
+/// view, and the IPC thread is the UI main thread under `wry`.
+pub async fn delete_page<S: AppHost>(state: &S, slug: String) -> Result<PageView, String> {
     let root = state.storage_root()?;
-    // Delete + open-today's-journal in one lock acquire: both are
-    // workspace mutations, and keeping them together avoids a second
-    // lock round-trip between the delete and the navigation target.
-    let (meta, today_id) = with_ws_mut(state, |ws| {
-        let meta = outl_actions::delete_page(ws, state.hlc(), &slug).map_err(|e| e.to_string())?;
-        let today_id = open_today(ws, state.hlc()).map_err(|e| e.to_string())?;
-        Ok((meta, today_id))
-    })?;
+    let workspace = state.workspace_arc();
+    let hlc = state.hlc().clone();
+    let transport = state.sync_transport();
 
-    // Drop the `.md` + `.outl` so the page vanishes from disk-side
-    // listings right away. Idempotent — a missing file is OK.
-    if let Err(e) = remove_page_projection(&root, &meta) {
-        tracing::warn!(
-            "delete_page: could not remove projection for {}: {e}",
-            meta.slug
-        );
-    }
+    offload::run("delete_page", move || {
+        // Delete + open-today's-journal in one lock acquire: both are
+        // workspace mutations, and keeping them together avoids a second
+        // lock round-trip between the delete and the navigation target.
+        let (meta, today_id) = offload::locked_mut(&workspace, |ws| {
+            let meta = outl_actions::delete_page(ws, &hlc, &slug).map_err(|e| e.to_string())?;
+            let today_id = open_today(ws, &hlc).map_err(|e| e.to_string())?;
+            Ok((meta, today_id))
+        })?;
 
-    // Announce to peers so the delete propagates over iroh without
-    // waiting for the catch-up re-sync. Mirrors `announce_after_commit`
-    // but we can't reuse it because the deleted page no longer has a
-    // `PageMeta` to read from the workspace.
-    if let Some(transport) = state.sync_transport() {
-        transport.announce_local_ops(&meta.slug, state.hlc().next());
-    }
+        // Drop the `.md` + `.outl` so the page vanishes from disk-side
+        // listings right away. Idempotent — a missing file is OK. Outside
+        // the lock: the unlink needs no workspace state.
+        if let Err(e) = remove_page_projection(&root, &meta) {
+            tracing::warn!(
+                "delete_page: could not remove projection for {}: {e}",
+                meta.slug
+            );
+        }
 
-    with_ws(state, |ws| {
-        build_page_view(ws, &root, today_id).map_err(|e| e.to_string())
+        // Announce to peers so the delete propagates over iroh without
+        // waiting for the catch-up re-sync. Mirrors `announce_after_commit`
+        // but we can't reuse it because the deleted page no longer has a
+        // `PageMeta` to read from the workspace.
+        if let Some(transport) = transport {
+            transport.announce_local_ops(&meta.slug, hlc.next());
+        }
+
+        offload::locked(&workspace, |ws| {
+            build_page_view(ws, &root, today_id).map_err(|e| e.to_string())
+        })
     })
+    .await
 }
 
 #[cfg(test)]

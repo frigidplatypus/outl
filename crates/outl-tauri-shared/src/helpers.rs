@@ -21,7 +21,7 @@ use outl_core::workspace::Workspace;
 use tracing::warn;
 
 use crate::host::AppHost;
-use crate::state::{MdAheadOfLog, PageView, ERR_LOADING};
+use crate::state::{MdAheadOfLog, PageView};
 
 pub fn parse_node_id(s: &str) -> Result<NodeId, String> {
     ulid::Ulid::from_str(s)
@@ -36,16 +36,17 @@ pub fn parse_date(slug: &str) -> Result<NaiveDate, String> {
 /// Acquire a read-only handle to the workspace. Returns the
 /// `workspace_loading` sentinel string while the background opener is
 /// still running or the user hasn't picked a workspace yet.
+///
+/// Delegates to [`crate::offload::locked`], which a body that has been
+/// moved onto the blocking pool calls directly (it holds the slot's
+/// `Arc`, not an `AppHost`). One owner, so the on-thread and off-thread
+/// paths cannot answer "is a workspace open" two different ways.
 pub fn with_ws<S, F, T>(state: &S, f: F) -> Result<T, String>
 where
     S: AppHost,
     F: FnOnce(&Workspace) -> Result<T, String>,
 {
-    let guard = state.workspace().lock();
-    match guard.as_ref() {
-        Some(ws) => f(ws),
-        None => Err(ERR_LOADING.to_string()),
-    }
+    crate::offload::locked(state.workspace(), f)
 }
 
 /// Normalize a path the OS handed us into a plain filesystem path
@@ -79,11 +80,7 @@ where
     S: AppHost,
     F: FnOnce(&mut Workspace) -> Result<T, String>,
 {
-    let mut guard = state.workspace().lock();
-    match guard.as_mut() {
-        Some(ws) => f(ws),
-        None => Err(ERR_LOADING.to_string()),
-    }
+    crate::offload::locked_mut(state.workspace(), f)
 }
 
 /// The current storage root, or the `workspace_loading` sentinel.

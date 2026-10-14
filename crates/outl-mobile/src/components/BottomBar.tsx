@@ -66,7 +66,7 @@ export function BottomBar(props: {
             type="button"
             aria-label="Add to today's journal"
             onClick={props.onCapture}
-            class="outl-press flex h-11 w-11 items-center justify-center rounded-full bg-(--color-outl-accent) text-(--color-outl-bg) shadow-[var(--shadow-capsule)]"
+            class="outl-press flex h-11 w-11 items-center justify-center rounded-full bg-(--color-outl-accent) text-(--color-outl-accent-fg) shadow-[var(--shadow-capsule)]"
           >
             <PlusIcon size={24} />
           </button>

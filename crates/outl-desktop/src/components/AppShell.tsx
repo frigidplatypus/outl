@@ -13,9 +13,9 @@ import { flattenAll } from "@outl/shared/outline";
 
 import {
   appState,
-  backlinksState,
   setAppState,
   setOutline,
+  trackBacklinks,
 } from "../lib/store";
 import {
   takePendingDeepLink,
@@ -144,10 +144,10 @@ export function AppShell() {
       applyView(view);
       // A peer reload keeps the same slug, so OutlineView's `on(slug)`
       // backlinks effect won't refire — but a peer's edit CAN change this
-      // page's backlinks. Refetch them here explicitly.
-      pageBacklinks(page.slug)
-        .then((r) => setAppState(backlinksState(r)))
-        .catch(() => {});
+      // page's backlinks. Refetch them here explicitly, behind the page:
+      // the rows already on screen stay up and the section carries its
+      // own pending mark (`UX.md` → Never block a keystroke).
+      void trackBacklinks(pageBacklinks(page.slug));
     } catch {
       await loadToday();
     }

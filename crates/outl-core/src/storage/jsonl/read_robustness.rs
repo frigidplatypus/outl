@@ -96,7 +96,7 @@ fn index_rebuild_skips_a_read_error_and_keeps_indexing() {
         &mut reader,
         std::path::Path::new("flaky.jsonl"),
         &mut hlc,
-        &mut node,
+        Some(&mut node),
     );
 
     assert!(
@@ -130,7 +130,7 @@ fn index_rebuild_gives_up_on_an_endlessly_failing_reader() {
         &mut reader,
         std::path::Path::new("dead.jsonl"),
         &mut hlc,
-        &mut node,
+        Some(&mut node),
     );
     assert!(saw_io_error);
     assert_eq!(hlc.len(), 0);

@@ -11,8 +11,9 @@
 
 use serde::Serialize;
 
-use crate::helpers::{parse_node_id, with_ws};
+use crate::helpers::parse_node_id;
 use crate::host::AppHost;
+use crate::offload;
 
 /// Events returned when the client does not ask for a number.
 ///
@@ -77,7 +78,13 @@ pub struct PageTimelineDto {
 /// `limit` defaults to [`DEFAULT_LIMIT`]; `0` is read as the default
 /// rather than as "no events", because a client that forgets to send
 /// the field should get a usable panel, not an empty one.
-pub fn page_timeline<S: AppHost>(
+///
+/// Async: the read walks the whole op log and materializes the text of
+/// every block the page has ever had, under the workspace lock. The
+/// desktop already gates the fetch on the panel being open for exactly
+/// that reason; running it off the IPC thread is the other half
+/// ([`crate::offload`]).
+pub async fn page_timeline<S: AppHost>(
     state: &S,
     page_id: String,
     limit: Option<usize>,
@@ -87,19 +94,23 @@ pub fn page_timeline<S: AppHost>(
         Some(0) | None => DEFAULT_LIMIT,
         Some(n) => n,
     };
-    with_ws(state, |ws| {
-        let slug = outl_actions::page_meta(ws, node)
-            .map(|meta| meta.slug)
-            .ok_or_else(|| format!("no page {page_id}"))?;
-        let timeline = outl_actions::page_timeline(ws, node, &slug, limit)
-            .map_err(|e| format!("could not read the history of {slug}: {e}"))?;
-        Ok(PageTimelineDto {
-            slug: timeline.slug.clone(),
-            total: timeline.total,
-            truncated: timeline.truncated(),
-            events: timeline.events.iter().map(to_dto).collect(),
+    let workspace = state.workspace_arc();
+    offload::run("page_timeline", move || {
+        offload::locked(&workspace, |ws| {
+            let slug = outl_actions::page_meta(ws, node)
+                .map(|meta| meta.slug)
+                .ok_or_else(|| format!("no page {page_id}"))?;
+            let timeline = outl_actions::page_timeline(ws, node, &slug, limit)
+                .map_err(|e| format!("could not read the history of {slug}: {e}"))?;
+            Ok(PageTimelineDto {
+                slug: timeline.slug.clone(),
+                total: timeline.total,
+                truncated: timeline.truncated(),
+                events: timeline.events.iter().map(to_dto).collect(),
+            })
         })
     })
+    .await
 }
 
 /// Project one `outl_actions::TimelineEvent` onto the wire shape.

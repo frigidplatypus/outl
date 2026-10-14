@@ -1,10 +1,10 @@
-//! Reading and writing the op log on behalf of the sync wire.
+//! Writing the op log on behalf of the sync wire.
 //!
 //! `engine_sync` owns what crosses the wire; this module owns what the wire
-//! reads from and writes to disk. The split matters because the durability
-//! rules here are not protocol rules: they hold no matter which version of the
-//! wire calls them, and they are the reason a sync can be interrupted at any
-//! point without corrupting anything.
+//! writes to disk. The split matters because the durability rules here are
+//! not protocol rules: they hold no matter which version of the wire calls
+//! them, and they are the reason a sync can be interrupted at any point
+//! without corrupting anything.
 //!
 //! Two invariants live here, both paid for in production incidents:
 //!
@@ -16,121 +16,23 @@
 //! - **A batch is flushed and `sync_data`'d before anyone is told it landed.**
 //!   The confirmation the responder sends is only worth the fsync that
 //!   precedes it.
+//!
+//! The read half — what this device holds, and what a peer therefore lacks —
+//! lives in [`oplog_census`](crate::oplog_census). The ingest's dedup set is
+//! the one thing that crosses the line, and it asks that module rather than
+//! reading op bodies of its own.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::io::Write as _;
 
 use anyhow::{Context, Result};
 use outl_core::hlc::Hlc;
 use outl_core::id::ActorId;
-use outl_core::storage::{JsonlStorage, Storage};
 use outl_core::LogOp;
-use tracing::{info, warn};
+use tracing::warn;
 
 use crate::engine::AppendLock;
-use crate::protocol::ActorClock;
-
-/// Per-actor census of the local op log: the set of DISTINCT HLCs held for
-/// each actor. Distinct because historic unsynchronized concurrent pulls left
-/// duplicated append lines on real disks — a raw line count would inflate the
-/// `count` and mask a genuine gap on the advertising side.
-pub(crate) fn actor_census(
-    ops_dir: &std::path::Path,
-    actor: ActorId,
-) -> Result<HashMap<ActorId, BTreeSet<Hlc>>> {
-    let storage = JsonlStorage::open(ops_dir.to_path_buf(), actor)
-        .context("open JsonlStorage for actor census")?;
-    let mut census: HashMap<ActorId, BTreeSet<Hlc>> = HashMap::new();
-    for op in storage.all_ops().context("load all ops for census")? {
-        census.entry(op.actor).or_default().insert(op.ts);
-    }
-    Ok(census)
-}
-
-/// Compute our vector clock (per-actor max HLC + distinct-op count) from the
-/// local op log. Derived from `all_ops` — the `Storage` trait stays untouched;
-/// max + count both fall out of the same census pass.
-pub(crate) fn local_vector_clock(
-    ops_dir: &std::path::Path,
-    actor: ActorId,
-) -> Result<HashMap<ActorId, ActorClock>> {
-    Ok(actor_census(ops_dir, actor)?
-        .into_iter()
-        .filter_map(|(actor_id, hlcs)| {
-            let max = *hlcs.last()?;
-            Some((
-                actor_id,
-                ActorClock {
-                    max,
-                    count: hlcs.len() as u64,
-                },
-            ))
-        })
-        .collect())
-}
-
-/// Collect the ops the peer is missing, given the peer's vector clock.
-///
-/// Per actor in OUR log:
-/// - peer has no entry → send everything we hold for that actor;
-/// - peer has `(max_r, count_r)` → let `below` = how many DISTINCT ops of
-///   that actor we hold with `ts <= max_r`. If `below > count_r` the peer
-///   has a GAP below its own watermark (an op landed ahead of a pending
-///   backlog, so the bare max lies about what's underneath) → send the
-///   actor's FULL log; the receiver's ingest dedup absorbs the overlap.
-///   Otherwise → fast path, send only `ts > max_r`.
-///
-/// Theoretical limitation (accepted): two replicas holding EQUAL counts of
-/// DIFFERENT subsets below the same max are indistinguishable to this check,
-/// so the fast path under-sends between them. Convergence is still
-/// guaranteed via the origin: each op's authoring device holds its own
-/// actor's complete log, so any replica with a partial subset trips the
-/// `below > count` check the next time it syncs (directly or transitively)
-/// with the origin's full prefix.
-pub(crate) fn ops_missing_for(
-    ops_dir: &std::path::Path,
-    actor: ActorId,
-    peer_clock: &HashMap<ActorId, ActorClock>,
-) -> Result<Vec<LogOp>> {
-    let census = actor_census(ops_dir, actor)?;
-
-    // Actors whose FULL log must cross (unknown to the peer, or gap detected
-    // below the peer's watermark).
-    let full_resend: HashSet<ActorId> = census
-        .iter()
-        .filter_map(|(actor_id, hlcs)| match peer_clock.get(actor_id) {
-            None => Some(*actor_id),
-            Some(peer) => {
-                let below = hlcs.range(..=peer.max).count() as u64;
-                (below > peer.count).then(|| {
-                    info!(
-                        actor = %actor_id,
-                        below,
-                        peer_count = peer.count,
-                        "gap below peer watermark detected; resending full actor log"
-                    );
-                    *actor_id
-                })
-            }
-        })
-        .collect();
-
-    let storage =
-        JsonlStorage::open(ops_dir.to_path_buf(), actor).context("open storage for delta")?;
-    let all_ops = storage.all_ops().context("load all ops")?;
-    Ok(all_ops
-        .into_iter()
-        .filter(|op| {
-            if full_resend.contains(&op.actor) {
-                return true;
-            }
-            match peer_clock.get(&op.actor) {
-                None => true,
-                Some(peer) => op.ts > peer.max,
-            }
-        })
-        .collect())
-}
+use crate::oplog_census::actor_census;
 
 /// Cross-process append lock on `<ops_dir>/.append.lock` (advisory flock).
 ///
@@ -198,9 +100,22 @@ fn needs_tail_separator(file: &mut std::fs::File) -> std::io::Result<bool> {
 /// Runs under BOTH locks — the caller holds the in-process [`AppendLock`],
 /// and this function takes the cross-process [`OpsDirAppendLock`] — so the
 /// read-present/append pair is atomic against every other transport writer
-/// on this device. Loading the present `(actor, ts)` set inside the flock is
-/// what makes the dedup race-free: nothing can append between the read and
-/// the write.
+/// on this device. Loading the present HLC set inside the flock is what
+/// makes the dedup race-free: nothing can append between the read and the
+/// write.
+///
+/// The present set is **the census**, not `all_ops`. "Which ops do I already
+/// hold" is a question about identity, and an op's identity is its HLC —
+/// globally unique, since the producing actor is a field of it. Reading the
+/// bodies to answer it meant every ingest batch loaded the whole workspace
+/// while holding the device-wide append flock, so every other sync write on
+/// the machine queued behind it.
+///
+/// Keying on the HLC alone is also the stricter rule. The old `(actor, ts)`
+/// pair let a forged op re-use a known HLC under a different actor label and
+/// land as a second line claiming one op's identity; two distinct honest ops
+/// can never collide, because the generator varies `(physical, logical)`
+/// within an actor and the actor itself across them.
 ///
 /// Dedup drops ops already on disk AND duplicates within the batch itself,
 /// so a full-actor resend (gap fallback) or two concurrent pulls of the same
@@ -216,15 +131,11 @@ fn write_deduped_batch(
         .with_context(|| format!("create ops dir {}", ops_dir.display()))?;
     let _flock = OpsDirAppendLock::acquire(ops_dir)?;
 
-    let storage = JsonlStorage::open(ops_dir.to_path_buf(), local_actor)
-        .context("open storage for ingest dedup")?;
-    let mut present: HashSet<(ActorId, Hlc)> = storage
-        .all_ops()
+    let mut present: HashSet<Hlc> = actor_census(ops_dir)
         .context("load present ops for dedup")?
-        .iter()
-        .map(|op| (op.actor, op.ts))
+        .into_values()
+        .flatten()
         .collect();
-    drop(storage);
 
     let mut per_actor: HashMap<ActorId, Vec<u8>> = HashMap::new();
     let mut applied = 0usize;
@@ -246,8 +157,8 @@ fn write_deduped_batch(
         //   from the `ops/.append.lock` this function holds. An ingest writing
         //   that file races the local appender with nothing in common to
         //   serialize them.
-        // - **Silent loss.** The dedup below is `(actor, ts)` and content-blind,
-        //   so an op forged under our actor id pre-claims an HLC slot; our real
+        // - **Silent loss.** The dedup below is by HLC and content-blind, so
+        //   an op forged under our actor id pre-claims an HLC slot; our real
         //   op is then dropped as a duplicate when it is written. The forged
         //   content wins and the genuine edit disappears with no error anywhere.
         //
@@ -260,7 +171,7 @@ fn write_deduped_batch(
             continue;
         }
         // Already on disk, or a duplicate earlier in this same batch.
-        if !present.insert((op.actor, op.ts)) {
+        if !present.insert(op.ts) {
             continue;
         }
         let line = match crate::protocol::encode_op(op) {

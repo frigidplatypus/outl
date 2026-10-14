@@ -11,10 +11,11 @@ Targets, signing and what needs a Mac: `IOS-EXTENSIONS.md`.
 
 ## `Journal.tsx` is being broken up
 
-1,978 lines in one component, still over 3x the `file-size-guard.sh` ceiling.
+1,802 lines in one component, still 3x the `file-size-guard.sh` ceiling.
 The chrome came out first (`JournalChrome.tsx`), then the delete prompts (`JournalDeleteDialogs.tsx`) and the toolbar dispatch (`Journal.toolbar-dispatch.ts`); [issue 265](https://github.com/outlmd/outl/issues/265) phases 1-3 took the block ops, the selection state machine and the platform listeners out.
 Day navigation and wake-to-today live in `Journal.day-nav.ts`, quick capture in `Journal.capture.ts` (`outl://capture` opens its sheet through `openCapture` in `Journal.listeners.ts`), and the empty states and zoom bar in `JournalEmpty.tsx` and `JournalZoomBar.tsx`.
 The foreground pull and the capture inbox drain live in `Journal.inbox.ts`.
+The two workspace-open paths came out last, into `Journal.boot.ts`, together with every ticker in `Journal.polls.ts` — they went together because both open paths hold a user-visible gate (`loaded` gates the skeleton, `syncing` gates both refresh affordances), and a gate set on one path and cleared on another is how a stall becomes permanent.
 The remaining seams are in that issue, and the props rule an extraction must not break is in `outl-frontend-shared/CLAUDE.md`.
 
 ## Layering
@@ -72,7 +73,7 @@ The storage trait stays generic; the transport gets handled outside it.
 `Journal.tsx` is the mobile app's one large component and the single biggest file in the repo.
 It reached 3,212 lines because the frontend sat outside `file-size-guard.sh`, which only read `.rs` until 2026-09 — so nothing ever warned.
 
-Eight pieces are now siblings, and new code of any of those shapes belongs there rather than back in the parent:
+Ten pieces are now siblings, and new code of any of those shapes belongs there rather than back in the parent:
 
 - **`JournalHeader.tsx`** — `JournalHeader`, `PageHeader`, `ChevronLeft`, `ChevronRight`.
   Pure render: props in, markup out, no state and no commands.
@@ -108,7 +109,12 @@ Eight pieces are now siblings, and new code of any of those shapes belongs there
   The twin of the desktop's `PageSections.tsx`, and the reason the two sections live in one component rather than one inside the other: they look alike and answer different questions — backlinks point *at* this page, nested pages live *under* its namespace.
   `Journal` keeps the navigation, passing a single `onOpenPage(slug, kind)` that both sections route through, so the journal-vs-page opener choice has one owner instead of one per section.
 
-What is left is ~2,070 lines, almost all of it one `Journal()` function.
+- **`Journal.boot.ts`** — `createJournalBoot`: the two workspace-open paths (`loadTodayWithRetry`, `pullAndReload`).
+  Every await in here is capped. The open is the one the journal's skeleton waits on, so an uncapped call there is not a slow page, it is a page that never comes back.
+- **`Journal.polls.ts`** — `installJournalPolls`: the connectivity listeners and every ticker (peers 3s, reminders 30s).
+  Armed in the body so `onCleanup` owns the right scope, started only after the boot load settles.
+
+What is left is ~1,800 lines, almost all of it one `Journal()` function.
 That is real debt, not a finished job: what is left is a state/effects question (edit lifecycle, sync signals, the native bridges, the sheet stack), not a "move these functions" question — phases 1-3 were the movable half — and it wants its own plan.
 `.github/file-size-baseline.txt` holds the current number, and the CI ratchet means it can go down but not up.
 
@@ -135,6 +141,14 @@ Two were declared and never forwarded, and both were invisible: optional props, 
 Both are fixed.
 The test reads the JSX rather than rendering it (rendering needs haptics, a Tauri bridge and a WKWebView-shaped textarea — mocking all three would pin the mocks, and the defect is in the JSX), and a prop the children legitimately must not have goes in its `NOT_FORWARDED` table with a reason.
 Same "declare the gap, don't discover it" shape as `outl_shortcuts::support` and `wire_types.rs`.
+
+## The keyboard has to come up inside the tap
+
+**A handler that creates a block from a tap taken with the keyboard down calls `armKeyboard()` before its first `await`** — WKWebView raises the keyboard only for a `.focus()` inside the tap's gesture window, and a create is two awaits deep.
+Focus it after them and you get a genuinely focused textarea with no keyboard, which reads as "the + button doesn't let me type" and which nothing in jsdom can see.
+`lib/keyboard-keeper.ts` is the one owner; `Journal.new-block.ts` holds the two handlers that need it and carries anything typed during the round-trip into the new block's draft.
+A deferred tap is not a tap, so a `BlockContextMenu` action that ends in a text field declares `armsKeyboard: true` and the menu arms before it defers.
+The mechanism, the per-path table and why the focus test is only a **proxy** (a device is what proves a keyboard): [`docs/mobile-ux.md` → Making a block and typing in it](../../docs/mobile-ux.md#making-a-block-and-typing-in-it-the-keyboard-handoff).
 
 ## Storage is a chosen folder, not forced iCloud (Fase 2)
 
@@ -328,6 +342,9 @@ scope, the `[[` picker) and `lib/properties.test.ts`.
 
 The header capsule's gear opens `components/SettingsSheet.tsx`.
 It is the client's **only** preferences screen: every other sheet here (`DevicesSheet`, `TemplateSheet`, `RemindersSheet`, `PropertiesSheet`) shows workspace content, which is why the toolbar lock ([#271](https://github.com/outlmd/outl/issues/271)) had nowhere to live before it.
+Its first row is the exception, and it is navigation rather than a preference: **Devices and sync** hands over to `<DevicesSheet />` (closing this sheet first, since this one is `z-[55]` and that one `z-50`).
+It is here because pairing otherwise had no name anywhere on the phone — the sync dot's press-and-hold is a gesture nothing announces, and a user looking for P2P looks where the desktop keeps it, in Settings.
+The gesture stays as the shortcut.
 
 Two rules govern what may go in it:
 
@@ -422,17 +439,19 @@ The header `<SyncDot>` and `PullToRefresh` reflect and drive the **iroh P2P tran
 
 - **Dot state.**
   The PRIMARY input is iroh peer health, polled via `peerStatus()` → the shared `peersOnline()` helper (`@outl/shared/peers`) into a `peersUp` signal.
-  The poll runs on mount, every 5s, and after each `peer-ops-changed` (the native ops bridge) plus after a force-sync.
+  The poll runs every 3s, and after each `peer-ops-changed` (the native ops bridge) plus after a force-sync.
+  It is **armed** in the component body but **started** at the end of `onMount`, after the boot load settles (`Journal.polls.ts`): probing during render put a full workspace load in front of the first paint.
+  `peer_status` is `async` now, so that load is off the iOS main thread, but it still reopens the op log per call — deferring the first probe stays right.
   Derivation: a force-sync in flight → **syncing** (spinner); else `online() && peersUp()` → **synced** (green); else **offline** (orange).
   `navigator.onLine` stays only as a secondary floor (truly no radio → orange regardless).
   Zero paired peers reads as offline — there's nothing to sync with.
 - **Refresh.**
-  There is no separate refresh button: the sync dot is the button. A tap fires `handleRefresh`, press-and-hold opens the devices sheet (`createLongPress`, the same recogniser the block row and title use).
+  There is no separate refresh button: the sync dot is the button. A tap fires `handleRefresh`, press-and-hold opens the devices sheet (`createLongPress`, the same recogniser the block row and title use) — a shortcut for the named row in Settings, never the only way in.
   Taps while a pass is in flight (`syncing` or `refreshing`) are dropped, and `handleRefresh` itself refuses to start a second pass, so the dot, the pull and the auto-sync can never stack dials.
   `handleRefresh` (the dot **and** `PullToRefresh`) calls `syncNow()` (force a P2P pull — dial every peer now instead of waiting for the 8s catch-up tick) THEN `reloadWorkspace()` (re-render with whatever landed).
   Both calls are wrapped in `withError` (toast on failure, never wedge the local reload), and the `syncing` spinner brackets the whole pass.
 - **Auto-sync (no button).**
-  `Journal.tsx` shares the refresh core as `pullAndReload()`, fired on `onMount`, on `visibilitychange` → visible (iOS froze JS in the background), and on the 5s poll tick.
+  `Journal.tsx` shares the refresh core as `pullAndReload()`, fired on `onMount`, on `visibilitychange` → visible (iOS froze JS in the background), and on the 3s poll tick.
   The mobile side initiating the dial is NAT-friendly — waiting for the desktop to reach an iPhone behind carrier NAT is not — so this is what makes a desktop edit show up without the user touching refresh.
   The `workspace-ready` reload skips while a block is being edited (guarded by `editingId()`) so it never resets the textarea mid-edit.
   It also routes through `pullAndReload` (not a raw `openJournalFor` + `applyView`) so it inherits its guards.
@@ -454,6 +473,13 @@ Contract-by-contract table (moved out to keep this file under the per-crate size
 `@outl/shared/theme::installTheme` fetches both pair sides via the shared `get_theme` command, holds both `Palette`s in memory, and repaints through `applyPaletteToRoot` on a `prefers-color-scheme` flip (no backend round-trip mid-repaint).
 `App.tsx` reads `outl_config::ThemeCfg`; a fresh config already resolves to the brand pair `outl-light` / `outl`, while older configs with only `preset` keep that preset on both sides.
 Field reference: [`docs/config.md` § `[theme]`](../../docs/config.md#theme).
+
+**A text colour belongs on the element that holds the text, and `src/styles.css` must stay out of its way.**
+An unlayered rule outranks every layered one regardless of specificity, and Tailwind's utilities live in `@layer utilities` — so the `button, input, textarea { color: inherit }` this file used to carry unlayered silently killed **every** `text-*` class on a `<button>`.
+The week strip's selected day painted its accent tile and then rendered near-black text inside it, because the colour resolved to nothing and the spans inherited `fg` from `#root`; the same failure was live on every primary accent button here.
+The `color` line is gone (Tailwind's preflight already sets it in `@layer base`, which beats the UA sheet and loses to a utility, which is the order you want).
+`font-family` / `font-size` are still unlayered there and still beat `text-[16px]` on a button — if you need a button's font size to take, that is why.
+Paint a fill with `bg-(--color-outl-accent)` and its text with `text-(--color-outl-accent-fg)`, never with `text-(--color-outl-bg)` (root `CLAUDE.md` invariant 13, and [`DESIGN.md`](../../DESIGN.md) owns the pairing).
 
 ## Logging (device console)
 

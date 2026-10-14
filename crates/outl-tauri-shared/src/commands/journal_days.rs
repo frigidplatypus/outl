@@ -14,25 +14,32 @@ use crate::host::AppHost;
 
 /// Journal slugs between `from` and `to` (inclusive, `YYYY-MM-DD`) whose
 /// page has at least one non-empty block, in ascending order.
-pub fn journal_days_with_content<S: AppHost>(
+///
+/// Async: the index build reads and parses every `.md` + sidecar in the
+/// workspace, and mobile's week strip asks for this on mount, beside the
+/// journal it is also waiting to paint ([`crate::offload`]).
+pub async fn journal_days_with_content<S: AppHost>(
     state: &S,
     from: String,
     to: String,
 ) -> Result<Vec<String>, String> {
     let root = state.storage_root()?;
-    let index = WorkspaceIndex::build(&root);
-    let journals: BTreeSet<&str> = index
-        .pages()
-        .filter(|p| p.is_journal)
-        .map(|p| p.slug.as_str())
-        .collect();
-    Ok(days_with_content(
-        index
-            .iter_blocks()
-            .filter(|b| journals.contains(b.source_slug.as_str())),
-        &from,
-        &to,
-    ))
+    crate::offload::run("journal_days_with_content", move || {
+        let index = WorkspaceIndex::build(&root);
+        let journals: BTreeSet<&str> = index
+            .pages()
+            .filter(|p| p.is_journal)
+            .map(|p| p.slug.as_str())
+            .collect();
+        Ok(days_with_content(
+            index
+                .iter_blocks()
+                .filter(|b| journals.contains(b.source_slug.as_str())),
+            &from,
+            &to,
+        ))
+    })
+    .await
 }
 
 /// The range filter behind [`journal_days_with_content`], over journal

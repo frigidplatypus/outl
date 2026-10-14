@@ -143,12 +143,25 @@ export function listenForDeepLink(deps: JournalListenerDeps): void {
  * under the drop point (physical→CSS pixels, `data-block-id` hit-test)
  * identically to the desktop, so the two clients can't drift on the
  * geometry.
+ *
+ * `Promise.resolve().then(...)`, not a bare call, because "best-effort"
+ * has to survive a **synchronous** throw: `installFileDrop` reaches
+ * `getCurrentWebview()` before it returns a promise, so a trailing
+ * `.catch` is not attached yet when that throws. It takes the rest of
+ * `onMount` with it — which is the boot load, i.e. an app that paints
+ * chrome and never loads the journal. Seen in a plain browser (no
+ * `__TAURI_INTERNALS__.metadata`); the cost of being wrong about which
+ * environments can reach it is the whole journal, and the fix is one
+ * line.
  */
 export function listenForFileDrop(deps: JournalListenerDeps): void {
   const keep = armCleanup();
-  installFileDrop({
-    onDrop: (paths, blockId) => deps.onFileDrop(paths, blockId),
-  })
+  Promise.resolve()
+    .then(() =>
+      installFileDrop({
+        onDrop: (paths, blockId) => deps.onFileDrop(paths, blockId),
+      }),
+    )
     .then(keep)
     .catch((e) => {
       console.warn("failed to register drag-drop listener", e);
@@ -166,13 +179,23 @@ export function listenForFileDrop(deps: JournalListenerDeps): void {
  *
  * `workspace-ready` fires when peer ops **land**, so there may not be
  * another one: returning early mid-edit threw the signal away and left
- * the view waiting for the 5s poll. `pullAndReload` handles the mid-edit
+ * the view waiting for the 3s poll. `pullAndReload` handles the mid-edit
  * case itself (pull now, re-render when the field closes) and carries
  * the generation guard that stops a slow reload flipping the page back
  * to an older op-log state.
  */
 export function listenForWorkspaceReady(deps: JournalListenerDeps): void {
   const keep = armCleanup();
+  // `workspace-ready` fires once per batch of peer ops that lands, so a boot
+  // that is still waiting on the workspace can get several while the first
+  // load is in flight. Each of those would start its own 50-attempt retry
+  // loop, and on iOS they all queue on the main thread (wry serves Tauri IPC
+  // there, and a non-async command runs on it) — N full workspace loads
+  // stacked behind the one the user is waiting for. That queue is what the
+  // app was being watchdog-killed for. One load at a time; the event that
+  // arrives mid-load is dropped, not deferred, because the load in flight
+  // will read the ops it was announcing anyway.
+  let bootLoading = false;
 
   import("@tauri-apps/api/event")
     .then(async ({ listen }) => {
@@ -194,7 +217,13 @@ export function listenForWorkspaceReady(deps: JournalListenerDeps): void {
       keep(
         await listen("workspace-ready", async () => {
           if (!deps.view()) {
-            await deps.loadTodayWithRetry();
+            if (bootLoading) return;
+            bootLoading = true;
+            try {
+              await deps.loadTodayWithRetry();
+            } finally {
+              bootLoading = false;
+            }
             return;
           }
           await deps.pullAndReload({ background: true });

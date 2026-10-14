@@ -16,6 +16,12 @@ Design and invariants: [`docs/rfcs/0363-ios-quick-capture.md`](../../docs/rfcs/0
 | Drain | `outl_actions::capture`, `outl-tauri-shared/src/capture_inbox.rs` (`drain_capture_inbox`) | Rust, tested on Linux |
 | When to drain | `src/components/Journal.inbox.ts` (mount, foreground, `__outlCapturesArrived`) | webview |
 
+The `iOS N+` column is the **API** each piece needs, not the floor the app
+ships with: the deployment target is **iOS 17**, declared in
+`src-tauri/gen/apple/project.yml`, the committed `project.pbxproj`,
+`tauri.conf.json` and `swift/OutlKit/Package.swift` (all four, or a build
+picks the lowest and an `#available` branch nobody tests comes back).
+
 The App Group is `group.app.outl.mobile-app`; the inbox is `captures/` in
 its container. The app and every extension that writes must carry it.
 

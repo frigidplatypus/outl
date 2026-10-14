@@ -85,6 +85,22 @@ export const MONTH_NAMES = [
 ] as const;
 
 /**
+ * Full weekday names, indexable by `Date#getDay()` (0 = Sunday).
+ * English, like {@link MONTH_NAMES}: these are what the UI falls back
+ * to when no locale is named, so a journal heading never mixes the
+ * host's language into prose this module writes in English.
+ */
+export const WEEKDAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
+/**
  * Sunday-first single-letter weekday labels (iOS Calendar style).
  * Pairs with `Date#getDay()` used directly as the leading-pad count.
  * Used by the mobile bottom-sheet calendar.
@@ -148,6 +164,16 @@ export interface JournalHeading {
  * browser's clock; while it is unknown (`null`) every day gets its
  * weekday. Returns `null` for a slug that is not a real date, so the
  * caller can fall back to the slug.
+ *
+ * `locale` is opt-in, and omitting it formats in English rather than in
+ * the host's language. `Today` / `Yesterday` / `Tomorrow` are English
+ * prose this function writes itself, so deferring the date to the host
+ * put two languages in one heading — a macOS pt-BR machine read
+ * `Today 12 de outubro de 2026`, and a day further out read
+ * `quinta-feira`. The app is English until it is translated
+ * (`CLAUDE.md` → Coding conventions), so a caller that wants another
+ * language has to ask for it, and will have to translate the three
+ * relative names in the same breath.
  */
 export function journalHeading(
   slug: string,
@@ -161,8 +187,11 @@ export function journalHeading(
     ? Math.round((day.getTime() - today.getTime()) / 86_400_000)
     : Number.NaN;
   const relative: Record<number, string> = { [-1]: "Yesterday", 0: "Today", 1: "Tomorrow" };
-  return {
-    title: relative[offset] ?? day.toLocaleDateString(locale, { weekday: "long" }),
-    date: day.toLocaleDateString(locale, { month: "long", day: "numeric", year: "numeric" }),
-  };
+  const weekday = locale
+    ? day.toLocaleDateString(locale, { weekday: "long" })
+    : WEEKDAY_NAMES[day.getDay()];
+  const date = locale
+    ? day.toLocaleDateString(locale, { month: "long", day: "numeric", year: "numeric" })
+    : `${MONTH_NAMES[day.getMonth()]} ${day.getDate()}, ${day.getFullYear()}`;
+  return { title: relative[offset] ?? weekday, date };
 }

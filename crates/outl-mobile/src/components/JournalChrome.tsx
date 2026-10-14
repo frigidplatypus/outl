@@ -4,6 +4,7 @@ import type { PageView, PluginToolbarButton } from "@outl/shared";
 import { JournalHeader, PageHeader } from "./JournalHeader";
 import { SyncDot } from "./SyncDot";
 import { focusMode } from "@outl/shared/polish";
+import { journalHeading } from "@outl/shared/journal";
 import { haptic } from "../lib/haptics";
 import { createLongPress, type LongPressHandlers } from "../lib/long-press";
 
@@ -62,6 +63,23 @@ export function JournalChrome(props: {
   // Either flag means a pass is running: `syncing` covers the automatic
   // open/foreground pulls, `refreshing` the manual ones.
   const syncBusy = () => props.syncing || props.refreshing;
+  /**
+   * What the title says while the first page is still opening.
+   *
+   * A cold start always opens today's journal, and the date needs no
+   * workspace (`today_slug` is pure date math), so the header can say
+   * "Journal / Today" from the first frame. It used to render the `null`
+   * fallback — the label "Page" over an empty title — which is not a
+   * placeholder but a wrong answer, held for as long as the open took.
+   *
+   * Deliberately `PageHeader` and not the day stepper: its chevrons
+   * cannot step a day that has not loaded, and a dead button is worse
+   * than no button (root `CLAUDE.md` invariant 12).
+   */
+  const bootTitle = () => {
+    const today = props.todaySlug;
+    return today === null ? "" : (journalHeading(today, today)?.title ?? "");
+  };
   const devicesLongPress = createLongPress({
     onLongPress: () => {
       haptic("medium");
@@ -133,8 +151,11 @@ export function JournalChrome(props: {
             when={props.view?.page.kind === "journal"}
             fallback={
               <PageHeader
-                title={props.view?.page.title ?? ""}
-                kind={props.view?.page.kind ?? null}
+                title={props.view?.page.title ?? bootTitle()}
+                kind={
+                  props.view?.page.kind ??
+                  (props.todaySlug === null ? null : "journal")
+                }
               />
             }
           >

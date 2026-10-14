@@ -137,7 +137,7 @@ public final class OutlOpsWatcher: NSObject {
     private func notifyJSAndClear() {
         notifyPending = false
         guard
-            let window = UIApplication.shared.windows.first,
+            let window = OutlWindows.key,
             let web = OutlToolbarView.findWebView(in: window)
         else { return }
         web.evaluateJavaScript(

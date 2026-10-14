@@ -40,7 +40,7 @@ public final class OutlCaptureInbox: NSObject {
 
     private static func notifyWebView() {
         guard
-            let window = UIApplication.shared.windows.first,
+            let window = OutlWindows.key,
             let web = OutlToolbarView.findWebView(in: window)
         else { return }
         web.evaluateJavaScript(

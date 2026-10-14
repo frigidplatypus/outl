@@ -14,7 +14,7 @@ import {
 } from "@outl/shared/api/commands";
 
 import { InlineBacklinks } from "./InlineBacklinks";
-import { setAppState } from "../lib/store";
+import { setAppState, trackBacklinks } from "../lib/store";
 
 vi.mock("@outl/shared/api/commands", () => ({
   openRef: vi.fn(),
@@ -81,6 +81,18 @@ function backlinksReply(backlinks: Backlink[]): PageBacklinks {
   };
 }
 
+/**
+ * A textarea standing in for the block the user is typing in, with the
+ * caret in it. Nothing about a backlinks fetch may reach it.
+ */
+function focusedEditor(): HTMLTextAreaElement {
+  const editor = document.createElement("textarea");
+  editor.value = "typing while backlinks load";
+  document.body.appendChild(editor);
+  editor.focus();
+  return editor;
+}
+
 afterEach(() => {
   dispose?.();
   dispose = undefined;
@@ -90,6 +102,7 @@ afterEach(() => {
     backlinks: [],
     backlinksOpen: true,
     backlinksOrder: "newest",
+    backlinksLoading: false,
   });
   document.body.innerHTML = "";
 });
@@ -159,5 +172,75 @@ describe("InlineBacklinks task state — #144", () => {
       expect(openRef).toHaveBeenCalledWith("journal");
     });
     expect(toggleTodo).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `UX.md` → Never block a keystroke: the backlinks scan is
+ * `O(blocks-in-workspace)`, so it loads behind the page, and the only
+ * thing on screen that may say so is the backlinks section itself.
+ *
+ * The product regression these pin: the page went into a load state
+ * while backlinks resolved, which took the editor and the caret with
+ * it. The section owning its own pending state is what makes a global
+ * one unnecessary.
+ */
+describe("backlinks load behind the page", () => {
+  it("shows the section's own pending state and leaves the editor alone", async () => {
+    let settle: (r: PageBacklinks) => void = () => {};
+    vi.mocked(pageBacklinks).mockReturnValue(
+      new Promise<PageBacklinks>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    const editor = focusedEditor();
+    const host = mount([]);
+
+    const done = trackBacklinks(pageBacklinks("project"));
+
+    // The section says it is loading, by itself — no page-wide state.
+    expect(host.querySelector("[data-backlinks-pending]")).not.toBeNull();
+    // The input the user is in is untouched: mounted, enabled, caret kept.
+    expect(document.activeElement).toBe(editor);
+    expect(editor.disabled).toBe(false);
+
+    settle(backlinksReply([backlink("todo", "TODO")]));
+    await done;
+
+    expect(host.querySelector("[data-backlinks-pending]")).toBeNull();
+    expect(host.querySelector('[data-todo="TODO"]')?.textContent).toBe("▢");
+    expect(document.activeElement).toBe(editor);
+  });
+
+  it("keeps the rows it already has while a refetch runs", async () => {
+    let settle: (r: PageBacklinks) => void = () => {};
+    vi.mocked(pageBacklinks).mockReturnValue(
+      new Promise<PageBacklinks>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    const host = mount([backlink("todo", "TODO")]);
+
+    const done = trackBacklinks(pageBacklinks("project"));
+
+    // Blanking the list to show a placeholder would make a refetch read
+    // as "this page lost its references".
+    expect(host.querySelector('[data-todo="TODO"]')).not.toBeNull();
+    expect(host.querySelector("[data-backlinks-pending]")).not.toBeNull();
+
+    settle(backlinksReply([backlink("todo", "DONE")]));
+    await done;
+    expect(host.querySelector('[data-todo="DONE"]')).not.toBeNull();
+  });
+
+  it("clears the pending state when the fetch fails", async () => {
+    vi.mocked(pageBacklinks).mockRejectedValue(new Error("page not found"));
+    const host = mount([]);
+
+    await trackBacklinks(pageBacklinks("project"));
+
+    // A swallowed failure that leaves the placeholder up is a section
+    // that loads forever.
+    expect(host.querySelector("[data-backlinks-pending]")).toBeNull();
   });
 });

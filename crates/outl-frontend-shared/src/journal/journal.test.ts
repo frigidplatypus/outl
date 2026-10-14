@@ -141,4 +141,15 @@ describe("journalHeading", () => {
   it("returns null for a slug that is not a date", () => {
     expect(journalHeading("not-a-date", today)).toBeNull();
   });
+
+  // The title is English prose the function writes itself (`Today`), so a
+  // date formatted in the host's locale puts two languages in one heading
+  // — `Today 12 de outubro de 2026` on a pt-BR machine. The app is English
+  // until it is translated; the caller has to ask for anything else.
+  it("formats in English when the caller names no locale", () => {
+    expect(journalHeading("2026-10-08", today)).toEqual({
+      title: "Thursday",
+      date: "October 8, 2026",
+    });
+  });
 });

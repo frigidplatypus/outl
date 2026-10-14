@@ -11,6 +11,7 @@ colors:
   border: "#382c54"
   hint: "#b4adc7"
   accent: "#a78bfa"
+  accent-fg: "#0c0814"
   accent-soft: "#c4b5fd"
   accent-alt: "#d6ff47"
   warn: "#fbbf24"
@@ -250,6 +251,7 @@ Hex values shown are the `outl` (brand, dark) preset.
 | Field | Hex | What it means |
 |---|---|---|
 | `accent` | `#a78bfa` | Primary. Selection, active state, the ref-link hue, the caret. |
+| `accent_fg` | `#0c0814` | The foreground that reads **on** `accent` — primary buttons, the week strip's selected day, the calendar's selected cell, the mark inside a filled checkbox. Pairs with `accent` exactly as `destructive_fg` pairs with `destructive`. |
 | `accent_soft` | `#c4b5fd` | Lighter accent: caret, property values, italic, help titles. |
 | `accent_alt` | `#d6ff47` | Secondary hue, deliberately *not* a shade of `accent`. Code and DONE live here so they never disappear against an accent-painted selection. |
 | `warn` | `#fbbf24` | "Look at this" — open TODOs, transient status messages, the highlighter fill. |
@@ -257,6 +259,16 @@ Hex values shown are the `outl` (brand, dark) preset.
 
 `warn` and `destructive` are separate on purpose. Collapsing them is how a "3 blocks archived" toast
 ends up the same colour as "delete this page permanently".
+
+`accent_fg` exists because `accent` is authored as **ink** — a hue picked to read against `bg` — and
+being a background is a different job. Nine of ten presets resolve `accent_fg` to the canvas, which
+is why the clients got away with spelling it `text-(--color-outl-bg)` on eighteen surfaces for as
+long as they did. The tenth is `monokai`, whose canvas on its pink accent is 3.93:1, under AA; with a
+real field it picks `#000000` and reaches 5.55:1. **Never paint `bg` as a text colour on an accent
+fill** — that is a coincidence, not a pairing, and it inverts the moment a preset's `bg` stops being
+the opposite of its `accent`. `every_fill_pair_passes_contrast` checks both this pair and
+`accent`-on-`bg`, because the TUI's `selected_bullet` / `status_normal` / `list_selected` fills do
+reuse `accent` with the canvas on top.
 
 **Inline markdown** — `ref_link_fg`, `tag_link_fg`, `md_link_fg`, `bold_fg`, `italic_fg`, `strike_fg`,
 `highlight_bg` / `highlight_fg`, `code_fg`.
@@ -266,7 +278,10 @@ ends up the same colour as "delete this page permanently".
 **Chrome** — `status_normal_bg` / `_fg`, `status_insert_bg` / `_fg`, `status_visual_bg` / `_fg`,
 `status_message_fg`, `list_selected_bg` / `_fg`, `help_title_fg`.
 
-Two pairings worth stating because a preset author will get them wrong:
+Three pairings worth stating because a preset author will get them wrong:
+
+- `accent` / `accent_fg` must read against **each other**. Reaching for the canvas because it usually
+  works is the specific mistake this field was added to stop.
 
 - `highlight_bg` / `highlight_fg` must read against **each other**, not against `bg`.
   `outl-light` proves the point: it keeps a bright `#fde68a` fill on a light canvas, with the comment
@@ -368,6 +383,15 @@ The scale, as it actually appears in the code:
 Chrome icons are line SVGs from `@outl/shared/icons`, stroked in `currentColor` so they take the palette token of the text next to them.
 `PageGlyph` is the one place that picks a page's icon: its own `icon::` when set, else the calendar or page line icon.
 Emoji in chrome are out: they bring their own colours, render differently per OS, and read as content.
+That holds for every surface, not just the ones a screenshot caught: the desktop's attach button (`PaperclipIcon`), the link and asset chips in `MarkdownInline` (`PageIcon` / `ImageIcon`), and the namespace rows in `NestedPages`, which asks `PageGlyph` rather than spelling its own `icon || "📄"` fallback.
+
+A journal heading is written in English unless the caller asks for a locale.
+`journalHeading()` writes `Today` / `Yesterday` / `Tomorrow` itself, so handing the date to the host's locale put two languages in one line — a macOS pt-BR machine read `Today 12 de outubro de 2026`, and a day further out read `quinta-feira` where the accent test expects `Today`.
+The default now formats from the module's own `MONTH_NAMES` / `WEEKDAY_NAMES`, which is also what makes the test deterministic: under `LC_ALL=pt_BR.UTF-8` the old code passed every assertion that named a locale and failed the one that didn't.
+
+The page header carries no rule under it.
+A full-width border read as two stacked panes, with the title belonging to the chrome instead of to the outline it names; spacing separates them now.
+Page chrome that is not the title — attach a file, page history — sits in the eyebrow, so nothing with a label floats between the title and the first block.
 
 Monospace is a **role**, not a decoration. It marks "this is a literal": inline code, code-fence language
 labels, block ids, file paths, keyboard chords. Prose never uses it.

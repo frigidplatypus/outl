@@ -48,6 +48,26 @@ pub struct Palette {
     // ── accent rail ───────────────────────────────────────────────
     /// Primary accent (selection bg, ref-link color, active state).
     pub accent: String,
+    /// Foreground guaranteed readable **on** `accent`, for the
+    /// surfaces that paint it as a solid fill (the mobile week-strip
+    /// selected day, every primary button, the calendar's selected
+    /// cell).
+    ///
+    /// Same role as [`Palette::destructive_fg`], and it exists for the
+    /// same reason: `accent` is authored as *ink*, picked to read
+    /// against `bg`, which is a different job from being a background.
+    /// Before this field the clients spelled it `text-(--color-outl-bg)`
+    /// — the canvas colour used as a text colour. That is only ever
+    /// right by coincidence, and it inverts the moment a preset's `bg`
+    /// stops being the opposite of its `accent`. `monokai` is where the
+    /// coincidence already failed: its canvas on its pink accent is
+    /// 3.93:1, under AA, while a real `accent_fg` reaches 5.55:1.
+    ///
+    /// Nine of ten presets still resolve it to the canvas, so the pair
+    /// is unchanged where the coincidence held — the point is that it
+    /// is now a decision with a number behind it instead of a lucky
+    /// alias. `every_fill_pair_passes_contrast` keeps it honest.
+    pub accent_fg: String,
     /// Softer / lighter accent (caret, property value, italic).
     pub accent_soft: String,
     /// Secondary accent (code fg, todo_done) — a distinct hue from
@@ -79,9 +99,10 @@ pub struct Palette {
     /// So `destructive` joins the palette's other fill roles
     /// (`highlight_*`, `selected_bullet_*`, `status_*_*`,
     /// `list_selected_*`), which are all `_bg` / `_fg` pairs for exactly
-    /// this reason. `accent` deliberately stays unpaired: `bg` reads on
-    /// it in nine of ten presets because an accent is picked to contrast
-    /// with the canvas, so the inverse holds.
+    /// this reason. [`Palette::accent_fg`] is the same pattern, added
+    /// later: `accent` was left unpaired on the argument that `bg` reads
+    /// on it in nine of ten presets, and "nine of ten" is what a paired
+    /// field is for — the tenth was shipping under AA.
     ///
     /// `every_fill_pair_passes_contrast` keeps this honest.
     pub destructive_fg: String,
@@ -174,6 +195,7 @@ impl Palette {
             ("border", &self.border),
             ("hint", &self.hint),
             ("accent", &self.accent),
+            ("accent_fg", &self.accent_fg),
             ("accent_soft", &self.accent_soft),
             ("accent_alt", &self.accent_alt),
             ("warn", &self.warn),
