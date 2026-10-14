@@ -470,8 +470,10 @@ the same distinctions with `Modifier::ITALIC` and a colour and get an identical 
 
 ## Layout
 
-The base unit is **4px** (Tailwind's default scale, unmodified). Every spacing value in the clients is a
-multiple of it except two deliberate odd numbers, both listed below.
+The base unit is **4px** (Tailwind's default scale, unmodified), and layout reaches for `p-2` / `gap-3` /
+`mb-4` before it reaches for a bracket. Twenty-nine arbitrary pixel values survive across the two clients,
+almost all of them 1–6px nudges aligning a glyph against text it sits beside — a bullet's `mt-[5px]`, a
+hairline's `-left-[2px]`. Two carry a design decision rather than an alignment, and those two are below.
 
 ### Outline indentation — 22px per level, on both GUI clients
 
@@ -720,11 +722,11 @@ sized for a fingertip). Same tokens, two treatments, one component:
 | `**bold**` | `font-semibold` — weight only, no colour override | identical |
 | `*italic*` | `italic` | identical |
 | `~~strike~~` | `line-through opacity-70` | identical |
-| `((block-ref))`, resolved | `text-(--color-outl-ref-link-fg) underline decoration-(--color-outl-ref-link-fg)/40 underline-offset-2` — no hover state, because the chip is not navigable | `rounded-md bg-(--color-outl-accent)/12 px-1.5 py-0.5 text-[15px] font-medium text-(--color-outl-accent)` |
+| `((block-ref))`, resolved | `text-(--color-outl-ref-link-fg) underline decoration-(--color-outl-ref-link-fg)/40 underline-offset-2` — the `[[ref]]` treatment without the `hover:` and without a click handler, since there is nowhere to go | `rounded-md bg-(--color-outl-accent)/12 px-1.5 py-0.5 text-[15px] font-medium text-(--color-outl-accent)`, the ref chip minus `active:opacity-60` for the same reason |
 | `((block-ref))`, orphaned | `rounded bg-(--color-outl-border)/30 px-1 font-mono text-[13px] text-(--color-outl-fg-dim)` | identical |
 | `!((embed))`, unresolved | `rounded bg-(--color-outl-accent)/12 px-1 font-mono text-[13px] text-(--color-outl-accent)` | identical |
 
-An unresolvable reference drops to **mono** in both directions, which is the one place the monospace role
+An unresolvable reference drops to **mono** in both variants, which is the one place the monospace role
 doubles as a state: a `((uid))` that resolved reads as prose, and one that did not reads as the literal it
 has become.
 
@@ -891,8 +893,8 @@ backups on iOS — is [`UX.md` → What each client can do](UX.md#what-each-clie
   176 `aria-*` attributes across the two GUI clients' non-test components today.
 - **Contrast is a preset-author obligation.** `outl-light` darkens the brand violet from `#a78bfa` to
   `#6d28d9` (violet-700, 7.1:1 on its white canvas) and replaces the lemon `#d6ff47` with `#4d7c0f`
-  (lime-700, 4.99:1 on the canvas), dark enough that insert mode's white label clears AA. Every hue in that
-  preset carries its measured ratio in a trailing comment, which is the form a preset's contrast argument
+  (lime-700, 4.99:1 on the canvas), dark enough that insert mode's white label clears AA. Most hues in that
+  preset carry their measured ratio in a trailing comment, which is the form a preset's contrast argument
   should take: a number next to the hex, not a claim in a doc. Reusing the dark palette's hues on a light
   canvas is the most common preset mistake.
 - **Selection is never colour-only.** The selected block gets both an accent rail and a background change;
