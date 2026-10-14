@@ -25,6 +25,7 @@ contexts:
   - terminal-with-no-OS-appearance-API
   - phone-with-no-`outl`-binary-and-no-git
   - soft-keyboard-covering-half-the-screen
+  - an-OS-that-kills-the-app-if-the-main-thread-stalls
   - a-workspace-of-2500-pages-and-64k-blocks
   - an-external-editor-touched-the-file
   - the-process-died-between-the-op-and-the-projection
@@ -143,6 +144,7 @@ Each row below changes what a correct answer *is*.
 | **A terminal, possibly over ssh, possibly inside tmux** | There is no OS appearance API, no notification centre worth the name, no background presence. `mode = "auto"` resolves to the dark side and says so; a reminder due with the TUI closed is lost to that client, and that is recorded rather than papered over. |
 | **A phone** | There is no `outl` binary and no `git`. Recovery copy that says "run `outl reconcile`" is wrong here, so mobile's banner says to open the workspace on a computer. Automatic backups do not exist on iOS for the same reason. |
 | **A soft keyboard covering half the screen** | Chords are not available. Every action a phone user needs is reachable by touch, or it is declared missing with a nudge saying what to do instead. |
+| **An OS watching the main thread with a stopwatch** | iOS allows a scene update 10 wall-clock seconds before `FRONTBOARD` sends `SIGKILL`. A slow answer here is not a stall, it is no app — and there is no error, no dialog, no crash screen, just a white one. "Do it synchronously and accept the wait" is therefore survivable on the desktop and fatal on the phone, and the thing that kills you is usually a *poll* rather than a one-off: 342 ms of work, reached by a 5s timer plus the per-peer catch-up plus the ingest, came to ~100 calls inside one 10 s window — 33 s of CPU billed against a frame that never arrived. |
 | **~2,500 pages, ~64,000 blocks** | Any list with no natural bound needs one: a namespace's mentions are capped at 50 with the real total beside it, because 3,221 of them is an unreadable panel and ~292 KB on the IPC per page open. |
 | **An external editor touched the file** | vim, Obsidian, a script, a peer still on an older binary. The parser never drops a line it does not understand; it keeps it as a block and records a warning. A page that cannot be read at all is never overwritten. |
 | **The process died mid-write** | The op log is written synchronously, the `.md` after. A crash between them leaves the file briefly behind the log — recoverable by construction, because the log is the source of truth and the `.md` is a projection. |
@@ -196,9 +198,82 @@ The backend half is the same sentence one layer down: a synchronous `#[tauri::co
 thread, so whatever holds the workspace lock holds the window, and `compute_backlinks_offloaded` takes it for
 the lookup alone.
 
-So before shipping anything that lands after the first paint, answer two questions: **what is the user doing
-while it runs, and which element says it is running?**
+**On a phone that sentence does not describe a stall, it describes the end of the app.**
+Under `wry` the IPC thread *is* the UI main thread, and the desktop's worst case — a window that stops taking
+keystrokes until the reply lands — is on iOS a `SIGKILL` from the scene-update watchdog.
+`peer_status` was a synchronous command, polled every 5s by both clients, and it opened the whole JSONL store
+(`JsonlStorage::open` → every actor index → every sidecar) to answer one column.
+Nine crash reports off one phone, one per launch, every one `EXC_CRASH` / `FRONTBOARD` `0x8BADF00D`, all with
+the identical `com.apple.main-thread` stack bottoming out in `NodeIndex::insert`, with 33 s of CPU inside a
+10 s window.
+**What the user saw was a white screen** — not an error, not a crash dialog, nothing, which is principle 3
+with the process gone before it could speak.
+`crates/outl-tauri-shared/src/offload.rs` is the single owner of the fix: `offload::run` is the one
+`spawn_blocking` site, and the async command count in `wrappers/catalog.rs` went from 2 to 22.
+Making the read cheap was the other half and is not a substitute for it — without the offload the watchdog
+stops firing and the phone just cooks instead.
+
+**Holding the lock is the second way to block the user, and it is independent of which thread you are on.**
+Moving a body to the pool makes the stall concurrent, not free: the UI still waits on the same workspace
+mutex, and `parking_lot` has no timeout, so a command that arrives mid-hold simply stops.
+Measured on a clone of a real 2,923-page / 20-actor / 366 MB workspace, release: `open_today_journal`'s own
+work is **1.8 ms**, and it was observed waiting **374–1,056 ms** on the mutex alone.
+The holder was the background reconcile sweep, which starts on `workspace-ready` — exactly when the frontend
+asks for today's journal, so every launch booted into that window.
+On a first launch mobile held it **continuously for 2,557 ms** — back-to-back `reconcile_md` calls on a
+blocking `lock()` with no yield, inside the first second, against 407 ms on the desktop.
+After: two windows of ≤234 ms, nine seconds in, which is out of the launch window rather than shorter.
+`crates/outl-tauri-shared/src/reconcile.rs` owns the sweep now and both clients' `workspace_open.rs` are
+adapters over it; every lock is `try_lock` + retry, never `lock()`, and a busy unit is retried rather than
+skipped, because a `continue` steps over a page for good.
+
+Two phases are deliberately **not** chunked, and the reason is a UX reason: **a wrong repair is worse than a
+slow one.**
+`repair_namespaced_titles` builds a mention index over every block in the workspace precisely so it can
+*refuse* a slug two spellings claim, and a partial index is exactly how one spelling is seen when two exist.
+Its write is then permanent, because the pass skips any page that already has a title, so it can never
+correct itself — chunking it would trade a 185 ms wait for a wrong title nobody can see is wrong.
+`scan_for_desynced_projections` was not chunkable from that crate without re-implementing a predicate that is
+private to `outl-actions`, which is a parallel implementation (principle 8).
+Both simply wait out the launch window instead, which is the honest answer: both are idempotent, both ran on
+every previous boot, and both will run on the next one.
+
+Before `reconcile.rs` existed the two clients had **drifted** in the shape this file exists to prevent: the
+desktop had no desync-recovery pass at all, mobile had one with a blocking lock and no yield, and mobile's
+comment claimed it "mirrors the desktop".
+Nothing could fail.
+
+**Nothing heavy goes in front of the first paint, and "after the await" is not after the paint.**
+Mobile fired `syncNow()` at mount, ahead of the journal load, on the argument that dialling early starts
+punching the NAT path sooner — true, and paid for with the only thing the user is waiting for, because
+`outl_sync_now` dials every known peer from the thread that has to draw today's journal.
+Moving it behind the paint took the date and the week strip from **+2,158 ms to +39 ms**, and the outline from
++2,158 ms to +1,261 ms.
+`runBootSequence` (`crates/outl-mobile/src/components/Journal.boot.ts`) is the single written-down order, and
+it waits on a real presented frame rather than on `load` resolving: `load` resolving means the signals are
+set, so a command issued in that continuation still lands on the main thread ahead of the pixels.
+
+The load gate was already scoped to the outline `<section>` rather than the page, and still behaved
+page-wide, because everything around it read `view()` — which arrives in the same reply.
+So the chrome was given sources that need no workspace: the week strip paints immediately from
+`today_slug_cmd` (pure date math, no lock), and the header says "Journal / Today" from the first frame instead
+of falling back to the label "Page" over an empty title, which is not a placeholder but a wrong answer held
+for as long as the open takes.
+Day navigation cannot re-enter the load state, and the retry path clears the gate only when there is nothing
+on screen to lose; both are pinned by tests.
+
+**The floor is honest, and a future contributor will want to "fix" it.**
+The outline itself stays gated on the workspace being open.
+There is no block id before `create_block` replies, and an editable line not backed by a real id either loses
+the user's keystrokes or writes them against an id the op log never issued.
+A fake editor is the one thing not to ship here — it converts a wait into deleted work, which is principle 4
+read forwards: refuse to show an editor you cannot stand behind rather than take input you cannot keep.
+
+So before shipping anything that lands after the first paint, answer three questions: **what is the user doing
+while it runs, which element says it is running, and what is it holding while it holds it?**
 When the answer to the second is "the page", it is the wrong element.
+When the answer to the third is "the workspace mutex, for the whole pass", the pass is wrong wherever its
+thread happens to be.
 
 ### 3. Silence is the defect
 
@@ -217,6 +292,19 @@ A banner that outlives its condition is the same defect mirrored.
 Only the open commands run the ahead-of-log check, so the first checked reply with no notice clears the
 banner — never a mutation reply, which would clear it on the user's first edit, the exact action the
 banner warns against.
+
+**And a third shape, which is neither a refusal nor a banner: a best-effort call that silently takes
+something else down with it.**
+`listenForFileDrop` is explicitly best-effort — the OS rarely delivers a webview drop on a phone, and a
+failed registration just leaves the long-press "Attach file" as the import path.
+But `installFileDrop` reached `getCurrentWebview()` *before* returning a promise, so the trailing `.catch`
+was not attached yet when that threw, and the throw took the rest of `onMount` with it — which contained the
+journal load.
+The app painted its chrome and never loaded the page, and said nothing, because the only thing that was
+allowed to fail quietly was not the thing that failed.
+"Best-effort" is a claim about one call's own outcome, never a licence for it to decide anything about the
+calls after it; the fix is one line, and the cost of being wrong about which environments can reach it is the
+whole journal.
 
 ### 4. Refuse rather than delete
 
@@ -417,12 +505,65 @@ screen.
 Tasks lists every open TODO and DOING across the workspace, grouped by page, with DOING first.
 Tapping one opens its page zoomed into that task.
 
+The header's gear opens the one surface on this client that shows **preferences** rather than workspace
+content, and it opens on **Devices and sync** — which is how pairing is reachable *by name*.
+Press-and-hold on the sync dot gets there faster and is still there, but a feature whose only entrance is a
+gesture reads as absent to anyone who went looking for it, which is a key that does nothing wearing a
+different disguise.
+Feature-by-feature behaviour, including what that sheet's two toolbar controls do, is in
+[`docs/mobile-ux.md` → Locking the order](docs/mobile-ux.md#locking-the-order-settingssheet).
+
+### Making a block and typing in it
+
+A tap that creates a line and puts the cursor in it has to bring the keyboard with it, and on a phone that
+is a rule about *when* the focus happens rather than about whether it happened.
+
+The reported symptom was "the + button doesn't let me type".
+WKWebView raises the software keyboard for a programmatic `.focus()` only while the user-gesture window
+opened by the tap is still open, and creating a block is two awaits deep — commit whatever draft is open,
+then `create_block` over IPC.
+By the time the new textarea mounted and focused itself, the gesture context was gone.
+The element really was focused (the accessibility tree said so); the keyboard simply never came, which is
+the worst available failure because the UI looks correct and the user is wrong about their own phone.
+
+**So the keyboard is armed synchronously, inside the tap, before the first `await`.**
+`crates/outl-mobile/src/lib/keyboard-keeper.ts` is the single owner: a real, laid-out, 1×1 `opacity: 0`
+textarea on `document.body` takes focus inside the gesture, which raises the keyboard; focus then moves to
+the real block's textarea when it mounts, and iOS does not dismiss a keyboard for a move between two text
+inputs.
+
+Two consequences are the actual rule, and both are about not lying to the user:
+
+- **Keystrokes typed during the handoff are carried, not dropped.** They land in the keeper and are seeded
+  into the new block's draft, reaching the op log through the ordinary commit as an edit against the id
+  `create_block` returned. There is no optimistic block and no invented id (principle 4, and the floor in
+  principle 2).
+- **A failed create gives the keyboard back** rather than leaving it up over a field that is not there.
+
+Every create-and-type affordance goes through this: "+" on today, "+" elsewhere (the capture sheet), "Tap to
+start writing", "Add a block", the first-run tips, and long-press → "New block above" — that last one arms
+before its `queueMicrotask`, because a microtask does not carry the gesture.
+`handleCreateAfter` (Return inside a block, the bar's "New line") deliberately does not: the keyboard is
+already up, and stealing focus from the open textarea would commit its draft.
+The per-path table is owned by
+[`docs/mobile-ux.md` → the keyboard handoff](docs/mobile-ux.md#making-a-block-and-typing-in-it-the-keyboard-handoff);
+what belongs here is that this is how the next one gets written, on the client where most writing happens.
+
 ### Optimistic by default
 
 The reply a client renders is built from the in-memory tree, not from a re-read of the file it just
 queued.
 Reminders are scanned from the tree for the same reason: reading the projection would have been stale by
 construction, and the user who just pressed "remind me" would open the list to find nothing.
+
+**The rule has a boundary, and it is not "be optimistic wherever it feels faster".**
+Optimism here means rendering from state the op log already holds, ahead of the projection catching up.
+It never means rendering state the op log does not hold — a block with a client-side id, a line the user can
+type into before `create_block` has answered, a count assumed rather than read.
+The first is a view that is early; the second is input with nowhere to go, and it resolves either by losing
+the keystrokes or by writing them against an id no op ever issued.
+That is why the mobile outline waits on the workspace while the chrome around it does not (principle 2), and
+why the keyboard handoff carries the typed characters instead of pre-creating the block they belong to.
 
 ## Voice
 
@@ -553,9 +694,15 @@ changed.
 | "Only the GUI binds the iroh endpoint" was a policy, so a headless `outl mcp serve` machine synced with nobody, silently | Root [`CLAUDE.md`](CLAUDE.md) invariant 10 — when you change who decides, enumerate who was standing on the old decision ([#220](https://github.com/outlmd/outl/issues/220)) |
 | `[[2026-13-01]]` matched a frontend shape regex and produced `invalid date slug` | `open_or_create_by_ref` as the single decision tree |
 | A block's real edit was buried under six non-events in its own history on a 64k-block workspace | `timeline`'s "not every op is an event" rule |
+| A synchronous `peer_status`, polled every 5s, opened the whole JSONL store on the iOS main thread to answer one column. The app was killed on **every launch** — nine crash reports, one per launch, all `EXC_CRASH` / `0x8BADF00D` with the same `com.apple.main-thread` stack, 33 s of CPU in a 10 s window. The user saw a white screen and no message | Principle 2 covers the kill, not just the stall; `offload::run` as the one `spawn_blocking` site (async commands 2 → 22), and the platform watchdog as a context row above |
+| `open_today_journal` is 1.8 ms of work and was waiting **374–1,056 ms** on the workspace mutex, held by the boot sweep that starts at the exact moment the frontend asks for today — 2,557 ms unbroken on a first mobile launch. The two clients had meanwhile drifted: no desync pass on the desktop, a blocking one on mobile, and a comment claiming they mirrored | `reconcile.rs` as the single owner, `try_lock` + retry everywhere, and the two un-chunkable phases waiting out the launch window instead — a wrong repair is worse than a slow one |
+| One unlayered `button { color: … }` in mobile's stylesheet outranked every layered Tailwind utility regardless of specificity, so **no text colour set on a button on that client did anything**. Reported as one symptom: the week strip's selected day painting an accent tile with near-black text in it | The visual half is [`DESIGN.md`](DESIGN.md)'s. The finding here is that a one-surface bug report was a whole *class* of surfaces failing silently, so "where else does this rule apply" is part of reading a report, not part of the fix |
 
-The pattern across all of them is one shape: **a fact with more than one owner, and nothing that could
-fail when the copies disagreed.**
+Two shapes account for all of them.
+Most are **a fact with more than one owner, and nothing that could fail when the copies disagreed.**
+The rest are **a cost nobody attributed to a surface** — the thread it runs on, the lock it holds, the
+cascade layer it lands in — where the symptom surfaces a long way from the line that caused it, and the
+report names one instance of something that was failing everywhere.
 
 ## Do's and don'ts
 
@@ -581,6 +728,13 @@ device.
 **Do** keep the write off the input path.
 **Don't** block a keystroke, a reply, or a quit on a projection.
 
+**Do** ask which thread a command body runs on and what it holds while it runs.
+**Don't** assume a background thread is invisible — it shares the workspace mutex, and on iOS a busy main
+thread is a `SIGKILL`, not a slow frame.
+
+**Do** let a best-effort call fail on its own.
+**Don't** let it decide anything about the calls after it.
+
 **Do** test a feature against ~2,500 pages before calling it done.
 **Don't** let a list grow without a bound and a stated total.
 
@@ -597,7 +751,9 @@ device.
    and length tests.
 5. **Decide what it says when it declines**, and on which of the five surfaces. If it is a new refusal,
    it is a row in `outl_actions::refusal`, and the CLI and MCP are surfaces too.
-6. **Keep the write off the input path.**
+6. **Keep the write off the input path**, and name the thread it runs on, the lock it takes, and the element
+   that says it is running. A new `#[tauri::command]` is `async` and goes through `offload::run` unless you
+   can say why its body can never be slow.
 7. **Regenerate the tables** (`OUTL_UPDATE_PARITY_DOC=1`, `OUTL_UPDATE_CLIENTS_DOC=1`) and never hand-edit
    a generated region.
 8. **Run `/check`** — both halves. Two of the invariants behind this file are enforced by TypeScript
