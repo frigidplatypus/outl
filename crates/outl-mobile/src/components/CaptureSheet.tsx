@@ -98,7 +98,7 @@ export function CaptureSheet(props: {
             type="button"
             onClick={() => void send()}
             disabled={!text().trim() || sending()}
-            class="h-11 shrink-0 rounded-full bg-(--color-outl-accent) px-4 font-semibold text-(--color-outl-bg) active:opacity-70 disabled:opacity-40"
+            class="h-11 shrink-0 rounded-full bg-(--color-outl-accent) px-4 font-semibold text-(--color-outl-accent-fg) active:opacity-70 disabled:opacity-40"
           >
             <span class="text-[15px]">Add</span>
           </button>

@@ -87,9 +87,21 @@ fn mime_from_ext(path: &Path) -> &'static str {
 /// can never be base64'd into the webview. `Ok(None)` from the resolver
 /// means the asset hasn't synced to this device yet — surfaced as a
 /// distinct error, mirroring [`open_asset`].
-pub fn read_asset_data_url<S: AppHost>(state: &S, url: String) -> Result<String, String> {
+///
+/// Async: it reads up to `MAX_DATA_URL_BYTES` off disk and base64-encodes
+/// them, and the frontend calls it once per image token on a page. That is
+/// not work the IPC thread may do ([`crate::offload`]); it takes no
+/// workspace lock, so the whole body moves to the pool.
+pub async fn read_asset_data_url<S: AppHost>(state: &S, url: String) -> Result<String, String> {
     let root = storage_root_or_err(state)?;
-    let path = match resolve_asset_path(&root, &url) {
+    crate::offload::run("read_asset_data_url", move || data_url_at(&root, &url)).await
+}
+
+/// The blocking half of [`read_asset_data_url`] — every refusal in the
+/// contract above is decided here, so moving the body to the pool moved
+/// no behaviour with it.
+fn data_url_at(root: &Path, url: &str) -> Result<String, String> {
+    let path = match resolve_asset_path(root, url) {
         Ok(Some(path)) => path,
         Ok(None) => return Err("asset not found on this device yet".to_string()),
         Err(e) => return Err(e.to_string()),
@@ -136,14 +148,22 @@ pub fn read_asset_data_url<S: AppHost>(state: &S, url: String) -> Result<String,
 /// exactly like [`attach_asset`], but no `Op` is emitted here; the client's
 /// own commit (on blur / Enter) writes the block text through the normal
 /// path. Pure filesystem side effect + a returned DTO, no workspace lock.
-pub fn import_asset_file<S: AppHost>(
+///
+/// Async: the copy is a read + content hash + write of a file up to
+/// `[assets] max_bytes`, which is filesystem work the IPC thread may not
+/// do ([`crate::offload`]). It takes no workspace lock, so the whole body
+/// moves to the pool.
+pub async fn import_asset_file<S: AppHost>(
     state: &S,
     source_path: String,
 ) -> Result<ImportedAsset, String> {
     let root = storage_root_or_err(state)?;
     let max_bytes = outl_config::load().assets.max_bytes;
     let source = normalize_picker_path(&source_path);
-    import_asset(&root, Path::new(&source), max_bytes).map_err(|e| e.to_string())
+    crate::offload::run("import_asset_file", move || {
+        import_asset(&root, Path::new(&source), max_bytes).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 /// Import `source_path` into the workspace and attach its link as a new
@@ -193,6 +213,11 @@ mod tests {
     use outl_core::workspace::Workspace;
     use outl_exec::RuntimeRegistry;
     use parking_lot::Mutex;
+    // `read_asset_data_url` is `async` so it cannot read 25 MB on the IPC
+    // thread. A plain `#[test]` has no executor, so drive it on Tauri's own
+    // runtime — and through the command, not `data_url_at`, so the
+    // `storage_root()` resolution stays covered.
+    use tauri::async_runtime::block_on;
     use tempfile::TempDir;
 
     use super::{mime_from_ext, read_asset_data_url, MAX_DATA_URL_BYTES};
@@ -306,7 +331,7 @@ mod tests {
         let bytes = b"\x89PNG\r\n\x1a\n not a real png but real bytes";
         write_asset(&host, "pic.png", bytes);
 
-        let url = read_asset_data_url(&host, "assets/pic.png".to_string())
+        let url = block_on(read_asset_data_url(&host, "assets/pic.png".to_string()))
             .expect("a regular file under assets/ resolves");
 
         let b64 = url
@@ -326,7 +351,7 @@ mod tests {
         // A crafted `..` escape must never reach the filesystem — the error
         // is the traversal rejection, not the "not found" sentinel.
         for bad in ["assets/../../etc/passwd", "../secret"] {
-            let err = read_asset_data_url(&host, bad.to_string())
+            let err = block_on(read_asset_data_url(&host, bad.to_string()))
                 .expect_err("traversal / non-asset link must be rejected");
             assert!(
                 err.contains("invalid asset path"),
@@ -346,8 +371,11 @@ mod tests {
         let (_dir, host) = setup();
         // Well-formed link, no traversal, but the file was never written —
         // `resolve_asset_path` returns `Ok(None)`, the distinct sentinel.
-        let err = read_asset_data_url(&host, "assets/deadbeef.png".to_string())
-            .expect_err("a missing asset resolves to an error");
+        let err = block_on(read_asset_data_url(
+            &host,
+            "assets/deadbeef.png".to_string(),
+        ))
+        .expect_err("a missing asset resolves to an error");
         assert_eq!(err, "asset not found on this device yet");
     }
 
@@ -361,7 +389,7 @@ mod tests {
         let over = vec![0u8; (MAX_DATA_URL_BYTES + 1) as usize];
         write_asset(&host, "huge.png", &over);
 
-        let err = read_asset_data_url(&host, "assets/huge.png".to_string())
+        let err = block_on(read_asset_data_url(&host, "assets/huge.png".to_string()))
             .expect_err("a file over the cap must be rejected");
         assert!(
             err.contains("too large"),
@@ -377,7 +405,7 @@ mod tests {
         let at_cap = vec![0u8; MAX_DATA_URL_BYTES as usize];
         write_asset(&host, "atcap.png", &at_cap);
 
-        let url = read_asset_data_url(&host, "assets/atcap.png".to_string())
+        let url = block_on(read_asset_data_url(&host, "assets/atcap.png".to_string()))
             .expect("a file at exactly the cap must still be served");
         assert!(url.starts_with("data:image/png;base64,"));
     }
@@ -391,7 +419,7 @@ mod tests {
         // `is_file()` guard rejects it before any read.
         std::fs::create_dir_all(host.root.join("assets").join("subdir"))
             .expect("create asset subdir");
-        let err = read_asset_data_url(&host, "assets/subdir".to_string())
+        let err = block_on(read_asset_data_url(&host, "assets/subdir".to_string()))
             .expect_err("a directory is not a regular file");
         assert_eq!(err, "asset is not a regular file");
     }
@@ -411,7 +439,7 @@ mod tests {
             .expect("spawn mkfifo");
         assert!(status.success(), "mkfifo should create the FIFO");
 
-        let err = read_asset_data_url(&host, "assets/pipe.png".to_string())
+        let err = block_on(read_asset_data_url(&host, "assets/pipe.png".to_string()))
             .expect_err("a FIFO is not a regular file");
         assert_eq!(err, "asset is not a regular file");
     }

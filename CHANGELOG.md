@@ -7,6 +7,32 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Fixed
 
+- **Tapping "+" on the phone leaves you typing, instead of staring at an empty bullet.**
+  A new block appeared and its textarea really was focused — the accessibility tree said so — and no keyboard came up, so the one gesture the app exists for ended in a dead end.
+  WKWebView raises the software keyboard only for a `.focus()` that happens inside the tap's own user-gesture window, and creating a block is two awaits deep: commit whatever draft is open, then `create_block` over IPC.
+  By the time the new block's textarea mounted and focused itself, the gesture was long gone.
+  The block still comes from `create_block` — nothing is faked, and no keystroke is ever held against an id the op log did not issue.
+  What changed is that the tap now focuses a real off-screen input *synchronously*, which raises the keyboard, and the new textarea takes over when it mounts: iOS reads that as a move between two text inputs and leaves the keyboard up.
+  Anything typed during the round-trip is carried into the new block rather than dropped.
+  Fixed on every path that creates a block with the keyboard down — "+" on today, "Add a block", "Tap to start writing", the first-run tips, long-press "New block above", and the quick-capture sheet.
+  Return inside a block and the keyboard bar's "New line" were never affected: the keyboard is already up there, and those paths are left alone.
+  [`docs/mobile-ux.md` → Making a block and typing in it](docs/mobile-ux.md#making-a-block-and-typing-in-it-the-keyboard-handoff) owns the mechanism and the per-path table.
+
+- **The desktop keeps taking keystrokes while backlinks load.**
+  Backlinks are an `O(blocks-in-workspace)` scan and the *page* carried the loading state for it, so on a large workspace a navigation put the whole view in a load state: the outline stopped accepting input, with the caret wherever it happened to be.
+  The fetch itself was already off the page-open path since the "Esc is slow" fix; what was missing was a smaller place for "still loading" to live.
+  All three fetch sites (navigation, a peer refresh, toggling a task from a backlink row) now go through one `trackBacklinks`, and the backlinks section is the only reader of the pending flag: it shows its own `loading…` mark plus placeholder rows on a first load, and keeps the rows it already has through a refetch rather than blanking them.
+  [`UX.md` → Never block a keystroke](UX.md#2-never-block-a-keystroke) owns the rule now, because the written version covered writes only, and the read half is where it broke.
+
+- **The journal heading speaks one language, and the desktop header stops competing with the page.**
+  `journalHeading()` writes `Today` / `Yesterday` / `Tomorrow` in English and handed the date to the host's locale, so a macOS pt-BR machine read `Today 12 de outubro de 2026` in the desktop header, and any day further out read `quinta-feira` — where the accent rule looks for the literal `Today`.
+  The default now formats from the module's own month and weekday names; a caller that wants another language passes a locale and owns translating the three relative names too.
+  Every assertion that named `en-US` passed throughout, which is why nothing caught it: under `LC_ALL=pt_BR.UTF-8` the locale-free test fails on the old code and passes on the new one.
+
+  The header also loses the rule under it, which read as two stacked panes rather than a title belonging to the outline below it, and the `📎 Attach file` button moves out of the content column into the eyebrow next to page history, as a line icon.
+  A labelled button floating over the first block was the last thing between the title and the text the page is about.
+  The link and asset chips (`MarkdownInline`) and the namespace rows (`NestedPages`) drop their own emoji fallbacks for the same line icons, so `PageGlyph` is the only place that decides what a page looks like.
+
 - **Sync and serve logs name a peer by its alias, not by hex alone, and `outl sync` names each one in its summary.**
   Reported and first implemented by [@frigidplatypus](https://github.com/frigidplatypus) in [#353](https://github.com/outlmd/outl/pull/353); the `display_label` shape, the per-peer `outl sync` summary and the labelled unpair line come from that PR.
   Pairing stores a human name for every device, `outl peer pair` defaults it to the hostname, and `outl peer list` renders it. Nothing in the log path read it. So on a two-laptop setup every line read `delta sync: received 14 ops from b75b908373`, and finding out which machine that was meant opening `peers.json` ([#337](https://github.com/outlmd/outl/issues/337), reported with a working patch). A line now reads `macbook-pro (b75b908373)` — the alias plus the same short hex it always carried, so a prefix grepped out of an older log still matches. An id with no alias stays exactly as it was.

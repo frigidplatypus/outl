@@ -140,6 +140,7 @@
   --color-outl-fg-dimmer: #7b7390;
   --color-outl-border: #382c54;
   --color-outl-accent: #a78bfa;
+  --color-outl-accent-fg: #0c0814;
   --color-outl-accent-soft: #c4b5fd;
   --color-outl-accent-alt: #d6ff47;
   --color-outl-warn: #fbbf24;
@@ -248,12 +249,32 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/*
+ * Deliberately unlayered, and deliberately NOT carrying `color`.
+ *
+ * An unlayered rule outranks every layered one regardless of specificity,
+ * and Tailwind's utilities live in `@layer utilities` — so a `color` here
+ * beats every `text-*` class a button carries. That is what made the week
+ * strip's selected day paint its accent tile and then render near-black
+ * text inside it: `text-(--color-outl-accent-fg)` on the <button> resolved
+ * to nothing, and the spans inherited the canvas foreground from #root.
+ * Every primary accent button on this client had the same silent failure.
+ *
+ * Nothing is lost by dropping it. Tailwind's preflight already sets
+ * `button, input, select, optgroup, textarea { font: inherit; color:
+ * inherit }` in `@layer base`, which overrides the UA's `buttontext` (an
+ * author layer always beats the UA sheet) while still losing to a utility.
+ *
+ * `font-family` / `font-size` stay for now even though preflight's `font:
+ * inherit` covers them too: unlayered, they also kill `text-[16px]` on a
+ * button, so removing them is a typography change across the whole app
+ * rather than part of this fix.
+ */
 button,
 input,
 textarea {
   font-family: inherit;
   font-size: inherit;
-  color: inherit;
 }
 
 textarea {

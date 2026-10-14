@@ -194,6 +194,15 @@ export interface AppStateShape {
    */
   backlinksOrder: BacklinksOrder;
   /**
+   * A `page_backlinks` round-trip is in flight.
+   *
+   * Owned by `trackBacklinks`, read only by `<InlineBacklinks />`, which
+   * renders its own placeholder from it. It must stay scoped to that
+   * section: the scan is `O(blocks-in-workspace)` and the outline has to
+   * keep taking keystrokes through it (`UX.md` → Never block a keystroke).
+   */
+  backlinksLoading: boolean;
+  /**
    * Caret intent the next mounting `<BlockRow />` textarea consumes
    * the moment it lands in the DOM. Set by vim-style entry actions
    * that need the caret somewhere other than where the click would
@@ -293,6 +302,7 @@ const [state, setState] = createStore<AppStateShape>({
   sidebarOpen: false,
   backlinksOpen: true,
   backlinksOrder: "newest",
+  backlinksLoading: false,
   caretIntent: null,
   pickerOpen: false,
   pickerSeed: null,
@@ -353,6 +363,32 @@ export function backlinksState(r: PageBacklinks) {
     namespaceMentions: r.namespace_backlinks,
     namespaceMentionsTotal: r.namespace_backlinks_total,
   };
+}
+
+/**
+ * Run a `page_backlinks` fetch behind the page.
+ *
+ * Every backlinks fetch goes through here, and none of them is awaited
+ * on a render or a keystroke path: the scan is
+ * `O(blocks-in-workspace)`, and the outline has to stay editable with
+ * the caret where the user left it while it runs (`UX.md` → Never block
+ * a keystroke). The pending flag it sets is read by
+ * `<InlineBacklinks />` alone, so the one thing that waits is the
+ * section that has nothing to show yet.
+ *
+ * One owner for the three call sites (navigation, a peer refresh, the
+ * source-task toggle) because the alternative — each flipping its own
+ * flag around its own `.then` — is how a section ends up loading
+ * forever on the one path that forgot the `catch`. A failure is
+ * swallowed here for the same reason it always was: the rows are
+ * navigation affordances, and stale ones are worse than none.
+ */
+export function trackBacklinks(reply: Promise<PageBacklinks>): Promise<void> {
+  setState("backlinksLoading", true);
+  return reply
+    .then((r) => setState(backlinksState(r)))
+    .catch(() => {})
+    .finally(() => setState("backlinksLoading", false));
 }
 
 /**

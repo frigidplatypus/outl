@@ -210,6 +210,9 @@ export function buildContextActions(
       label: "New block above",
       // Plus above a horizontal rule — reads as "insert before".
       iconPath: "M12 4v8 M8 8h8 M4 20h16",
+      // Ends in an empty block waiting to be typed into, and the menu
+      // was opened with the keyboard down.
+      armsKeyboard: true,
       onSelect: () => handlers.newBlockAbove(blockId),
     },
     {

@@ -508,6 +508,9 @@ Full review policy (Rust quality, hot paths, architecture, simplicity, testing) 
   [`DESIGN.md`](DESIGN.md) is the specification — roles, theming, spacing, components, and the live exceptions named so none is cited as precedent.
   Its behavioural counterpart is [`UX.md`](UX.md): user and world models, interaction patterns, the voice rules a nudge has to pass, and the domain glossary.
 - ❌ Reintroducing a second token namespace "just for this client"
+- ❌ Putting the page in a load state for work that is not the page.
+  Anything landing after the first paint (backlinks, nested pages, a query) shows its own placeholder in its own section, and never unmounts, disables or re-keys the editor.
+  [`UX.md` → Never block a keystroke](UX.md#2-never-block-a-keystroke) owns the rule and the regression that bought it.
 
 ## When in doubt
 

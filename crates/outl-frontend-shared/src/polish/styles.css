@@ -148,7 +148,7 @@ html[data-outl-focus="on"] .outl-row:not(:focus-within):not([data-editing="true"
 }
 .outl-tips-primary {
   background: var(--color-outl-accent);
-  color: var(--color-outl-bg);
+  color: var(--color-outl-accent-fg);
 }
 .outl-tips-secondary {
   color: var(--color-outl-fg-dim);

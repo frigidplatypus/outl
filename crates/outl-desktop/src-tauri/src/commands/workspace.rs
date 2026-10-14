@@ -121,6 +121,20 @@ pub(crate) fn current_workspace(state: State<'_, AppState>) -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
+/// Block / op counts and readiness for the frontend's boot gate.
+///
+/// **Deliberately synchronous.** The body is O(1) — `node_count()` and
+/// `log().len()` are both a `len()` on a collection — so unlike the rest
+/// of the surface there is no work here to move off the IPC thread. Its
+/// only cost is the wait on the workspace mutex, and the fix for that is
+/// to stop holding the mutex for seconds (see
+/// `outl_tauri_shared::offload`), not to move the waiting.
+///
+/// Making it `async` is also not free: Tauri requires an async command
+/// with a reference input (`State<'_, _>`) to return a `Result`, so it
+/// would change this command's wire shape — a rejected promise becomes
+/// representable on the one call `App.tsx` gates the first paint on —
+/// to relocate a wait that is already short.
 #[tauri::command]
 pub(crate) fn workspace_stats(state: State<'_, AppState>) -> WorkspaceSummary {
     let guard = state.workspace.lock();

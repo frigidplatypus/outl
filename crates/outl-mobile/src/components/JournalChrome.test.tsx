@@ -24,7 +24,9 @@ const lp = {
   consumedClick: () => false,
 };
 
-function mount(opts: { syncing?: boolean; refreshing?: boolean } = {}) {
+function mount(
+  opts: { syncing?: boolean; refreshing?: boolean; todaySlug?: string } = {},
+) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const onRefresh = vi.fn();
@@ -39,7 +41,7 @@ function mount(opts: { syncing?: boolean; refreshing?: boolean } = {}) {
         peersUp
         syncing={syncing()}
         refreshing={refreshing()}
-        todaySlug={null}
+        todaySlug={opts.todaySlug ?? null}
         toolbarButtons={[]}
         titleLongPress={lp}
         onJumpToday={noop}
@@ -77,6 +79,29 @@ afterEach(() => {
   dispose?.();
   dispose = undefined;
   document.body.innerHTML = "";
+});
+
+/**
+ * The first frame of a cold start, before any page has arrived. A journal
+ * is what is opening, and the date is knowable without the workspace, so
+ * the header says so instead of rendering the "Page" fallback over an
+ * empty title for as long as the open takes.
+ */
+describe("JournalChrome title while the first page opens", () => {
+  it("names today's journal before the view arrives", () => {
+    const { host } = mount({ todaySlug: "2026-10-14" });
+
+    expect(host.textContent).toContain("Journal");
+    expect(host.querySelector("h1")?.textContent).toBe("Today");
+    // No day stepper yet: nothing can step a day that has not loaded.
+    expect(host.querySelector('button[aria-label="Previous day"]')).toBeNull();
+  });
+
+  it("says nothing at all until the date resolves", () => {
+    const { host } = mount();
+
+    expect(host.querySelector("h1")?.textContent).toBe("");
+  });
 });
 
 describe("JournalChrome sync dot", () => {

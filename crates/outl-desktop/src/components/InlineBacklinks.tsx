@@ -11,7 +11,7 @@ import { sameCrumbTrail } from "@outl/shared/outline";
 import type { Backlink, PageKind } from "@outl/shared/api/types";
 import { PageGlyph } from "@outl/shared/icons";
 
-import { appState, setAppState, setOutline } from "../lib/store";
+import { appState, setAppState, setOutline, trackBacklinks } from "../lib/store";
 
 /** What one click on a backlink's bullet does next. The toggle walks
  *  the cycle a step at a time, so the label names the *next* stop,
@@ -81,8 +81,7 @@ export function InlineBacklinks() {
       // on the slug, which didn't change. Refetch the projection directly:
       // this is the one mutation that changes the current page's own
       // backlinks, the exception that effect's comment calls out.
-      const r = await pageBacklinks(currentSlug);
-      setAppState({ backlinks: r.backlinks, backlinksOrder: r.backlinks_order });
+      await trackBacklinks(pageBacklinks(currentSlug));
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
     }
@@ -146,15 +145,37 @@ export function InlineBacklinks() {
   }
 
   return (
-    <Show when={appState.backlinksOpen && appState.backlinks.length > 0}>
+    <Show
+      when={
+        appState.backlinksOpen &&
+        (appState.backlinksLoading || appState.backlinks.length > 0)
+      }
+    >
       <section class="mt-6">
         {/* Soft full-width rule — mirrors the TUI's `─` separator. */}
         <div class="border-t border-(--color-outl-border) opacity-60" />
 
         <header class="mt-3 mb-2 flex items-baseline justify-between gap-2">
-          <span class="text-xs font-semibold uppercase tracking-wide opacity-60">
-            Backlinks · {appState.backlinks.length} ref
-            {appState.backlinks.length === 1 ? "" : "s"}
+          <span class="flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide opacity-60">
+            {/* No count while the scan runs: `0 refs` is a wrong answer,
+                not a pending one. */}
+            <Show when={appState.backlinks.length > 0} fallback={<span>Backlinks</span>}>
+              <span>
+                Backlinks · {appState.backlinks.length} ref
+                {appState.backlinks.length === 1 ? "" : "s"}
+              </span>
+            </Show>
+            {/* The only thing on screen that waits for the scan. The
+                outline keeps the caret and the keystrokes throughout
+                (`UX.md` → Never block a keystroke). */}
+            <Show when={appState.backlinksLoading}>
+              <span
+                data-backlinks-pending
+                class="animate-pulse font-normal normal-case tracking-normal opacity-70"
+              >
+                loading…
+              </span>
+            </Show>
           </span>
           {/* Direction toggle (issue #142). The arrow tracks the order:
               ↓ newest-on-top, ↑ oldest-on-top. */}
@@ -178,6 +199,13 @@ export function InlineBacklinks() {
         </header>
 
         <div class="space-y-4">
+          {/* Only a first load (the section is up, nothing in it yet)
+              stands in for the rows. A refetch keeps the ones it already
+              has: blanking them would read as "this page lost its
+              references". */}
+          <Show when={appState.backlinks.length === 0}>
+            <PendingRows />
+          </Show>
           <For each={groupedBySource()}>
             {(group) => (
               <div>
@@ -304,5 +332,21 @@ export function InlineBacklinks() {
         </div>
       </section>
     </Show>
+  );
+}
+
+/**
+ * The shape the first load stands in for: one source-page header plus
+ * two rows. It holds the section's height so the outline above it does
+ * not shift when the real rows land, which would move the line the
+ * user is typing in.
+ */
+function PendingRows() {
+  return (
+    <div class="animate-pulse space-y-2" aria-hidden="true">
+      <div class="h-3.5 w-32 rounded bg-(--color-outl-fg)/10" />
+      <div class="ml-6 h-3 w-3/5 rounded bg-(--color-outl-fg)/8" />
+      <div class="ml-6 h-3 w-2/5 rounded bg-(--color-outl-fg)/8" />
+    </div>
   );
 }

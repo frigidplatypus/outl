@@ -393,19 +393,7 @@ public final class OutlToolbarView: UIView {
 
     private func resolveWebView() -> WKWebView? {
         if let w = webView { return w }
-        var window: UIWindow?
-        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            if #available(iOS 15.0, *) {
-                window = scene.keyWindow
-            }
-            if window == nil {
-                window = scene.windows.first
-            }
-        }
-        if window == nil {
-            window = UIApplication.shared.windows.first
-        }
-        let web = Self.findWebView(in: window)
+        let web = Self.findWebView(in: OutlWindows.key)
         webView = web
         return web
     }

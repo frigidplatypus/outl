@@ -70,6 +70,38 @@ Rich `text/html` converts via `htmlToOutlMarkdown` (`@outl/shared/paste`); plain
 
 The long-press context menu's "Copy" action calls `copy_markdown` (`commands/block.rs` → `outl_actions::copy_markdown`), serialising the block and its full subtree as clean outl markdown to the iOS clipboard.
 
+## Making a block and typing in it (the keyboard handoff)
+
+Tapping "+" has to leave the user typing, not looking at an empty bullet.
+
+WKWebView raises the software keyboard for a programmatic `.focus()` only while the user-gesture window opened by the tap is still open, and creating a block is two awaits deep: commit whatever draft is open, then `create_block` over IPC.
+So `<EditableTextarea>`'s `onMount` focus always landed too late — the block appeared, the textarea really was focused (the accessibility tree reported `AXTextField [focused]`), and no keyboard came up.
+Neither did the native accessory bar, which is the same signal one layer up.
+
+`lib/keyboard-keeper.ts` is the fix and the single owner of it: a 1×1, `opacity: 0` textarea appended to `document.body` once at first paint.
+A tap focuses it **synchronously**, which raises the keyboard; the awaits then run with the keyboard already up; and when the new block's textarea mounts and focuses, iOS sees a move between two text inputs and leaves the keyboard alone.
+
+Three things about it are load-bearing, and each is a way a later "let's hide that properly" breaks it:
+
+- It must stay laid out. iOS raises no keyboard for a `display: none`, `visibility: hidden`, `disabled` or `readonly` field, so `opacity: 0` is the most hiding the trick survives.
+- It must live outside the outline, because applying the new `PageView` unmounts the empty state the tap came from and a keeper inside that subtree would be destroyed mid-handoff.
+- `font-size: 16px`, or iOS zooms the page when it takes focus.
+
+**Anything typed during the round-trip is carried, not dropped.**
+The keeper holds those characters and `takeArmedText()` seeds the new block's draft with them, which reaches the op log as an ordinary edit against the id `create_block` returned.
+There is no block id before the backend replies, and the keystrokes are never held against an invented one.
+If the create fails, the keyboard is given back rather than left up over an invisible field.
+
+Which paths arm it, and which do not need to:
+
+| Path | Keyboard before the tap | Arms |
+|---|---|---|
+| "+" on today's journal, "Add a block", "Tap to start writing", "Start writing" in the first-run tips | down | yes, in `appendBlock` |
+| Long-press → "New block above" | down | yes — the menu arms it synchronously via `armsKeyboard` on the action, because `BlockContextMenu` defers `onSelect` past the gesture |
+| "+" anywhere else → `<CaptureSheet />` | down | yes, before the sheet opens (the sheet's own focus is one frame later, already outside the gesture) |
+| Return inside a block, the accessory bar's "New line" (`handleCreateAfter`) | up | no — `armKeyboard()` would be a no-op anyway, and stealing focus from the open textarea would commit its draft |
+| Tapping a block to edit it | down | no — that path mounts and focuses in the same task as the tap, which is why it always worked |
+
 ## Keyboard accessory bar (Android web bar / iOS native bar)
 
 The keyboard toolbar + suggester strip have two renderings.
@@ -92,6 +124,7 @@ Taps are still counted the moment they happen; MFU just gets to act on the count
 ### Locking the order (`SettingsSheet`)
 
 The header's gear opens `components/SettingsSheet.tsx`, mobile's first **preferences** surface (every other sheet shows workspace content).
+It opens on **Devices and sync**, which is how pairing is reached by name: the sync dot's press-and-hold does the same thing faster, and a gesture alone left the feature looking absent to anyone who went looking for it.
 It carries two toolbar controls: "Lock button order", which freezes the row the user has today, and "Reset button order", which forgets the MFU counts.
 Reset re-freezes on the cold-start order when the bar is locked — a locked bar renders its snapshot, so wiping the counts alone would change nothing on screen, and the user asked for the default back, not to be unlocked.
 

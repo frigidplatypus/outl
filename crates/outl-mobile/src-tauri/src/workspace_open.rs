@@ -174,102 +174,32 @@ pub(crate) fn spawn_workspace_opener(
     });
 }
 
-/// Deferred boot work: reconcile orphan `.md` files and repair doubled
-/// journal titles, on a worker thread so first paint is never blocked.
+/// Deferred boot work: the shared background reconcile sweep, on a worker
+/// thread so first paint is never blocked.
 ///
 /// Runs after [`spawn_workspace_opener`] has published the workspace and
-/// fired `workspace-ready`. Best-effort: a workspace closed between
-/// publish and this pass (user picked another root) aborts cleanly.
+/// fired `workspace-ready`. The pass itself — which phases chunk their
+/// lock, which two cannot and why, and why the whole-workspace ones wait
+/// out the launch window — belongs to [`outl_tauri_shared::reconcile`],
+/// which the desktop runs too. This client used to keep its own copy and
+/// the two had drifted: that copy took every lock with a blocking
+/// `lock()` and never yielded between pages.
+///
+/// **The completion callback is a no-op here, and that is a gap rather
+/// than a decision.** The desktop emits `workspace-reconciled` and
+/// `AppShell.tsx` re-reads the open page on it; mobile has no listener
+/// for that event (`Journal.listeners.ts` covers `workspace-ready`), so a
+/// page repaired by the sweep stays stale here until the next navigation
+/// or pull-to-refresh. Closing it is frontend work.
 fn spawn_background_reconcile(
     workspace_slot: Arc<Mutex<Option<Workspace>>>,
     storage_root: PathBuf,
     hlc: HlcGenerator,
 ) {
-    thread::spawn(move || {
-        let engine = outl_actions::SyncEngine::new(storage_root.clone(), hlc.actor());
-        // Orphan `.md` reconcile — imported journals (Roam / Logseq),
-        // peer-written `.md` without a sidecar, or files edited externally.
-        // Lock PER PAGE and drop between iterations so the frontend can
-        // grab the workspace between reconciles: holding one lock across a
-        // 2800-page walk blocks the first journal paint (the reason this
-        // runs off the boot thread at all). Mirrors the desktop's
-        // `spawn_background_reconcile`.
-        for path in &engine.scan_for_orphans() {
-            let mut slot = workspace_slot.lock();
-            let Some(ws) = slot.as_mut() else {
-                return;
-            };
-            // Never `None` — level-3 fallout is a delete, and it has to
-            // be recorded before it happens (`outl-md` hard rule).
-            if let Err(e) =
-                outl_md::reconcile::reconcile_md(ws, &hlc, path, Some(&engine.orphans_log()))
-            {
-                warn!("orphan reconcile failed for {}: {e}", path.display());
-            }
-        }
-        // Desynced projections: snapshot the list under one brief lock,
-        // then recover each under its own so first paint isn't blocked.
-        let desynced = {
-            let mut slot = workspace_slot.lock();
-            let Some(ws) = slot.as_mut() else {
-                return;
-            };
-            engine.scan_for_desynced_projections(ws)
-        };
-        for path in &desynced {
-            let mut slot = workspace_slot.lock();
-            let Some(ws) = slot.as_mut() else {
-                return;
-            };
-            match outl_actions::recover_desynced_projection(ws, &hlc, &storage_root, path) {
-                Ok(n) if n > 0 => info!(
-                    "recovered {n} lost op(s) from desynced projection {}",
-                    path.display()
-                ),
-                Ok(_) => {}
-                Err(e) => warn!("desync recovery failed for {}: {e}", path.display()),
-            }
-        }
-        // Repair journal titles doubled by concurrent offline creation.
-        // Cheap no-op once clean; converges via the op log. One brief lock.
-        {
-            let mut slot = workspace_slot.lock();
-            let Some(ws) = slot.as_mut() else {
-                return;
-            };
-            match outl_actions::repair_doubled_journal_titles(ws, &hlc) {
-                Ok(0) => {}
-                Ok(n) => info!("repaired {n} doubled journal title(s)"),
-                Err(e) => warn!("doubled-title repair: {e}"),
-            }
-        }
-
-        // Give an ingested page back the namespaced `title::` it never
-        // got (issue 275). `outl_actions::namespace` reads a page's
-        // hierarchy off its title, and a page that arrived as a `.md`
-        // has none — so the nested-pages section rendered empty for
-        // every namespace on an imported graph. The names are still in
-        // the mentions; this joins them back. Same shape as the repair
-        // above: idempotent, off the boot path, a no-op when clean.
-        {
-            let mut slot = workspace_slot.lock();
-            let Some(ws) = slot.as_mut() else {
-                return;
-            };
-            match outl_actions::repair_namespaced_titles(ws, &hlc) {
-                Ok(report) if report.is_clean() => {}
-                Ok(report) => {
-                    if !report.repaired.is_empty() {
-                        info!("recovered {} namespaced title(s)", report.repaired.len());
-                    }
-                    // Reported, never guessed: two spellings of one slug
-                    // would make the choice a coin flip in the op log.
-                    for (slug, names) in &report.ambiguous {
-                        warn!("namespace title for `{slug}` is ambiguous: {names:?}");
-                    }
-                }
-                Err(e) => warn!("namespaced-title repair: {e}"),
-            }
-        }
-    });
+    let _ = outl_tauri_shared::reconcile::spawn_background_reconcile(
+        workspace_slot,
+        storage_root,
+        hlc,
+        || {},
+    );
 }

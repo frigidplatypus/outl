@@ -1,6 +1,7 @@
 import { For, JSX, Show } from "solid-js";
 import { createSheetDrag } from "../lib/sheet-drag";
 import { haptic } from "../lib/haptics";
+import { armKeyboard } from "../lib/keyboard-keeper";
 
 export interface BlockContextAction {
   id: string;
@@ -9,6 +10,14 @@ export interface BlockContextAction {
   iconPath: string;
   /** When `true`, label + icon turn destructive red. */
   destructive?: boolean;
+  /**
+   * `true` for an action that ends with the cursor in a text field.
+   * The keyboard then has to be raised from inside the tap's own
+   * user-gesture window, which is *before* `onSelect` is deferred
+   * below — iOS ignores a `.focus()` that lands any later
+   * (`lib/keyboard-keeper.ts`).
+   */
+  armsKeyboard?: boolean;
   /** Hidden entirely when this returns false. Lets callers
    *  conditionally suppress (e.g. "Move up" on the first block). */
   enabled?: () => boolean;
@@ -34,6 +43,10 @@ export function BlockContextMenu(props: BlockContextMenuProps): JSX.Element {
   const drag = createSheetDrag(() => props.onClose());
 
   function fire(action: BlockContextAction) {
+    // Before anything is deferred: this is the last moment that still
+    // counts as the user's tap, and the keyboard only comes up for a
+    // focus that happens here.
+    if (action.armsKeyboard) armKeyboard();
     haptic(action.destructive ? "warning" : "light");
     props.onClose();
     // Defer the actual mutation so the sheet collapse animation

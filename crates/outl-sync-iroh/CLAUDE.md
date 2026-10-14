@@ -142,7 +142,7 @@ Rules:
   The ingest needs the mirror rule (anything but our own) and has to state it itself: that guard is `pub(super)`, reachable only through `Storage::append_ops`, which writes solely to `own_ops_path()`.
   Two things ride on it.
   `ops-<local>.jsonl` is serialized by `outl-core`'s `ops/.lock-<actor>`, a **different** lock from the one this path holds.
-  And the dedup key is `(actor, ts)` and content-blind, so a forged op pre-claims an HLC slot and the user's real op is then dropped as a duplicate, silently.
+  And the dedup key is the HLC and content-blind, so a forged op pre-claims an HLC slot and the user's real op is then dropped as a duplicate, silently.
   Refused per-op (the rest of the batch still lands) and logged.
 - **Torn-tail heal.**
   A kill mid-`write_all` leaves a fragment with no terminator, and appending straight after glues the next op onto it — the glued-line recovery cannot split a torn prefix from a good op, so BOTH are lost.
@@ -281,7 +281,8 @@ In all three, **deny cases outnumber allow cases on purpose**, and the allows ar
 
 - The op log (`ops-<actor>.jsonl`) IS the offline buffer.
 - On reconnect: bidirectional vector-clock delta sync.
-  Both sides exchange a per-actor `ActorClock { max: Hlc, count: u64 }` — max + DISTINCT-op count, derived from `all_ops` in `engine_sync::local_vector_clock` (the `Storage` trait is untouched) — and stream missing ops.
+  Both sides exchange a per-actor `ActorClock { max: Hlc, count: u64 }` — max + DISTINCT-op count — and stream missing ops.
+  `oplog_census` owns every answer to "which ops do we hold" (clock, delta, ingest dedup) off `outl_core`'s offset index — **never route one back through `open` + `all_ops`**, see [Module layout](../../docs/iroh-internals.md#module-layout).
 - **Gap detection (v2).**
   A bare max-HLC watermark assumes gapless delivery; an op landing ahead of a pending backlog made everything below the watermark permanently invisible (the Mac↔iPhone non-convergence).
   If the sender holds more distinct ops `<= max_r` than the receiver's `count`, it resends that actor's FULL log; the receiver's ingest dedup (present-set read under the append locks) absorbs the overlap and never appends an op twice.

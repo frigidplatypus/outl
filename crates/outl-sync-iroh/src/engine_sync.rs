@@ -10,8 +10,7 @@
 //! - [`SyncProtocolHandler`] — the **responder** side, mounted on the router.
 //! - The framing helpers (`read_frame` + the typed `read_*` wrappers).
 //!
-//! What the wire reads from and writes to DISK (`local_vector_clock`, `ops_missing_for`,
-//! `ingest_received_ops`, append serialization) lives in [`crate::oplog`], for every wire version.
+//! Disk access: [`crate::oplog_census`] reads, [`crate::oplog`] writes.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -25,7 +24,8 @@ use outl_core::{LogOp, WorkspaceId};
 use tracing::{debug, info, warn};
 
 use crate::engine::{AppendLock, SharedWorkspaceId};
-use crate::oplog::{ingest_received_ops, local_vector_clock, ops_missing_for};
+use crate::oplog::ingest_received_ops;
+use crate::oplog_census::{local_vector_clock, ops_missing_for};
 use crate::peer_label::peer_log_label;
 use crate::peers::{refresh_peer_direct_addr, workspace_peers_path};
 use crate::protocol::{
@@ -313,7 +313,7 @@ async fn delta_sync_inner(
     progress: &crate::progress::ProgressSink,
 ) -> Result<()> {
     let ops_dir = workspace_root.join("ops");
-    let vector_clock = local_vector_clock(&ops_dir, actor)?;
+    let vector_clock = local_vector_clock(&ops_dir)?;
 
     // The workspace id is the STABLE, SHARED workspace identity (see
     // `outl_core::WorkspaceId`), never the local path's file name — two paired
@@ -617,7 +617,7 @@ impl SyncProtocolHandler {
         let ops_dir = self.workspace_root.join("ops");
 
         // 2. send our own vector clock so the initiator can compute its push.
-        let our_clock = local_vector_clock(&ops_dir, self.actor)?;
+        let our_clock = local_vector_clock(&ops_dir)?;
         let response = SyncResponse {
             vector_clock: our_clock,
         };

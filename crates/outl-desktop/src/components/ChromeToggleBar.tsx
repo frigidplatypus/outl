@@ -100,7 +100,7 @@ function ChromeToggle(props: {
       onClick={props.onToggle}
       class={`flex h-8 w-8 items-center justify-center rounded-full text-[14px] leading-none transition-colors ${
         props.active
-          ? "bg-(--color-outl-accent) text-(--color-outl-bg)"
+          ? "bg-(--color-outl-accent) text-(--color-outl-accent-fg)"
           : "text-(--color-outl-accent) hover:bg-(--color-outl-border)/40"
       }`}
     >

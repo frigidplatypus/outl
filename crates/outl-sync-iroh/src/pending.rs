@@ -25,7 +25,7 @@ use anyhow::Result;
 use outl_core::id::ActorId;
 use serde::{Deserialize, Serialize};
 
-use crate::oplog::local_vector_clock;
+use crate::oplog_census::local_vector_clock;
 use crate::protocol::{ActorClock, SyncRequest};
 
 type Floor = HashMap<ActorId, u64>;
@@ -157,7 +157,12 @@ pub(crate) fn pending_count(local: &HashMap<ActorId, ActorClock>, floor: &Floor)
 
 /// Per peer node id, how many ops this device holds that the peer has not
 /// confirmed. Peers never exchanged with (on any run) are absent.
-pub fn pending_by_peer(workspace_root: &Path, actor: ActorId) -> Result<HashMap<String, u64>> {
+///
+/// `actor` is this device's write actor. It is unused: the local clock is
+/// read out of the op log's offset index, which needs no write actor, and the
+/// count spans every actor's ops rather than only ours. Kept on the signature
+/// because both GUI clients and the TUI call this with the actor in hand.
+pub fn pending_by_peer(workspace_root: &Path, _actor: ActorId) -> Result<HashMap<String, u64>> {
     let floors: HashMap<String, Floor> = match book().lock() {
         Ok(mut book) => peers_for(&mut book, workspace_root)
             .iter()
@@ -168,7 +173,7 @@ pub fn pending_by_peer(workspace_root: &Path, actor: ActorId) -> Result<HashMap<
     if floors.is_empty() {
         return Ok(HashMap::new());
     }
-    let local = local_vector_clock(&workspace_root.join("ops"), actor)?;
+    let local = local_vector_clock(&workspace_root.join("ops"))?;
     Ok(floors
         .into_iter()
         .map(|(peer, floor)| (peer, pending_count(&local, &floor)))

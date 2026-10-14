@@ -21,6 +21,11 @@ use outl_md::sidecar::derive_ref_handle;
 use outl_tauri_shared::commands::exec::resolve_embeds;
 use outl_tauri_shared::host::AppHost;
 use parking_lot::Mutex;
+// `resolve_embeds` is `async` because it builds a `WorkspaceIndex` from
+// disk and must not do that on the IPC thread (`outl_tauri_shared::offload`).
+// A plain `#[test]` has no executor, so drive it on Tauri's own runtime —
+// the same one the command would run on in the app.
+use tauri::async_runtime::block_on;
 use tempfile::TempDir;
 
 /// Minimal [`AppHost`] for exercising a read-only command: `resolve_embeds`
@@ -89,8 +94,11 @@ fn resolves_handle_to_text_and_subtree() {
         registry: Arc::new(RuntimeRegistry::with_builtins()),
     };
 
-    let resolved: HashMap<_, _> =
-        resolve_embeds(&host, vec![handle.clone(), task_handle.clone()]).unwrap();
+    let resolved: HashMap<_, _> = block_on(resolve_embeds(
+        &host,
+        vec![handle.clone(), task_handle.clone()],
+    ))
+    .unwrap();
 
     let entry = resolved
         .get(&handle)
@@ -120,7 +128,11 @@ fn resolves_handle_to_text_and_subtree() {
     );
 
     // An unknown handle is simply absent (orphan → client shows raw chip).
-    let empty = resolve_embeds(&host, vec![derive_ref_handle(NodeId::new()).clone()]).unwrap();
+    let empty = block_on(resolve_embeds(
+        &host,
+        vec![derive_ref_handle(NodeId::new()).clone()],
+    ))
+    .unwrap();
     assert!(empty.is_empty());
 }
 
@@ -156,7 +168,7 @@ fn caps_subtree_at_client_render_depth() {
         registry: Arc::new(RuntimeRegistry::with_builtins()),
     };
 
-    let resolved = resolve_embeds(&host, vec![handle.clone()]).unwrap();
+    let resolved = block_on(resolve_embeds(&host, vec![handle.clone()])).unwrap();
     let entry = resolved.get(&handle).expect("handle resolves");
 
     // Walk the deepest chain: exactly 4 levels of children survive, the

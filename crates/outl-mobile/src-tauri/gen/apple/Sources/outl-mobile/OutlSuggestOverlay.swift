@@ -32,21 +32,7 @@ public final class OutlSuggestOverlay: UIView {
 
     @objc(installInKeyWindowWithWebView:)
     public static func install(webView: WKWebView) {
-        var window: UIWindow?
-        for scene in UIApplication.shared.connectedScenes {
-            guard let ws = scene as? UIWindowScene else { continue }
-            if #available(iOS 15.0, *) {
-                window = ws.keyWindow
-            }
-            if window == nil {
-                window = ws.windows.first
-            }
-            if window != nil { break }
-        }
-        if window == nil {
-            window = UIApplication.shared.windows.first
-        }
-        guard let win = window else { return }
+        guard let win = OutlWindows.key else { return }
         let overlay = shared ?? OutlSuggestOverlay()
         shared = overlay
         overlay.webView = webView

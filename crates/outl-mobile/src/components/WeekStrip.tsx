@@ -84,18 +84,38 @@ export function WeekStrip(props: {
                 aria-label={`${journalHeading(slug, props.todaySlug)?.date ?? slug}${filled().has(slug) ? ", has entries" : ""}`}
                 class="flex flex-col items-center gap-0.5 rounded-xl py-1.5 active:opacity-60"
                 classList={{
-                  "bg-(--color-outl-accent) text-(--color-outl-bg)": selected(),
+                  "bg-(--color-outl-accent) text-(--color-outl-accent-fg)":
+                    selected(),
                 }}
               >
+                {/*
+                  Both spans name `accent_fg` explicitly on the selected
+                  path instead of inheriting it from the button. They
+                  already set their own colour when NOT selected, so the
+                  selected path was the only one leaning on inheritance —
+                  and that inheritance used not to arrive: `styles.css`
+                  carried `button { color: inherit }` outside any `@layer`,
+                  and an unlayered rule beats every Tailwind utility
+                  regardless of specificity, so a text colour set on a
+                  <button> was dead on this client. That line is gone, but
+                  a colour that has to travel through a parent to be right
+                  is a colour that can be wrong again.
+                */}
                 <span
                   class="text-[11px] font-medium"
-                  classList={{ "text-(--color-outl-fg-dimmer)": !selected() }}
+                  classList={{
+                    "text-(--color-outl-accent-fg)": selected(),
+                    "text-(--color-outl-fg-dimmer)": !selected(),
+                  }}
                 >
                   {DAY_LABELS[i()]}
                 </span>
                 <span
                   class="text-[16px] font-semibold tabular-nums leading-none"
-                  classList={{ "text-(--color-outl-accent)": today() && !selected() }}
+                  classList={{
+                    "text-(--color-outl-accent-fg)": selected(),
+                    "text-(--color-outl-accent)": today() && !selected(),
+                  }}
                 >
                   {Number(slug.slice(8))}
                 </span>
@@ -104,7 +124,8 @@ export function WeekStrip(props: {
                   class="h-1 w-1 rounded-full"
                   classList={{
                     "bg-(--color-outl-accent)": filled().has(slug) && !selected(),
-                    "bg-(--color-outl-bg)": filled().has(slug) && selected(),
+                    "bg-(--color-outl-accent-fg)":
+                      filled().has(slug) && selected(),
                     "bg-transparent": !filled().has(slug),
                   }}
                 />

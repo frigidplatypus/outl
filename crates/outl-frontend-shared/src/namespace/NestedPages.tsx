@@ -1,6 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 
 import type { Backlink, NamespaceChild } from "../api/types";
+import { PageGlyph } from "../icons";
 
 export interface NestedPagesProps {
   /** Rows from `PageBacklinks.namespace_children`, already title-sorted
@@ -57,10 +58,14 @@ export function NestedPages(props: NestedPagesProps) {
                   title={child.page.title}
                 >
                   {/* No journal branch: `descendants` filters journals
-                      out, so every row here is a regular page. */}
-                  <span aria-hidden="true" class="opacity-60">
-                    {child.page.icon || "📄"}
-                  </span>
+                      out, so every row here is a regular page. The glyph
+                      comes from `PageGlyph` like every other surface, so
+                      the default is a line icon and lives in one place. */}
+                  <PageGlyph
+                    icon={child.page.icon}
+                    kind={child.page.kind}
+                    class="self-center opacity-60"
+                  />
                   <span>{child.label}</span>
                 </button>
               </li>

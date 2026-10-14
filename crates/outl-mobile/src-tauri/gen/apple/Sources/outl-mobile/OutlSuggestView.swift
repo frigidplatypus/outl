@@ -136,12 +136,26 @@ public final class OutlSuggestView: UIView {
 
     private func makeChip(for item: ChipItem) -> UIButton {
         let btn = UIButton(type: .system)
-        btn.setTitle(item.title, for: .normal)
+        // `UIButton.Configuration` is what replaced `contentEdgeInsets`,
+        // which iOS 15 deprecated and ignores entirely once a button has
+        // a configuration. Title, colour and font move into it for the
+        // same reason: a `titleLabel.font` written outside is discarded
+        // on the configuration's next update.
+        var cfg = UIButton.Configuration.plain()
+        cfg.title = item.title
+        cfg.baseForegroundColor = .label
+        cfg.contentInsets = NSDirectionalEdgeInsets(
+            top: 0, leading: 10, bottom: 0, trailing: 10
+        )
         // Same family/weight Apple uses on QuickType so the strip
         // looks native and the user reads it without re-tuning.
-        btn.titleLabel?.font = .systemFont(ofSize: 15, weight: .regular)
-        btn.setTitleColor(.label, for: .normal)
-        btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+        cfg.titleTextAttributesTransformer =
+            UIConfigurationTextAttributesTransformer { attrs in
+                var out = attrs
+                out.font = .systemFont(ofSize: 15, weight: .regular)
+                return out
+            }
+        btn.configuration = cfg
         btn.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             btn.heightAnchor.constraint(equalToConstant: 30),

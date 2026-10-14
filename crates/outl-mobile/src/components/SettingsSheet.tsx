@@ -21,8 +21,9 @@ import { haptic } from "../lib/haptics";
  * (same drag-dismiss hook, blurred card, safe-area padding) so it reads
  * as one of the family rather than a new kind of screen.
  *
- * Everything here is **per-device UI state in `localStorage`**, not
- * workspace data: none of it goes through the op log, because two
+ * One row is navigation (devices and pairing, which the desktop keeps
+ * in Settings too); everything else is **per-device UI state in
+ * `localStorage`**, not workspace data: none of it goes through the op log, because two
  * devices disagreeing about their own toolbar layout is not a conflict
  * to reconcile (root `CLAUDE.md` invariant 7). That is also why this
  * sheet calls no Tauri command.
@@ -30,6 +31,10 @@ import { haptic } from "../lib/haptics";
 export function SettingsSheet(props: {
   open: boolean;
   onClose: () => void;
+  /** Hand over to `<DevicesSheet />`. This sheet closes first: it sits at
+   *  `z-[55]` and that one at `z-50`, so both open paints pairing
+   *  underneath this card. */
+  onOpenDevices: () => void;
 }): JSX.Element {
   const drag = createSheetDrag(() => props.onClose());
   const [locked, setLocked] = createSignal(false);
@@ -111,6 +116,35 @@ export function SettingsSheet(props: {
 
           <div class="px-4 pb-1 pt-1">
             <span class="text-[13px] font-semibold uppercase tracking-wide text-(--color-outl-fg-dim)">
+              Sync
+            </span>
+          </div>
+
+          {/* Pairing had no named entry point on the phone: tapping the
+              sync dot refreshes and only a press-and-hold opened this
+              (`64fe9c53`), so the feature read as missing to anyone who
+              looked where the desktop keeps it. The gesture stays, as a
+              shortcut rather than as the only way in. */}
+          <button
+            type="button"
+            onClick={() => {
+              haptic("light");
+              props.onOpenDevices();
+              props.onClose();
+            }}
+            class="flex w-full flex-col items-start gap-0.5 border-t border-(--color-outl-border)/30 px-4 py-3.5 text-left active:bg-(--color-outl-border)/30"
+          >
+            <span class="text-[16px] font-medium text-(--color-outl-fg)">
+              Devices and sync
+            </span>
+            <span class="text-[13px] leading-snug text-(--color-outl-fg-dim)">
+              Pair this phone with your other devices, see which ones are
+              reachable, and sync now.
+            </span>
+          </button>
+
+          <div class="px-4 pb-1 pt-3">
+            <span class="text-[13px] font-semibold uppercase tracking-wide text-(--color-outl-fg-dim)">
               Keyboard toolbar
             </span>
           </div>
@@ -131,7 +165,7 @@ export function SettingsSheet(props: {
                 ones you use, it just stops rearranging them.
               </span>
             </span>
-            <Switch on={locked()} />
+            <LockToggle on={locked()} />
           </button>
 
           <button
@@ -171,8 +205,16 @@ export function SettingsSheet(props: {
 
 /** iOS-style switch. Presentational: the enclosing row owns the tap and
  *  the `role="switch"` semantics, so this is `aria-hidden` and never a
- *  second focus stop for the same control. */
-function Switch(props: { on: boolean }): JSX.Element {
+ *  second focus stop for the same control.
+ *
+ *  **Not named `Switch`**, which is a Solid control-flow component:
+ *  `babel-preset-solid` auto-imports the built-in for that tag name even
+ *  when the module declares its own, so `<Switch on={…} />` compiled to
+ *  Solid's `<Switch>`, which throws on having no `<Match>` children and
+ *  took down the whole sheet render — the gear opened nothing at all.
+ *  Same goes for `For`, `Show`, `Match`, `Index`, `Dynamic`, `Portal`,
+ *  `Suspense` and `ErrorBoundary`. */
+function LockToggle(props: { on: boolean }): JSX.Element {
   return (
     <span
       aria-hidden="true"

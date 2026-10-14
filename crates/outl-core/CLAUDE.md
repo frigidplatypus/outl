@@ -79,6 +79,17 @@ Treat every change as production-bound.
     Each returns the **complete** op set in HLC order regardless of what the LRU holds — the LRU is a RAM bound, the index is the logical view.
     `MemoryStorage` is unchanged (no disk, no index).
     See `docs/storage.md` → "Boot reads an index, not the whole log".
+  - **A question about the index is not a question for `Storage` (`storage/jsonl/census.rs`).**
+    `JsonlStorage::actor_timestamps(ops_dir)` is every distinct HLC the op log holds, grouped by the actor inside it — the whole of what a sync vector clock is.
+    It is an associated function **on purpose**: a `Storage` method takes `&self`, which means a storage already opened, and opening is the cost.
+    `outl-sync-iroh` used to answer "what is my sync status" with `open` + `all_ops`: both index sidecars for every actor plus every `Op::Edit`'s `text_op`, read to produce twenty numbers.
+    That is 52 MB + 80 MB and 342 ms (release) on a 222,536-op workspace, polled every 5s on the iOS **main thread** until the scene-update watchdog killed the app on launch.
+    The index-only read is 63 ms and provably the same answer (`the_index_census_matches_an_all_ops_fold`).
+    It builds **no node index** — the `HashMap<NodeId, Vec<_>>` filled one `entry()` per op, the innermost frame of that crash.
+    It also **persists nothing**: advancing the offset sidecar past the node sidecar would make the next real boot reject the pair and rebuild both, so a status poll would arm a full reindex.
+    `census::fresh_offset_index` is the single owner of "what does this sidecar cover".
+    `try_fresh_actor_indexes` calls it and adds the node-extent check, because a second opinion about a sidecar's coverage is how a stale index becomes a wrong read.
+    Pinned by `the_actor_census_neither_reads_nor_writes_the_node_index` (`tests/index_census.rs`), which deletes both sidecars and fails if either comes back — the signature of a reroute through `JsonlStorage::open`.
   - **The persisted index is a dotfile, kept off the sync surface (RFC #137 Front B).**
     The offset + node indexes are saved next to each op log as `.ops-<actor>.idx` / `.ops-<actor>.nodes.idx` so the next boot loads them instead of reparsing the whole log.
     They are **dot-prefixed on purpose**: a purely local boot cache (every device rebuilds it from its own `.jsonl`) must NOT ride the file-sync surface.

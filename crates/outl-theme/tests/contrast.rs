@@ -23,17 +23,26 @@
 /// the 3.0 large-text floor, and 1.38:1 on `dracula`. Nothing caught it
 /// because "white" is not a palette field, so no test was looking.
 ///
-/// `accent` is checked against `bg` rather than an `accent_fg`, and that
-/// asymmetry is deliberate: an accent is chosen to contrast with the
-/// canvas, so the canvas reads on it, which the numbers bear out in nine
-/// of ten presets. `destructive` is red at mid-luminance and had no such
-/// luck, so it carries a real `destructive_fg`.
+/// `accent` carries a real `accent_fg` now, and that is the second half of
+/// the same story. It used to be checked against `bg` alone, on the
+/// argument that an accent is chosen to contrast with the canvas so the
+/// canvas reads back on it — true in nine of ten presets, which is
+/// precisely the shape of a missing field rather than a safe asymmetry.
+/// The clients spelled that argument out loud as `text-(--color-outl-bg)`,
+/// the canvas colour used as a text colour, on eighteen surfaces.
 ///
-/// **`monokai` is the documented exception.** Its accent `#f92672`
-/// against its own `bg` is 3.93:1 — over the 3.0 large-text floor, under
-/// AA. That is a flaw in the preset's accent, not in the token model, so
-/// it is exempted by name rather than papered over by lowering the bar
-/// for everyone.
+/// Both pairs are checked, because they are different questions. `accent
+/// on bg` is about the fills that genuinely paint the canvas on accent
+/// (`selected_bullet`, `status_normal`, `list_selected` all reuse it);
+/// `accent` is about the foreground a client paints on an accent button.
+///
+/// **`monokai` is the documented exception — for `accent on bg` only.**
+/// Its accent `#f92672` against its own `bg` is 3.93:1: over the 3.0
+/// large-text floor, under AA. That is a flaw in the preset's accent, not
+/// in the token model, so it is exempted by name rather than papered over
+/// by lowering the bar for everyone. Its `accent_fg` is **not** exempt and
+/// does not need to be: a real field let it pick `#000000` and reach
+/// 5.55:1, which is the whole argument for having the field.
 #[test]
 fn every_fill_pair_passes_contrast() {
     /// WCAG AA for normal-size text.
@@ -145,10 +154,14 @@ fn fill_pairs(p: &outl_theme::Palette) -> Vec<(&'static str, &str, &str)> {
         ("status_insert", &p.status_insert_bg, &p.status_insert_fg),
         ("status_visual", &p.status_visual_bg, &p.status_visual_fg),
         ("list_selected", &p.list_selected_bg, &p.list_selected_fg),
-        // A fill with its own foreground.
+        // Fills with their own foreground.
         ("destructive", &p.destructive, &p.destructive_fg),
-        // A fill whose foreground is the canvas — see `destructive_fg`'s
-        // doc for why `accent` is unpaired.
+        ("accent", &p.accent, &p.accent_fg),
+        // `accent` again, against the canvas. Not redundant with the row
+        // above: three other roles (`selected_bullet`, `status_normal`,
+        // `list_selected`) reuse `accent` as a fill and paint `bg` on it,
+        // so a preset can pass with an `accent_fg` the clients use and
+        // still be unreadable where the TUI paints the canvas instead.
         ("accent on bg", &p.accent, &p.bg),
     ]
 }

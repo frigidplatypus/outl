@@ -258,6 +258,36 @@ describe("workspace-ready", () => {
     expect(calls.pullAndReload).not.toHaveBeenCalled();
   });
 
+  /**
+   * Peer-op writes emit this event repeatedly, so a slow boot sees several
+   * of them while the first load is still awaiting. Without a guard each
+   * starts its own 50-attempt retry loop, and on iOS they all queue on the
+   * one thread that serves Tauri IPC and paints the UI — the stack the
+   * scene-update watchdog kills the app for.
+   */
+  it("never stacks a second boot load on a slow one", async () => {
+    let settle!: () => void;
+    const first = new Promise<void>((r) => {
+      settle = r;
+    });
+    const load = vi.fn(() => first);
+    const { deps } = harness({ view: () => null, loadTodayWithRetry: load });
+    createRoot(() => listenForWorkspaceReady(deps));
+    gate.release();
+    await vi.waitFor(() => expect(bus.handlers.has("workspace-ready")).toBe(true));
+
+    const inFlight = emit("workspace-ready", null);
+    await emit("workspace-ready", null);
+    await emit("workspace-ready", null);
+    expect(load).toHaveBeenCalledTimes(1);
+
+    settle();
+    await inFlight;
+    // The guard releases with the load, so a later event still boots.
+    await emit("workspace-ready", null);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it("goes through the guarded reload once a view exists", async () => {
     const { deps, calls } = harness({ view: () => view() });
     createRoot(() => listenForWorkspaceReady(deps));

@@ -12,9 +12,15 @@
 //!   move, paste, collapsed, clipboard). `cut_block` (RFC 0254 phase 4)
 //!   renders the block to markdown then moves it to the trash root;
 //!   `copy_block_ref` (issue #18) produces its `((blk-XXXXXX))` handle.
-//! - [`page`] — open / navigate pages and journals, search, refs,
+//! - [`page`] — navigate pages and journals, search, refs,
 //!   `toggle_pin` (RFC 0254 phase 4: flips the `pinned::` page
-//!   property, already op-log-backed).
+//!   property, already op-log-backed), `delete_page`.
+//! - [`page_open`] — the three *open* commands. Split out because they
+//!   are a concurrency problem rather than navigation logic: each takes
+//!   the workspace mutex that the background reconcile pass holds for
+//!   ~314 ms right after `workspace-ready`, and the one the user is
+//!   waiting on is today's journal. That module's doc carries the
+//!   measurements.
 //! - [`peers`] — peer list / status / removal + force-sync (pairing
 //!   stays client-side: the two clients return different wire shapes).
 //! - [`plugin`] — the run / sync-hooks replies that combine the
@@ -45,6 +51,7 @@ pub mod journal_days;
 pub mod open_with;
 pub mod page;
 mod page_backlinks;
+pub mod page_open;
 pub mod peers;
 pub mod plugin;
 pub mod property;

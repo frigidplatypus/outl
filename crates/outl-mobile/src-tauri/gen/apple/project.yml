@@ -2,7 +2,7 @@ name: outl-mobile
 options:
   bundleIdPrefix: app.outl.mobile-app
   deploymentTarget:
-    iOS: 15.0
+    iOS: 17.0
 fileGroups: [../../src]
 configs:
   debug: debug
@@ -38,7 +38,7 @@ targets:
   OutlWidget:
     type: app-extension
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "17.0"
     sources: [OutlWidget]
     info:
       path: OutlWidget/Info.plist

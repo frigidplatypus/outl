@@ -20,6 +20,7 @@ use crate::op::LogOp;
 use crate::storage::sidecar::{self, SidecarKind};
 use crate::storage::{NodeIndex, OffsetIndex, PageScope, StorageError};
 
+use super::census::{self, Coverage};
 use super::{
     parse_actor_from_ops_filename, parse_log_line, read_log_record, JsonlStorage, RecordRead,
 };
@@ -287,6 +288,11 @@ impl JsonlStorage {
     ///    index only the TAIL and persist. Anything suspicious (truncated
     ///    file, index past EOF, tail record doesn't parse, tail ts/offset
     ///    disagree, node index lags) → rebuild.
+    ///
+    /// Step 2's offset half lives in [`census::fresh_offset_index`], because
+    /// the metadata-only read ([`Self::actor_timestamps`]) asks the same
+    /// question and a second opinion about what a sidecar covers is how a
+    /// stale index turns into a wrong read.
     fn load_actor_indexes(
         jsonl_path: &Path,
         idx_path: &Path,
@@ -311,67 +317,33 @@ impl JsonlStorage {
     ) -> Option<(OffsetIndex, NodeIndex)> {
         // Both sidecars must load cleanly. A `None` (missing / corrupt) or a
         // real I/O `Err` on either side falls through to a full rebuild.
-        let mut offset_index = OffsetIndex::load(idx_path).ok().flatten()?;
         let mut node_index = NodeIndex::load(node_idx_path).ok().flatten()?;
+        let (mut offset_index, coverage) = census::fresh_offset_index(jsonl_path, idx_path)?;
 
-        let file_size = std::fs::metadata(jsonl_path).ok()?.len();
+        // The node index must reach the same extent as the offset index.
+        // Every op targets a node, so a consistent pair shares the same max
+        // offset; a lag (a crash between the two sidecar appends) means the
+        // node index is missing the tail — rebuild rather than trust a
+        // partial one (`ops_for_node` feeds block-text rebuild, #129).
+        if node_index.max_offset() != offset_index.max_offset() {
+            return None;
+        }
 
-        // Extent the offset index claims to cover: the record at its MAX
-        // offset. An empty index is only trustworthy over an empty file.
-        let (off_max, entries_at_max) = match offset_index.max_offset_and_count() {
-            Some(v) => v,
-            None => {
-                return if file_size == 0 {
-                    Some((offset_index, node_index))
-                } else {
-                    None
-                }
-            }
+        let Coverage::Grew { tail_from } = coverage else {
+            // Byte-exact coverage. Use the pair as-is, no reparse — this is
+            // the whole point of the optimization.
+            return Some((offset_index, node_index));
         };
 
-        // A non-empty index over an empty file is inconsistent.
-        if file_size == 0 {
-            return None;
-        }
-
-        // The node index must reach the same extent. Every op targets a node,
-        // so a consistent pair shares the same max offset; a lag (a crash
-        // between the two sidecar appends) means the node index is missing the
-        // tail — rebuild rather than trust a partial one (`ops_for_node` feeds
-        // block-text rebuild, #129).
-        if node_index.max_offset() != Some(off_max) {
-            return None;
-        }
-
-        // Read the physical record at `off_max`. It must parse, its byte
-        // length gives the covered extent, and its ops must be exactly the
-        // entries the index pins to `off_max`.
-        let (consumed, ops_at_max) = Self::read_record_at(jsonl_path, off_max)?;
-        if ops_at_max.len() != entries_at_max {
-            return None;
-        }
-        for (ts, _) in &ops_at_max {
-            if offset_index.get(ts) != Some(off_max) {
-                return None;
-            }
-        }
-        let covered_end = off_max + consumed;
-
-        if covered_end == file_size {
-            // Fresh: byte-exact coverage. Use as-is, no reparse — this is the
-            // whole point of the optimization.
-            return Some((offset_index, node_index));
-        }
-        if covered_end > file_size {
-            // Index points past EOF (the `.jsonl` was truncated / shrank).
-            return None;
-        }
-
-        // Grew: the log appended since the sidecars were last written. The op
-        // log only ever appends, so the prefix `[0, covered_end)` is already
-        // indexed identically — index only the TAIL `[covered_end, EOF)` and
+        // Grew: the log appended since the sidecars were last written. The
+        // prefix is already indexed identically, so index only the TAIL and
         // merge it into the loaded pair. O(delta), not O(log).
-        Self::reindex_tail(jsonl_path, covered_end, &mut offset_index, &mut node_index)?;
+        Self::reindex_tail(
+            jsonl_path,
+            tail_from,
+            &mut offset_index,
+            Some(&mut node_index),
+        )?;
         // Persist the extended sidecars so the next boot is byte-exact fresh.
         if let Err(e) = offset_index.save(idx_path) {
             warn!("could not persist index {}: {e}", idx_path.display());
@@ -389,7 +361,7 @@ impl JsonlStorage {
     /// its byte length and parse-lite ops. `None` on any seek/read failure or
     /// when the bytes there don't parse as an op record — both of which mean
     /// the index disagrees with the file and the caller must rebuild.
-    fn read_record_at(path: &Path, offset: u64) -> Option<(u64, LiteOps)> {
+    pub(super) fn read_record_at(path: &Path, offset: u64) -> Option<(u64, LiteOps)> {
         let mut file = File::open(path).ok()?;
         file.seek(SeekFrom::Start(offset)).ok()?;
         let mut reader = BufReader::new(file);
@@ -406,11 +378,15 @@ impl JsonlStorage {
     /// (already-loaded) indexes, using the same parse-lite pass and offset
     /// accounting as a full rebuild. `None` on a hard I/O error (caller
     /// rebuilds). Malformed lines are skipped exactly as the rebuild does.
-    fn reindex_tail(
+    ///
+    /// `node_index` is optional because the metadata-only read
+    /// ([`Self::actor_timestamps`]) wants the HLCs and has no use for the
+    /// node map.
+    pub(super) fn reindex_tail(
         path: &Path,
         start_offset: u64,
         offset_index: &mut OffsetIndex,
-        node_index: &mut NodeIndex,
+        mut node_index: Option<&mut NodeIndex>,
     ) -> Option<()> {
         let mut file = File::open(path).ok()?;
         file.seek(SeekFrom::Start(start_offset)).ok()?;
@@ -426,8 +402,8 @@ impl JsonlStorage {
                 RecordRead::Ops { consumed, ops } => {
                     for (ts, node) in &ops {
                         offset_index.insert(*ts, start);
-                        if let Some(node) = node {
-                            node_index.insert(*node, *ts, start);
+                        if let (Some(node), Some(index)) = (node, node_index.as_deref_mut()) {
+                            index.insert(*node, *ts, start);
                         }
                     }
                     offset += consumed;
@@ -480,8 +456,12 @@ impl JsonlStorage {
             }
         };
 
-        let saw_io_error =
-            Self::index_stream(&mut BufReader::new(file), jsonl_path, &mut hlc, &mut node);
+        let saw_io_error = Self::index_stream(
+            &mut BufReader::new(file),
+            jsonl_path,
+            &mut hlc,
+            Some(&mut node),
+        );
 
         // Persist both sidecars next to the `.jsonl` — but only for a clean
         // pass. See this function's doc comment: caching an index built over
@@ -519,11 +499,17 @@ impl JsonlStorage {
     /// mid-file `read(2)` failure is not reproducible against a temp file,
     /// and this loop's `continue`-don't-`break` is precisely the part that
     /// must never regress.
+    ///
+    /// `node` is optional so the metadata-only read
+    /// ([`Self::actor_timestamps`]) can share this pass without paying for
+    /// the node map it has no use for — on the reference workspace that map
+    /// is 222,536 `HashMap::entry` calls across 64k keys, and it was the
+    /// innermost frame of the iOS watchdog kill.
     pub(super) fn index_stream<R: BufRead>(
         reader: &mut R,
         label: &Path,
         hlc: &mut OffsetIndex,
-        node: &mut NodeIndex,
+        mut node: Option<&mut NodeIndex>,
     ) -> bool {
         let mut offset: u64 = 0;
         let mut buf: Vec<u8> = Vec::new();
@@ -583,8 +569,8 @@ impl JsonlStorage {
                     }
                     for (ts, n) in &ops {
                         hlc.insert(*ts, start);
-                        if let Some(n) = n {
-                            node.insert(*n, *ts, start);
+                        if let (Some(n), Some(index)) = (n, node.as_deref_mut()) {
+                            index.insert(*n, *ts, start);
                         }
                     }
                     offset += consumed;

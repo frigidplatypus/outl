@@ -176,6 +176,30 @@ The TUI drains the write the moment you pause, forces it if you keep a burst goi
 before quitting, `Ctrl+S`, navigation, or a peer reload — [`docs/tui.md`](docs/tui.md#behavior-worth-knowing)
 owns the timings.
 
+**It covers reads too, and that half is where it breaks.**
+Work the user did not ask for, and cannot usefully wait on, loads *behind* the page.
+The page paints, and the only element allowed to show a pending state is the section whose own content is
+missing.
+A load state that encloses the editor is the same defect as a blocking write, because what it takes away is
+the input the user still had.
+
+The desktop regressed exactly there.
+Backlinks are an `O(blocks-in-workspace)` scan, and the page carried the load state for it, so on a large
+workspace every navigation took the outline, the caret and the keystrokes with it.
+The missing piece was never the background fetch, which has been off the page-open path since the "Esc is
+slow" fix.
+It was a home for "this part is still loading" that was smaller than the page.
+`trackBacklinks` (`outl-desktop/src/lib/store.ts`) is the single owner of that flag for all three fetch sites,
+`<InlineBacklinks />` is its only reader, and `InlineBacklinks.test.tsx` → "backlinks load behind the page"
+pins that the editor keeps focus while the reply is in flight.
+The backend half is the same sentence one layer down: a synchronous `#[tauri::command]` runs on the IPC
+thread, so whatever holds the workspace lock holds the window, and `compute_backlinks_offloaded` takes it for
+the lookup alone.
+
+So before shipping anything that lands after the first paint, answer two questions: **what is the user doing
+while it runs, and which element says it is running?**
+When the answer to the second is "the page", it is the wrong element.
+
 ### 3. Silence is the defect
 
 A refusal that reaches only a log line is the bug, not the fix.

@@ -5,6 +5,13 @@ use tauri::State;
 
 use crate::state::{AppState, WorkspaceSummary};
 
+/// Block / op counts and readiness for the frontend's boot gate.
+///
+/// **Deliberately synchronous**, for the reasons spelled out on the
+/// desktop twin (`outl-desktop/src-tauri/src/commands/workspace.rs`):
+/// the body is O(1), and Tauri makes an async command with a
+/// `State<'_, _>` input return a `Result`, which would change this
+/// command's wire shape. Do not convert one of the pair alone.
 #[tauri::command]
 pub(crate) fn workspace_stats(state: State<'_, AppState>) -> WorkspaceSummary {
     let guard = state.workspace.lock();

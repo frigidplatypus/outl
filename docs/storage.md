@@ -187,6 +187,21 @@ So they return the **complete** op set — the same set + HLC order as before �
 The LRU is purely a RAM bound now; the index is the complete logical view.
 `last_ts_per_actor` and `ops_since_per_actor` (the snapshot-boot delta) answer straight from the index keys, so the common boot touches only the index and the recent tail, never the full log.
 
+#### A question about the index is not a question for `Storage`
+
+`JsonlStorage::actor_timestamps(ops_dir)` returns every distinct HLC the op log holds, grouped by the actor inside it — the whole of what a sync vector clock is.
+It is an **associated function, not a `Storage` method, and that is the point**: a trait method takes `&self`, which means a storage already opened, and opening is the cost being avoided.
+`open` → `reload` loads both index sidecars for every actor (the node index being a `HashMap<NodeId, Vec<_>>` filled one `entry()` per op), and the read that fold then needed, `all_ops`, parses every `Op::Edit`'s `text_op` back into a `Vec<u8>`.
+On a 222,536-op workspace that is 52 MB of sidecar plus 80 MB of `.jsonl` — 342 ms in release, 3.7 s in debug — to produce twenty numbers.
+Reading the offset sidecars alone gives the identical answer in 63 ms.
+
+It goes through the same freshness ladder as boot (`census::fresh_offset_index`, which `try_fresh_actor_indexes` also calls and then adds the node-sidecar extent check to), so there is one owner of "what does this sidecar cover".
+Two things it never does: it builds **no node index** (it has no use for "which ops touched this block", and that map is the most expensive thing `reload` does), and it **persists nothing**.
+Persisting would advance the offset sidecar past the node sidecar, and the next real boot would reject the mismatched pair and rebuild both — a status poll arming a full reindex.
+A grown tail is re-scanned instead, which costs what was appended since the last write and nothing more.
+
+`outl-sync-iroh`'s vector clock, its delta selection and its ingest dedup are the callers; see [`docs/iroh-internals.md`](iroh-internals.md#module-layout).
+
 ### The index sidecars: one owner, and a lifecycle
 
 > **What 134MB of dead cache cost, and what the GC refuses to touch:** [RFC 0265](rfcs/0265-index-sidecar-lifecycle.md).

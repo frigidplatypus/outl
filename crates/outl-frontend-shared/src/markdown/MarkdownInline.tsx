@@ -1,6 +1,7 @@
 import { createResource, For, JSX, Match, Show, Switch } from "solid-js";
 
 import { readAssetDataUrl } from "../api/commands";
+import { ImageIcon, PageIcon } from "../icons";
 import type { InlineToken, ResolvedBlock } from "../api/types";
 import {
   assetFileName,
@@ -66,7 +67,9 @@ function clickableAttrs(
 function FileChip(props: {
   href: string;
   label: string;
-  icon?: string;
+  /** Leading glyph. A line icon from `../icons`, never an emoji: it has
+   *  to take the chip's colour and render the same on every OS. */
+  icon?: JSX.Element;
   onLinkClick?: (href: string) => void;
 }): JSX.Element {
   const a11y = clickableAttrs(props.href, props.onLinkClick);
@@ -77,7 +80,7 @@ function FileChip(props: {
       class="inline-flex items-center gap-1 rounded-md bg-(--color-outl-border)/30 px-1.5 py-0.5 text-[14px] text-(--color-outl-fg)"
       classList={{ "cursor-pointer": !!props.onLinkClick }}
     >
-      <span aria-hidden="true">{props.icon ?? "📄"}</span>
+      {props.icon ?? <PageIcon />}
       {props.label}
     </span>
   );
@@ -264,7 +267,7 @@ export function MarkdownInline(props: MarkdownInlineProps): JSX.Element {
                 <FileChip
                   href={tok.href}
                   label={tok.alt || label}
-                  icon={isImagePath(tok.href) ? "🖼️" : "📄"}
+                  icon={isImagePath(tok.href) ? <ImageIcon /> : <PageIcon />}
                   onLinkClick={props.onLinkClick}
                 />
               );
@@ -297,7 +300,7 @@ export function MarkdownInline(props: MarkdownInlineProps): JSX.Element {
                   <FileChip
                     href={tok.href}
                     label={tok.alt || label}
-                    icon="🖼️"
+                    icon={<ImageIcon />}
                     onLinkClick={props.onLinkClick}
                   />
                 );
@@ -321,7 +324,7 @@ export function MarkdownInline(props: MarkdownInlineProps): JSX.Element {
                   <FileChip
                     href={tok.href}
                     label={tok.alt || label}
-                    icon="🖼️"
+                    icon={<ImageIcon />}
                     onLinkClick={props.onLinkClick}
                   />
                 }
@@ -331,7 +334,7 @@ export function MarkdownInline(props: MarkdownInlineProps): JSX.Element {
                     class="inline-flex items-center gap-1 rounded-md bg-(--color-outl-border)/30 px-1.5 py-0.5 text-[14px] text-(--color-outl-fg-dim)"
                     aria-label={tok.alt || label}
                   >
-                    <span aria-hidden="true">🖼️</span>
+                    <ImageIcon />
                     {tok.alt || label}…
                   </span>
                 </Match>

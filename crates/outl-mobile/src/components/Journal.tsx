@@ -22,7 +22,6 @@ import {
   copyMarkdown,
   createBlock,
   editBlock,
-  deliverDueReminders,
   importAssetFile,
   listReminders,
   openAsset,
@@ -30,7 +29,6 @@ import {
   openPageBySlug,
   openExternalUrl,
   openRef,
-  openTodayJournal,
   pageBacklinks,
   pasteMarkdown,
   peerStatus,
@@ -38,7 +36,6 @@ import {
   pluginSyncHooks,
   pluginToolbar,
   redoPage,
-  reloadWorkspace,
   runCodeBlock,
   searchEmojis,
   searchPages,
@@ -48,13 +45,11 @@ import {
   setBlockProperty,
   setBlockRemind,
   splitBlock,
-  syncNow,
   undoPage,
 } from "@outl/shared/api/commands";
 import { utf16OffsetToCharOffset } from "@outl/shared/paste";
 import { isAssetLink } from "@outl/shared/links";
 import { peersOnline } from "@outl/shared/peers";
-import { setupReminderNotifications } from "../lib/reminder-notifications";
 import {
   findBlock,
   flattenAll,
@@ -84,11 +79,6 @@ import {
  *  surfacing a timeout error. Keeps the UI from getting stuck in
  *  "syncing…" forever when iCloud coordination stalls. */
 const EDIT_TIMEOUT_MS = 8000;
-/** Cap on a `syncNow` force-sync pass. With an unreachable peer the connect
- *  waits out a 10–30s timeout; awaiting that in the reload path froze the UI.
- *  6s lets a healthy pass through and bounds a dead one so the local reload
- *  always proceeds. */
-const SYNC_TIMEOUT_MS = 6000;
 import {
   HIDE_MESSAGE,
   buildEmojiShowMessage,
@@ -117,7 +107,9 @@ import { loadTransformers } from "@outl/shared/plugins/transformer-registry";
 import { createLongPress } from "../lib/long-press";
 import { editableProperties } from "../lib/properties";
 import { haptic } from "../lib/haptics";
+import { armKeyboard, installKeyboardKeeper } from "../lib/keyboard-keeper";
 import { createBlockOps, type JournalBlockDeps } from "./Journal.block-ops";
+import { createNewBlockOps } from "./Journal.new-block";
 import { createSelectionOps } from "./Journal.selection-ops";
 import {
   type DeepLinkNavigate,
@@ -128,6 +120,13 @@ import {
   navigateDeepLink,
 } from "./Journal.listeners";
 import { installForegroundRefresh } from "./Journal.inbox";
+import {
+  OPEN_TIMEOUT_MS,
+  createJournalBoot,
+  nextPaint,
+  runBootSequence,
+} from "./Journal.boot";
+import { installJournalPolls } from "./Journal.polls";
 import { PageSections } from "./PageSections";
 import { BlockContextMenu } from "./BlockContextMenu";
 import { SelectionToolbar } from "./SelectionToolbar";
@@ -318,17 +317,6 @@ export function Journal() {
   >(null);
   let activeTextarea: HTMLTextAreaElement | undefined;
 
-  // Monotonic reload generation. Every async reload path captures this at
-  // start; a reload whose generation is no longer the latest is a stale read
-  // that must NOT clobber a newer one (the mobile "flicker" was an unguarded
-  // slow reload applying an older op-log state after a fresh one landed).
-  let reloadGen = 0;
-  // Set when a peer-driven reload was suppressed because the user was editing.
-  // A `createEffect` on `editingId` drains it the moment they leave edit mode,
-  // so a sync never swaps the workspace out from under an active edit (that
-  // swap re-mints the block id → the `block <id> [Retry]` error + the freeze).
-  let reloadPendingWhileEditing = false;
-
   // See `applyView`: kept out of the `PageView` signal so an edit commit
   // (which replies without the flag) can't silently drop it. Keyed by
   // slug so navigating to another page clears it.
@@ -445,74 +433,53 @@ export function Journal() {
   registerNativeToolbarBridge();
   registerNativeSuggesterBridge();
 
-  // Track connectivity so the SyncDot can show "offline" when iCloud
-  // can't reach peers. Both listeners are pure DOM side-effects but
-  // they must be registered + torn down within the component's
-  // owner; `onCleanup` here, not deep inside `onMount`'s async body.
-  if (typeof window !== "undefined") {
-    const upOnline = () => setOnline(true);
-    const upOffline = () => setOnline(false);
-    window.addEventListener("online", upOnline);
-    window.addEventListener("offline", upOffline);
-    // Probe iroh peer health on mount, then every 5s, so the dot tracks
-    // the mesh without a user action. `peer-ops-changed` (ops bridge)
-    // and a force-sync also poke `refreshPeerStatus` for a fresher read.
-    void refreshPeerStatus();
-    const peerPoll = window.setInterval(() => {
-      void refreshPeerStatus();
-      // Pull from peers AND reload the view every tick so an edit on the
-      // desktop OR the TUI shows up without the refresh button. The mobile side
-      // initiating the dial is NAT-friendly (waiting for the desktop to reach an
-      // iPhone behind carrier NAT is not), which is why desktop/TUI→mobile needs
-      // us to pull. We call the full `pullAndReload` (not just `syncNow`):
-      // relying on the `workspace-ready` event alone left the ops on disk
-      // without re-rendering — the symptom was "only shows after I hit sync".
-      //
-      // NOT guarded on `editingId()` here. `pullAndReload` already handles the
-      // editing case correctly — it pulls the peer's ops to disk and defers
-      // only the RE-RENDER, which the `editingId` effect drains the moment the
-      // user leaves the field. Testing it out here too made that branch
-      // unreachable and turned "don't reset the textarea" into "don't sync at
-      // all while a block is open", which is precisely the state a user is in
-      // while waiting for a desktop edit to show up. Same symptom the comment
-      // above says this poll exists to prevent, one layer up.
-      void pullAndReload({ background: true });
-    }, 3000);
-    // Reminder delivery. The backend decides what is due and remembers
-    // what this device already delivered, so a poll that fires twice
-    // never double-buzzes and a phone that was asleep owes one banner,
-    // not a backlog. It short-circuits when reminders are off, so this
-    // ticks unconditionally rather than re-subscribing on a settings
-    // change. 30s, not 3s: the schedule has minute granularity.
-    const reminderPoll = window.setInterval(() => {
-      void deliverDueReminders().catch(() => {
-        // Permission not granted yet — the Rust side logged it, and a
-        // toast every 30 seconds would be worse than silence.
-      });
-    }, 30_000);
-    // Make the banner actionable: "Snooze 1h" / "Done" buttons, and a
-    // plain tap that lands on the block instead of the journal. The
-    // category has to be registered before any reminder can come due —
-    // iOS resolves it at delivery time, and an unregistered one shows
-    // as a banner with no buttons and no error.
-    let stopReminderActions: (() => void) | undefined;
-    void setupReminderNotifications({
-      navigateToBlock,
-      onError: (m) => setError(m),
-    }).then((stop) => {
-      stopReminderActions = stop;
-    });
-    onCleanup(() => {
-      window.removeEventListener("online", upOnline);
-      window.removeEventListener("offline", upOffline);
-      window.clearInterval(peerPoll);
-      window.clearInterval(reminderPoll);
-      stopReminderActions?.();
-    });
-  }
+  // The two workspace-open paths and their user-visible gates
+  // (`Journal.boot.ts`): every call capped, every gate cleared in a
+  // `finally`.
+  const boot = createJournalBoot({
+    view,
+    editingId,
+    applyView,
+    setError,
+    setLoaded,
+    setLoadFailed,
+    setSyncing,
+    withError,
+    refreshPeerStatus,
+  });
+  const { loadTodayWithRetry, pullAndReload } = boot;
+  // Connectivity listeners + the background tickers (`Journal.polls.ts`).
+  // Registered here (the owner `onCleanup` needs), STARTED from `onMount`
+  // after the boot load: a poll started during render queues `peer_status`
+  // — a full workspace load — on the iOS main thread ahead of the
+  // journal's own first paint, which is the watchdog kill.
+  const polls = installJournalPolls({
+    setOnline,
+    refreshPeerStatus,
+    pullAndReload,
+    navigateToBlock,
+    setError: (m) => setError(m),
+  });
 
   // Day navigation, today's slug and wake-to-today (`Journal.day-nav.ts`).
   const dayNav = createDayNav({ view, editingId, applyView, withError });
+  /**
+   * Which day the week strip highlights, and `null` to hide it.
+   *
+   * Before the first reply lands this is today's slug, because that is
+   * knowable without the workspace: `today_slug` is pure date math, it
+   * takes no lock, and a cold start always opens today. Holding the strip
+   * back until the outline arrived only bought a layout shift under the
+   * user's thumb — the rows moved down the moment the page landed
+   * (`UX.md` → Never block a keystroke: a load state belongs to the
+   * section whose own content is missing, and the week's dates are not
+   * missing).
+   */
+  const weekStripSlug = createMemo(() => {
+    const v = view();
+    if (!v) return dayNav.today();
+    return v.page.kind === "journal" ? v.page.slug : null;
+  });
   const capture = createCapture({
     view,
     today: dayNav.today,
@@ -529,53 +496,78 @@ export function Journal() {
   // arrived meanwhile — in the background so it doesn't flash the spinner.
   // Guarded so it only fires on the edit→idle transition, not on every keypress.
   createEffect(() => {
-    if (editingId() === null && reloadPendingWhileEditing) {
-      reloadPendingWhileEditing = false;
+    if (editingId() === null && boot.takePendingReload()) {
       void pullAndReload({ background: true });
     }
   });
 
-  onMount(async () => {
-    // Kick P2P sync in the very first tick — BEFORE the journal loads — so the
-    // connect starts punching the NAT path immediately instead of waiting for
-    // the local load to finish. iOS accepts inbound poorly, so the mobile side
-    // dialing first is what actually opens the path; starting it here (not
-    // after `loadTodayWithRetry`) shaves that wait off. Fully background +
-    // capped + silent (no boot toast): it never blocks the boot or first paint,
-    // and the ops it pulls arrive via `workspace-ready` / the next reload.
-    void withTimeout(syncNow(), SYNC_TIMEOUT_MS, "sync timed out").catch(() => {});
-    listenForWorkspaceReady(listenerDeps);
-    listenForDeepLink(listenerDeps);
-    listenForFileDrop(listenerDeps);
-    await loadTodayWithRetry();
-    // Cold-start deep link: a URL that *launched* the app was buffered
-    // by the backend before the listener above existed. Drain it now
-    // that the workspace is open and override today's journal with the
-    // target. A normal launch returns null and keeps the journal.
+  /**
+   * Cold-start deep link: a URL that *launched* the app was buffered by
+   * the backend before `listenForDeepLink` existed. Drain it once the
+   * workspace is open and let the target override today's journal. A
+   * normal launch returns null and keeps the journal.
+   *
+   * Capped like every other open in the boot path: this is a main-thread
+   * command too, and the boot sequence waits on it (so a deep link can't
+   * be undone by the first sync reopening today) — which means a stall
+   * here would also hold back the tickers.
+   */
+  async function drainColdStartDeepLink() {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const pending = await invoke<DeepLinkNavigate | null>(
-        "take_pending_deep_link",
+      const pending = await withTimeout(
+        invoke<DeepLinkNavigate | null>("take_pending_deep_link"),
+        OPEN_TIMEOUT_MS,
+        "Opening the link",
       );
       if (pending) await navigateDeepLink(listenerDeps, pending);
     } catch {
       // best-effort — a failed drain just leaves the journal showing
     }
-    // Opening the app: pull whatever peers produced while it was closed, so the
-    // user sees fresh state without hitting refresh. Runs after the local load
-    // so the UI is already up; best-effort.
-    void pullAndReload();
-    // Plugin toolbar buttons load lazily on the host's first request, so
-    // pull them once the workspace is open. Best-effort — a host with no
-    // toolbar plugins just leaves the header unchanged.
-    void loadToolbar();
-    // Content transformers (plugin-claimed code-fence languages) load the
-    // same way: pull the registry once the workspace is open so a fenced
-    // block in a custom language can render its transformed view. Best-
-    // effort — failure leaves fences as plain highlighted code.
-    void loadTransformers();
-    // Back in the foreground: pull peers' edits and drain the iOS capture inbox.
-    installForegroundRefresh({ pull: () => pullAndReload(), notify: (text) => setError(text) });
+  }
+
+  onMount(() => {
+    // The off-screen input that raises the iOS keyboard inside a tap's
+    // gesture window (`lib/keyboard-keeper.ts`). Installed here, at
+    // first paint, so it is already laid out when the first "+" of the
+    // session is pressed — not created inside the gesture that needs it.
+    installKeyboardKeeper();
+    // Listeners first: registering them costs nothing (no command, no
+    // workspace), and `workspace-ready` can fire while the load below is
+    // still in flight.
+    listenForWorkspaceReady(listenerDeps);
+    listenForDeepLink(listenerDeps);
+    listenForFileDrop(listenerDeps);
+    // Order lives in `Journal.boot.ts` — including why the force-sync that
+    // used to run here, ahead of the load, now runs as `firstSync` one
+    // painted frame later.
+    void runBootSequence({
+      load: loadTodayWithRetry,
+      painted: nextPaint,
+      deepLink: drainColdStartDeepLink,
+      // Opening the app: pull whatever peers produced while it was closed,
+      // so the user sees fresh state without hitting refresh. This is the
+      // boot's only dial — one pass, started after the journal is up.
+      firstSync: () => void pullAndReload(),
+      catchUp: () => {
+        // Plugin toolbar buttons and content transformers (plugin-claimed
+        // code-fence languages) both load lazily on the host's first
+        // request. Best-effort: a host with no plugins leaves the header
+        // unchanged and fences as plain highlighted code.
+        void loadToolbar();
+        void loadTransformers();
+        // Back in the foreground: pull peers' edits and drain the iOS
+        // capture inbox.
+        installForegroundRefresh({
+          pull: () => pullAndReload(),
+          notify: (text) => setError(text),
+        });
+        // Last: arm the recurring tickers. Every one of them calls a
+        // Tauri command, so they go behind everything the user is waiting
+        // for rather than into the render pass.
+        polls.startPolling();
+      },
+    });
   });
 
   /**
@@ -717,41 +709,6 @@ export function Journal() {
     openCapture: () => setCaptureOpen(true),
   };
 
-
-
-  async function loadTodayWithRetry() {
-    // Show a generic "Loading…" first, then upgrade the message to
-    // The skeleton placeholder takes the place of the old progress
-    // message; we keep retrying the workspace open silently and only
-    // flip `loadFailed` if we exhaust the budget.
-    setLoadFailed(false);
-    for (let i = 0; i < 50; i += 1) {
-      try {
-        const v = await openTodayJournal();
-        applyView(v);
-        setError(null);
-        setLoaded(true);
-        return;
-      } catch (e) {
-        const msg = String(e);
-        if (msg.includes("workspace_loading")) {
-          // Workspace opener still in flight; back off briefly and
-          // try again. Capped at ~10s of retries.
-          await new Promise((r) => setTimeout(r, 200));
-          continue;
-        }
-        setError(msg);
-        setLoadFailed(true);
-        setLoaded(true);
-        return;
-      }
-    }
-    setError("Workspace took too long to open.");
-    setLoadFailed(true);
-    setLoaded(true);
-  }
-
-
   /**
    * Bridge between the native UIKit keyboard accessory view (defined
    * in `gen/apple/Sources/outl-mobile/main.mm`) and the Solid handlers
@@ -771,7 +728,7 @@ export function Journal() {
       toggleTodo: blockOps.toggleTodo,
       delete: blockOps.requestDelete,
       createAfter: handleCreateAfter,
-      appendBlock: handleAppendBlock,
+      appendBlock: () => void newBlock.appendBlock(),
       wrapSelection,
       insertPair: (open, close) => insertAtCursor("pair", open, close),
       insertText: (text) => insertAtCursor("text", text),
@@ -965,6 +922,17 @@ export function Journal() {
     setPendingDelete,
   };
   const blockOps = createBlockOps(blockDeps);
+  // The two creates reached from a tap with the keyboard down. They are
+  // their own module because arming the keyboard before the first await
+  // is the rule they exist to hold — see `Journal.new-block.ts`.
+  const newBlock = createNewBlockOps({
+    pageId,
+    editingId,
+    commitEdit,
+    applyView,
+    startEdit,
+    withError,
+  });
   const selectionOps = createSelectionOps({
     ...blockDeps,
     selection,
@@ -1286,117 +1254,6 @@ export function Journal() {
     }
   }
 
-  /**
-   * "New block above" (long-press menu, RFC 0254 phase 4b — mirrors
-   * the desktop's `O` / `NewBlockAbove`). Uses `beforeId`, the same
-   * floor-slot create the desktop uses — never a post-creation
-   * `moveBlockUp` walk, which the desktop's own CLAUDE.md flags as the
-   * bug this shape replaced.
-   */
-  async function handleCreateBefore(id: string) {
-    const pid = pageId();
-    if (!pid) return;
-    haptic("medium");
-    if (editingId()) await commitEdit();
-    const reply = await withError(() =>
-      createBlock(pid, { beforeId: id, text: "" }),
-    );
-    if (reply) {
-      batch(() => {
-        applyView(reply.view);
-        startEdit(reply.new_id, "");
-      });
-    }
-  }
-
-  async function handleAppendBlock() {
-    const pid = pageId();
-    if (!pid) return;
-    haptic("medium");
-    if (editingId()) await commitEdit();
-    const reply = await withError(() =>
-      createBlock(pid, { afterId: null, parentId: null, text: null }),
-    );
-    if (reply) {
-      batch(() => {
-        applyView(reply.view);
-        startEdit(reply.new_id, "");
-      });
-    }
-  }
-
-  /**
-   * Core P2P pull, shared by the manual pull-to-refresh and the automatic
-   * open/foreground sync. Force a sync pass against every iroh peer NOW (dial
-   * instead of waiting for the catch-up tick), reload the local op log, and
-   * reopen the current page so the re-render reflects what peers delivered.
-   * Best-effort: `syncNow` is a no-op when iroh isn't wired, and tolerated
-   * (toast, don't wedge) on a flaky peer so it never blocks the local reload.
-   */
-  async function pullAndReload(opts?: { background?: boolean }) {
-    // `background` = the silent 4s poll. It still pulls + replays the op log,
-    // but it only swaps the rendered view when the content ACTUALLY changed and
-    // the user isn't editing — so an unchanged poll never re-renders (no scroll
-    // jump, no cursor churn) and a desktop/TUI edit arriving mid-typing never
-    // yanks the textarea out from under the user. The foreground paths (button,
-    // app open, resume) always apply and show the spinner.
-    // Input is sacred: never swap the workspace while the user is editing.
-    // Reloading re-materializes the tree (which can re-mint the block id under
-    // the cursor → `block <id> [Retry]`) and a slow reload freezes the UI. So
-    // if a block is being edited, pull the peer's ops to disk in the background
-    // (no `await` that blocks the user, capped so a dead peer can't hang it)
-    // and mark the reload pending — the `editingId` effect below drains it the
-    // instant they leave edit mode.
-    if (editingId()) {
-      reloadPendingWhileEditing = true;
-      void withError(() => withTimeout(syncNow(), SYNC_TIMEOUT_MS, "Sync timed out"));
-      return;
-    }
-    const bg = opts?.background ?? false;
-    const gen = ++reloadGen;
-    if (!bg) setSyncing(true);
-    // Cap the force-sync: with an unreachable peer, `syncNow` waits out the
-    // 10–30s connect timeout, and awaiting it here froze the reload for that
-    // whole window. Time it out so the local reload always proceeds promptly.
-    await withError(() => withTimeout(syncNow(), SYNC_TIMEOUT_MS, "Sync timed out"));
-    await withError(reloadWorkspace);
-    const cur = view();
-    if (cur) {
-      const next =
-        cur.page.kind === "journal"
-          ? await withError(() => openJournalFor(cur.page.slug))
-          : await withError(() => openPageBySlug(cur.page.slug));
-      if (next) {
-        // A reload that comes back EMPTY while we already have content is
-        // a transient partial read — the op log is mid-ingest / being
-        // re-indexed by an inbound sync, not a real "everything was
-        // deleted". Never clobber real content with it; the next poll
-        // re-reads the settled log. This is what produced the "flip to
-        // an empty page (0 ops)" flicker on the 3s poll.
-        const clobbersContentWithEmpty =
-          next.outline.length === 0 && cur.outline.length > 0;
-        const changed =
-          JSON.stringify(next.outline) !== JSON.stringify(cur.outline);
-        // A newer reload started while our (possibly slow `syncNow`) read was
-        // in flight — it read a fresher op log, so applying ours now would flip
-        // the page back to the older state. That out-of-order apply is the
-        // flicker; drop the superseded read.
-        const superseded = gen !== reloadGen;
-        if (
-          !superseded &&
-          !clobbersContentWithEmpty &&
-          (!bg || changed) &&
-          !editingId()
-        ) {
-          applyView(next);
-        }
-      }
-    }
-    // Re-read the dot off the fresh dial outcomes the force-sync produced.
-    void refreshPeerStatus();
-    if (!bg) setSyncing(false);
-  }
-
   async function handleRefresh() {
     const pid = pageId();
     if (!pid || refreshing() || syncing()) return; // one sync pass at a time
@@ -1510,8 +1367,14 @@ export function Journal() {
   });
 
   function handleCapture() {
-    if (capture.onToday()) void handleAppendBlock();
+    if (capture.onToday()) void newBlock.appendBlock();
     else {
+      // `<CaptureSheet />` focuses its field on the next animation
+      // frame, which is already outside this tap's gesture window — so
+      // the keyboard goes up here, inside it, and the sheet's focus
+      // becomes a move between two text inputs. One frame is too short
+      // to type into, and `armKeyboard` clears the keeper either way.
+      armKeyboard();
       haptic("light");
       setCaptureOpen(true);
     }
@@ -1589,7 +1452,7 @@ export function Journal() {
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
-      <Show when={view()?.page.kind === "journal" ? view()!.page.slug : null}>
+      <Show when={weekStripSlug()}>
         {(slug) => (
           <WeekStrip
             selectedSlug={slug()}
@@ -1636,11 +1499,22 @@ export function Journal() {
               <Show when={loaded()} fallback={<SkeletonOutline />}>
                 <Show
                   when={loadFailed()}
-                  fallback={<JournalStartWriting onStart={handleAppendBlock} />}
+                  fallback={
+                    <JournalStartWriting
+                      onStart={() => void newBlock.appendBlock()}
+                    />
+                  }
                 >
                   <JournalLoadFailed
                     onRetry={() => {
-                      setLoaded(false);
+                      // Back to the skeleton only when there is nothing
+                      // to lose. `loaded` gates this whole section, so
+                      // clearing it with a page up would take the
+                      // outline, the caret and the user's keystrokes
+                      // with it (`UX.md` → Never block a keystroke).
+                      // A failed boot has no outline, which is the one
+                      // case where the skeleton is the honest answer.
+                      if (!view()) setLoaded(false);
                       void loadTodayWithRetry();
                     }}
                   />
@@ -1670,7 +1544,7 @@ export function Journal() {
             <Show when={outlineRoots().length === 0 && view()}>
               <JournalEmptyPage
                 journal={view()?.page.kind === "journal"}
-                onAddBlock={() => void handleAppendBlock()}
+                onAddBlock={() => void newBlock.appendBlock()}
                 onProperties={() => {
                   if (!pageId()) return;
                   haptic("light");
@@ -1821,14 +1695,12 @@ export function Journal() {
         }}
       />
 
-      <DevicesSheet
-        open={devicesOpen()}
-        onClose={() => setDevicesOpen(false)}
-      />
+      <DevicesSheet open={devicesOpen()} onClose={() => setDevicesOpen(false)} />
 
       <SettingsSheet
         open={settingsOpen()}
         onClose={() => setSettingsOpen(false)}
+        onOpenDevices={() => setDevicesOpen(true)}
       />
 
       <RemindersSheet
@@ -1898,7 +1770,7 @@ export function Journal() {
             pasteBlock: (id) => void blockOps.pasteBlock(id),
             cutBlock: (id) => void blockOps.cutBlock(id),
             copyBlockRef: (id) => void blockOps.copyBlockRef(id),
-            newBlockAbove: (id) => void handleCreateBefore(id),
+            newBlockAbove: (id) => void newBlock.createBefore(id),
             selectBlocks: (id) => void selectionOps.selectBlocks(id),
             reselectSelection: () => selectionOps.reselectLast(),
           },
