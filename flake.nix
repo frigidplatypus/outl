@@ -360,7 +360,7 @@
             pname = "outl-desktop-frontend";
             inherit version;
             src = projectSrc;
-            outputHash = "sha256-bH3dyEP82lURXw9O/AtKiXtYzF/3VMyhTjwrN1fKIxQ=";
+            outputHash = "sha256-2dqNKTjUZT9ZO3Hb7Tunct97my3flM5RV1JUc9vuuo8=";
           };
 
           outl-desktop-dev = mkOutlDesktop {
