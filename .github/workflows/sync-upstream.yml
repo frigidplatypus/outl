@@ -4,11 +4,11 @@ name: Sync with Upstream
 # `upstream` flake input, so the stock packages the flake serves track upstream.
 # Because a GITHUB_TOKEN push cannot cascade into nix-build.yml, the build +
 # Cachix push runs here directly (via _nix.yml) rather than relying on a chained
-# trigger. Runs daily and on demand; only pushes when upstream actually moved.
+# trigger. Runs every 6 hours and on demand; only pushes when upstream actually moved.
 
 on:
   schedule:
-    - cron: '0 6 * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 permissions:
