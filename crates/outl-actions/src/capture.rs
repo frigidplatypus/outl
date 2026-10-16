@@ -20,7 +20,6 @@
 //! deletes the file. The ULID also carries the capture time on the block.
 
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -188,19 +187,10 @@ pub fn write_capture(
     let bytes = serde_json::to_vec(&record).map_err(|e| ActionError::Io(e.into()))?;
 
     fs::create_dir_all(dir)?;
-    // Leading dot so `capture_id` never reads it as a capture, and the
-    // ULID so two writers cannot collide on the temp name either.
-    let temp = dir.join(format!(".{id}.tmp"));
     let final_path = dir.join(format!("{id}.json"));
-    let mut file = fs::File::create(&temp)?;
-    if let Err(e) = file
-        .write_all(&bytes)
-        .and_then(|()| file.sync_all())
-        .and_then(|()| fs::rename(&temp, &final_path))
-    {
-        let _ = fs::remove_file(&temp);
-        return Err(e.into());
-    }
+    // Owns the scratch file, its cleanup and the directory sync that
+    // makes the rename itself durable.
+    outl_md::atomic::write_atomic(&final_path, &bytes)?;
     Ok(final_path)
 }
 
