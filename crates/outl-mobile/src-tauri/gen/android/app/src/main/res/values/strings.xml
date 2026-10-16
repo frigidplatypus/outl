@@ -1,4 +1,15 @@
 <resources>
     <string name="app_name">outl</string>
     <string name="main_activity_title">outl</string>
+
+    <!--
+      Capture from outside the app (RFC 0363). The wording matches
+      `OutlKit/Capture/CaptureLink.swift` and `CaptureReply.swift` on
+      iOS: a capture is saved on this device, not yet in the journal and
+      not yet on other devices, so it says "saved", never "added".
+    -->
+    <string name="capture_title">Add to today</string>
+    <string name="capture_widget_description">Open outl on a new line in today\'s journal.</string>
+    <string name="capture_saved">Saved, opens in outl.</string>
+    <string name="capture_nothing_to_save">Nothing to save.</string>
 </resources>

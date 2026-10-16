@@ -13,6 +13,12 @@ class MainActivity : TauriActivity() {
     // (uninitialized rustls-platform-verifier / ndk_context) and the process
     // aborts with SIGABRT on a tokio worker thread. See android_jni.rs.
     NativeSetup.install(applicationContext)
+    // Point the Rust side at the capture inbox before Tauri boots, so
+    // `drain_capture_inbox` finds it on the webview's very first drain.
+    // Same ordering requirement as NativeSetup above, for the same
+    // reason: after `super.onCreate` the first command may already have
+    // run. See OutlCapture.
+    OutlCapture.exportInbox(applicationContext)
     // Arm the background-sync schedules (WorkManager + the ProcessLifecycle
     // observer that fires the handover flush). Nothing is enqueued here — the
     // workspace hasn't opened yet, so there are no peers to gate on; this only
@@ -29,6 +35,11 @@ class MainActivity : TauriActivity() {
   override fun onResume() {
     super.onResume()
     OutlMulticast.acquire(applicationContext)
+    // Coming back is the only moment a capture can be new: a share sheet
+    // belongs to the app the user is *in*, so outl is never foreground
+    // when the share target writes. That is why Android needs no
+    // equivalent of the iOS Darwin notification. See OutlCapture.
+    OutlCapture.notifyWebView(window?.decorView)
   }
 
   override fun onPause() {

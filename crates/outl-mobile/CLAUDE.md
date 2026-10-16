@@ -5,16 +5,31 @@ Solid.js + Tailwind frontend, Rust backend that **must stay thin** — every wor
 
 ## Capture from outside the app (RFC 0363)
 
-The widget, the "Add to today" App Intent and the share extension never touch the workspace: they write `<ULID>.json` files to `captures/` in the App Group (`OutlKit/Capture/CaptureInbox.swift`).
-`drain_capture_inbox` (`outl-tauri-shared/src/capture_inbox.rs` over `outl_actions::capture`) is the **only** path from that inbox into the workspace; root invariant 7 holds because every capture becomes ops there.
+Six entry points on two platforms, and none of them touches the workspace.
+Each writes one `<ULID>.json` into an inbox, and `drain_capture_inbox` (`outl-tauri-shared/src/capture_inbox.rs` over `outl_actions::capture`) is the **only** path from there into the workspace — root invariant 7 holds because every capture becomes ops at that one place.
+
+| Platform | Entry points | Who writes the file |
+|---|---|---|
+| iOS | widget, "Add to today" App Intent, share extension | `OutlKit/Capture/CaptureInbox.swift`, into the App Group container |
+| Android | share target, home screen widget, quick settings tile | `outl_actions::capture::write_capture` through JNI, into `filesDir/captures` |
+
+**The platforms differ on purpose, in exactly one place: who owns the file format.**
+An iOS widget and share extension are separate processes under a memory ceiling this library would not fit, so a small Swift writer owns it there, and the Rust reader's field names are spelled out on both sides.
+Android's components are this app, in this process, with the library already loaded — so Kotlin holds neither the format nor the "a share is one line" rule (`shared_line`), only the folder and the strings.
+`src-tauri/src/capture_jni.rs` is that boundary.
+
+The widget and the tile write nothing at all: they open `outl://capture`, which is why they can ship before an inbox exists (RFC 0363 step 1).
+On Android that needs the `outl` scheme in `AndroidManifest.xml` — without it they open nothing.
+
 Targets, signing and what needs a Mac: `IOS-EXTENSIONS.md`.
+Android components and why they need no "a capture arrived" notification: [`docs/android-platform.md`](../../docs/android-platform.md) → Capture from outside the app.
 
 ## `Journal.tsx` is being broken up
 
 1,802 lines in one component, still 3x the `file-size-guard.sh` ceiling.
 The chrome came out first (`JournalChrome.tsx`), then the delete prompts (`JournalDeleteDialogs.tsx`) and the toolbar dispatch (`Journal.toolbar-dispatch.ts`); [issue 265](https://github.com/outlmd/outl/issues/265) phases 1-3 took the block ops, the selection state machine and the platform listeners out.
 Day navigation and wake-to-today live in `Journal.day-nav.ts`, quick capture in `Journal.capture.ts` (`outl://capture` opens its sheet through `openCapture` in `Journal.listeners.ts`), and the empty states and zoom bar in `JournalEmpty.tsx` and `JournalZoomBar.tsx`.
-The foreground pull and the capture inbox drain live in `Journal.inbox.ts`.
+The foreground pull and the capture inbox drain come from `@outl/shared/capture` (`installForegroundRefresh`), which the desktop uses too.
 The two workspace-open paths came out last, into `Journal.boot.ts`, together with every ticker in `Journal.polls.ts` — they went together because both open paths hold a user-visible gate (`loaded` gates the skeleton, `syncing` gates both refresh affordances), and a gate set on one path and cleared on another is how a stall becomes permanent.
 The remaining seams are in that issue, and the props rule an extraction must not break is in `outl-frontend-shared/CLAUDE.md`.
 

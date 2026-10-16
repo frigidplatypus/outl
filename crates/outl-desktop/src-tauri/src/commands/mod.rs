@@ -18,6 +18,7 @@
 
 pub(crate) mod asset;
 pub(crate) mod block;
+pub(crate) mod capture;
 pub(crate) mod exec;
 pub(crate) mod history;
 pub(crate) mod open_with;
@@ -35,6 +36,7 @@ pub(crate) mod workspace;
 
 pub(crate) use asset::*;
 pub(crate) use block::*;
+pub(crate) use capture::*;
 pub(crate) use exec::*;
 pub(crate) use history::*;
 pub(crate) use open_with::*;

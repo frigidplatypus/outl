@@ -107,6 +107,19 @@ Recently added — check these before writing a parallel **table** helper (catal
 
 **Block a second table parser.** A table is not a new block kind and has no `Op`: it is a block whose text carries the pipe rows, like a fence or a `> ` quote. A client that splits the pipes itself also has no tokenizer, so a cell's `[[ref]]` renders as literal text — read `BlockNode.table`.
 
+Capture from outside the app (RFC 0363) — catalog: `docs/primitives-actions.md` → "Capture from outside the app":
+
+| Intent | Use this | File |
+|---|---|---|
+| Write one capture into an inbox (create-temp, fsync, rename) | `outl_actions::capture::write_capture` | `crates/outl-actions/src/capture.rs` |
+| Share sheet text + URL → the one line that goes in. THE single owner; mirrored only in `SharedLine.swift` | `outl_actions::capture::shared_line` | `crates/outl-actions/src/capture.rs` |
+| **Land every waiting capture into the op log.** THE single owner of the drain loop; the per-capture step is a closure, because the Tauri clients lock per capture and the TUI does not | `outl_actions::capture::drain_captures` / `drain_capture_dir` | `crates/outl-actions/src/capture.rs` |
+| Which inbox: the one a mobile shell exported, or the workspace's `.outl/captures` | `outl_actions::capture::inbox_from_env` / `inbox_in_workspace` | `crates/outl-actions/src/capture.rs` |
+| The day a capture belongs to — when it was **made**, in the configured timezone | `outl_actions::capture::capture_day` | `crates/outl-actions/src/capture.rs` |
+| Drain on mount / foreground / native nudge, in a GUI client | `@outl/shared` `installForegroundRefresh` | `crates/outl-frontend-shared/src/capture/index.ts` |
+
+**Never append a capture to the op log from a second process.** A widget, a share target and `outl capture` all leave a file; the app turns it into ops (root `CLAUDE.md` invariant 7).
+
 Recently added — check these before writing a parallel reminder helper (catalog: `docs/primitives-actions.md` → "Reminders"):
 
 | Intent | Use this | File |

@@ -59,12 +59,12 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use crate::commands::{
     attach_asset, clear_reminder_snooze, copy_block_markdown, copy_block_ref, copy_markdown,
     create_block, current_workspace, cut_block, date_title, delete_block, delete_page,
-    deliver_due_reminders, device_activity, edit_block, export_markdown, get_settings, get_theme,
-    get_theme_config, import_asset_file, indent_block, instantiate_template_at,
-    journal_days_with_content, known_property_keys, list_action_support, list_all_pages,
-    list_open_tasks, list_reminders, list_shortcut_bindings, list_templates_cmd, list_themes,
-    mark_block_done, merged_edits, move_block_after, move_block_down, move_block_up, next_day,
-    open_asset, open_external_file, open_journal_for, open_page_by_slug, open_ref,
+    deliver_due_reminders, device_activity, drain_capture_inbox, edit_block, export_markdown,
+    get_settings, get_theme, get_theme_config, import_asset_file, indent_block,
+    instantiate_template_at, journal_days_with_content, known_property_keys, list_action_support,
+    list_all_pages, list_open_tasks, list_reminders, list_shortcut_bindings, list_templates_cmd,
+    list_themes, mark_block_done, merged_edits, move_block_after, move_block_down, move_block_up,
+    next_day, open_asset, open_external_file, open_journal_for, open_page_by_slug, open_ref,
     open_today_journal, outdent_block, outl_emoji_search, outl_peer_list, outl_peer_pair_host,
     outl_peer_pair_join, outl_peer_remove, outl_peer_status, outl_sync_now, page_backlinks,
     page_timeline, paste_block_after, paste_markdown_at, paste_plain_at, plugin_config_set,
@@ -419,6 +419,8 @@ pub fn run() {
             export_markdown,
             merged_edits,
             undo_merged_edit,
+            // Capture inbox: lines `outl capture` left for this app to land
+            drain_capture_inbox,
             // Properties (`key:: value`) — catalogue + page-level writer
             known_property_keys,
             set_page_property,

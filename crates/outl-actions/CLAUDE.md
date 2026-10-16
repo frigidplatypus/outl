@@ -147,6 +147,28 @@ During the #281 upgrade window (op log carrying a page's frontmatter fence as bu
 It is gone, and `tests/projection_writer_gates.rs` now pins both halves: every `pub fn` in `apply.rs` has a recorded verdict, and `guard.rs`'s doc names all six.
 Adding a writer without saying which side of the gate it is on fails there.
 
+## The capture inbox
+
+`capture.rs` is both halves of RFC 0363: the writer a capture gesture calls, and the **only** path from an inbox into the op log.
+
+The rule that matters: **no writer touches the workspace.** A widget, a share target, a Shortcut and `outl capture` each leave one `<ULID>.json` file, and `drain_capture_dir` lands it. That is what keeps root invariant 7 — a second process appending to `ops-<actor>.jsonl` is the thing this design exists to avoid.
+
+Three decisions that are not obvious from the signatures:
+
+- **The block id *is* the capture's ULID.** That is what makes a drain idempotent (a crash between the op and the `remove_file` replays onto the same block) and what makes two devices draining the same `file`-transport-synced capture converge on one block rather than duplicating it, since `do_op(Create)` is idempotent.
+- **`capture_day` resolves the day the capture was *made*, in the configured timezone.** A capture at 23:58 drained at 00:10 belongs to the 23:58 day, so a drain can create a *past* day's journal — which opening the app never does on its own. Any caller must run `clock::init` first or a late-evening capture files under the wrong day.
+- **Two inbox locations, answering different questions.** `inbox_from_env` is the mobile one (an iOS extension only reaches the App Group container, an Android component only knows `filesDir`, so neither can resolve which workspace is open). `inbox_in_workspace` is `<root>/.outl/captures` — what `outl capture` writes, aimed at the workspace it resolved.
+
+**The format has exactly one second implementation**, `OutlKit/Capture/CaptureInbox.swift`, because an iOS widget and share extension are separate processes under a memory ceiling this library would not fit. Android goes through JNI to `write_capture`, so Kotlin holds no copy — and neither does it hold `shared_line`, the "a share becomes one line" rule, whose only mirror is `SharedLine.swift`. **Adding a third copy of either is the thing to refuse in review.**
+
+`write_capture` is create-temp, fsync, rename: only the rename publishes the `<ULID>.json` name `pending_captures` looks for, so a drain racing a write sees a whole capture or none.
+
+**The loop has one owner, the per-capture step does not.** `drain_captures` holds everything that must not differ between clients — which captures are skipped, that a file is deleted only after its op is applied, the order — and takes the landing as a closure, because the Tauri clients take the workspace lock per capture and project the page while a caller holding a plain `&mut Workspace` needs neither. `drain_capture_dir` is that second shape. A second copy of the loop is how "does a blank capture get deleted" starts differing between the phone and the terminal, and the loop's tests only ever covered one of them.
+
+The report does not take the block id from the landing either: it **is** the capture's ULID, so the loop derives it rather than trusting the closure to agree.
+
+Who drains: `outl_tauri_shared::capture_inbox::drain_capture_inbox` for both GUI clients (over both inboxes, projecting each page), and `App::drain_capture_inbox` once at launch for the TUI.
+
 ## Trash
 
 `trash.rs` is the reading half of invariant 6. Delete is `Move(node, TRASH_ROOT)`, so the *preserving* half has always worked; until issue #287 nothing could list a deletion or put one back, which made the invariant's safety property "the bytes are still on disk" rather than "you can get it back".

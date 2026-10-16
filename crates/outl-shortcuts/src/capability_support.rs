@@ -115,6 +115,25 @@ mod why {
     /// Capture on the keyboard clients is two steps: jump to today,
     /// then add the block. Every piece exists; the one-gesture shape
     /// from mobile's bottom bar does not.
+    /// `outl capture` is a terminal command, so the TUI user already
+    /// has every route a desktop has — and the TUI drains the inbox
+    /// once, at boot, because nothing in it watches the folder. So a
+    /// capture made while the TUI is up waits for the next launch,
+    /// where a GUI client lands it within a second of coming back.
+    pub const TUI_CAPTURE_LANDS_AT_LAUNCH: &str =
+        "A line captured with `outl capture` lands the next time you start outl here — the \
+         desktop and phone apps pick one up while they're running.";
+
+    /// The desktop drains the inbox, so every capture lands; what it
+    /// does not have is a gesture of its own. There is no outl menu bar
+    /// item, Service or global hotkey that writes a capture, so the
+    /// entry point is `outl capture` and whatever the user wires it
+    /// into. Named as the gap it is rather than claimed as parity with
+    /// a widget and a share sheet.
+    pub const DESKTOP_CAPTURE_HAS_NO_SYSTEM_GESTURE: &str =
+        "Capturing from outside the app runs `outl capture \"your line\"` — wire it to a \
+         Shortcut, a macOS Service or a hotkey and it lands here on the next window focus.";
+
     pub const TUI_CAPTURE_IS_TWO_STEPS: &str =
         "There's no one-key capture here. Press `t` to jump to today's journal, then add the \
          block there. Press `[` to go back to the day you were on.";
@@ -330,6 +349,23 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
             desktop: Partial(why::DESKTOP_CAPTURE_IS_TWO_STEPS),
             mobile: Full,
         },
+        // Mobile: the iOS widget, the "Add to today" App Intent and the
+        // iOS share extension (`gen/apple/OutlWidget`, `OutlShare`),
+        // plus Android's share target, home screen widget and quick
+        // settings tile (`gen/android/…/OutlShareActivity.kt`,
+        // `OutlCaptureWidget.kt`, `OutlCaptureTile.kt`). Every one goes
+        // through `drain_capture_inbox`.
+        //
+        // `Full` is about what the capability is on mobile, not about
+        // one store build: the iOS extensions are unhooked from release
+        // builds until their provisioning profiles exist
+        // (`crates/outl-mobile/IOS-EXTENSIONS.md`), which is release
+        // plumbing recorded there, and the Android APK ships all three.
+        Capability::CaptureOutsideTheApp => ClientSupport {
+            tui: Partial(why::TUI_CAPTURE_LANDS_AT_LAUNCH),
+            desktop: Partial(why::DESKTOP_CAPTURE_HAS_NO_SYSTEM_GESTURE),
+            mobile: Full,
+        },
         // Mobile: the bottom bar's Tasks tab (`TasksSheet.tsx`) over
         // `list_open_tasks`. The command is registered on the desktop
         // too; the gap there is the surface, not the data.
@@ -403,7 +439,7 @@ mod tests {
                 let _ = s.get(client);
             }
         }
-        assert_eq!(Capability::ALL.len(), 14, "Capability::ALL changed size");
+        assert_eq!(Capability::ALL.len(), 15, "Capability::ALL changed size");
     }
 
     #[test]

@@ -530,6 +530,14 @@ The cold-start buffer exists for the same reason the deep-link one does (issue #
 
 **Testing on macOS needs a bundled, installed app**, same caveat as deep links: LaunchServices only reads `CFBundleDocumentTypes` from the built bundle, so `cargo tauri dev` never appears in "Open With".
 
+## Capture from outside the app (RFC 0363)
+
+The desktop registers `drain_capture_inbox` and `AppShell` installs `installForegroundRefresh` from `@outl/shared/capture`, so a line `outl capture` left in `<root>/.outl/captures/` lands on mount and on every return to the foreground.
+
+That is the whole desktop story: outl registers **no** Service, menu bar item or global hotkey that writes a capture, so the gesture is whatever the user wires `outl capture` into — a macOS Service or Shortcut, Raycast, a hotkey daemon. The `CaptureOutsideTheApp` row says `Partial` for exactly that reason, and the nudge names the command rather than apologising.
+
+**The refresh is skipped while the user is in a block**, for the reason `onPeerChange` defers a peer reload: re-applying a view re-materializes the outline under the cursor. The capture is in the op log either way and the next refresh shows it ([`UX.md` → Never block a keystroke](../../UX.md#2-never-block-a-keystroke)).
+
 ## Deep links (`outl://`)
 
 The scheme contract, the shared `outl_actions::parse_deep_link` parser, and this client's warm / cold wiring live in [`docs/deep-links.md`](../../docs/deep-links.md#desktop-wiring-outl-desktop).

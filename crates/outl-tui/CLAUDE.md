@@ -258,6 +258,18 @@ but the `(line, col) ↔ char_idx` math underneath isn't — it's shared with ho
 Both directions live in `outl_md::view::{char_to_line_col, line_col_to_char}` and the `EditBuffer` methods are thin wrappers.
 **Don't** add a `line_start_and_column` helper here; extract the inverse to `outl-md` if it's missing and wrap from here.
 
+## The capture inbox, drained once at launch
+
+`actions/lifecycle/capture.rs` lands whatever `outl capture` left in `<root>/.outl/captures/` (RFC 0363), called from `runtime/event_loop.rs` right after `App::new`.
+
+Three things about the placement, each of which was the alternative:
+
+- **Why the TUI drains at all.** `outl capture` is a terminal command, so the terminal client is the one most likely to be open when it runs. Not draining would make the command's promise ("lands the next time outl is open") false exactly where it is most often used.
+- **After `App::new`, not before.** The drain writes ops, so it must use the app's own `HlcGenerator`. A second generator on the same actor mints identical `(time, counter, actor)` triples — that is op identity, so `Workspace::apply`'s dedup silently drops one of the two ops.
+- **Project, then reload.** The TUI loads a view by parsing its `.md`, so `apply_page_md_with_sidecar_guarded` runs on each page that gained blocks before `refresh_workspace()`, or the landed blocks are invisible until something else writes the page.
+
+Launch only: nothing here watches the folder, so a capture made while the TUI is up waits for the next start. Recorded as `Partial` on the TUI column of `Capability::CaptureOutsideTheApp`.
+
 ## Persistence model
 
 Editing is **AST-first**: edits mutate an in-memory `ParsedPage`.

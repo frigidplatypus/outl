@@ -73,6 +73,18 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 - **Mobile command palette, and one look across desktop and phone.**
   Type `>` in the phone's Search or Pages sheet to list actions (today, capture, tasks, reminders, calendar, sync, devices, plugins, settings, fold); a plain query shows matching actions under the pages, as the desktop palette does.
   Block text and its edit box share one line height on both clients, so rows keep one rhythm and no longer jump when you start editing on the phone; task boxes use the theme's task colours on the phone too; the phone's debug footer (block and op counts) is gone, as it never was on desktop.
+- **Android: capture without opening the app.**
+  Share text or a link to outl from any app, tap a home screen widget, or pull down a quick settings tile.
+  Same hand-off iOS uses: a share lands as one `<ULID>.json` in the inbox and the app drains it into the journal for the day it was captured; the widget and the tile write nothing at all, they open `outl://capture`.
+  That scheme now has an intent filter on Android, which it did not before, so `outl://` links from anywhere open the app.
+  One difference from iOS, and the platform forced it: Android components run in the app's own process with the Rust library loaded, so the share target writes through `outl_actions::capture` rather than a second copy of the file format. Kotlin holds the folder and the strings, nothing else.
+  It also needs no "a capture arrived" notification, because a share sheet belongs to the app you are in, so outl is never on screen when the write happens ([docs/android-platform.md](docs/android-platform.md), [#363](https://github.com/outlmd/outl/issues/363)).
+
+- **`outl capture` puts a line in the journal from a terminal, without opening the workspace.**
+  `outl capture "ring the dentist"`, or `-` to read it from stdin. It lands in the journal for the day you captured it the next time a client is open: the desktop drains on launch and on window focus, the TUI at launch. `outl capture --list` shows what is still waiting.
+  This is what gives a desktop a capture gesture at all, since none of a macOS Service, a Shortcut, Raycast or a hotkey daemon can hold a workspace open. outl registers no such gesture itself, so you wire the command to whichever you use.
+  `outl daily append` is still the command when you want the block written and syncing before the process exits. Capture buys two things instead: no workspace boot, which is seconds on a large graph for one line, and no op minted under a second actor when a GUI client already holds this device's write actor ([docs/cli.md → Capture](docs/cli.md#capture), [RFC 0363](docs/rfcs/0363-ios-quick-capture.md)).
+
 - **iOS: capture without opening the app.**
   A home and lock screen widget opens the capture sheet, an "Add to today" App Intent works from Shortcuts, Siri and the Action Button, and a share extension saves text or a link.
   Extensions never touch the workspace: they drop a `<ULID>.json` into the App Group inbox and the app drains it into today's journal on launch and on a Darwin notification ([RFC 0363](docs/rfcs/0363-ios-quick-capture.md), [#363](https://github.com/outlmd/outl/issues/363)).

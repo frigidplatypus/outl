@@ -49,6 +49,12 @@ pub(super) fn event_loop(
     // only feeds the render path, so setting it post-construction is
     // enough and keeps it out of `App::new`'s already-long signature.
     app.backlinks_newest_first = backlinks_newest_first;
+    // Land anything `outl capture` left waiting (RFC 0363). After
+    // `App::new` because the drain writes ops and must use the app's own
+    // `HlcGenerator` — a second generator on the same actor mints
+    // identical `(time, counter, actor)` triples, which is op identity,
+    // so `Workspace::apply`'s dedup would silently drop one of the two.
+    app.drain_capture_inbox();
     // An unreadable global config, on the first frame. Set post-construction
     // for the same reason as the line above, and last so it wins over
     // whatever `App::new` left in the status line.

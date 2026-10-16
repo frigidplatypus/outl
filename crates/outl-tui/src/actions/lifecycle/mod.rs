@@ -29,6 +29,7 @@ use outl_md::index::WorkspaceIndex;
 use outl_md::parse::ParsedPage;
 use std::path::{Path, PathBuf};
 
+pub(crate) mod capture;
 #[cfg(test)]
 mod clock_seed_tests;
 pub(crate) mod external;

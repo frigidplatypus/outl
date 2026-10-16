@@ -256,6 +256,30 @@ User-facing spec: [`reminders.md`](reminders.md).
 
 ---
 
+## 7b. Capture from outside the app (RFC 0363)
+
+A line captured where outl is not on screen — an iOS widget, App Intent or share extension, an Android share target, widget or quick settings tile, `outl capture` and whatever a desktop user wires it into.
+
+**No writer touches the workspace.** Each capture is one `<ULID>.json` file in an inbox, and `drain_capture_dir` is the only path from there into the op log (root `CLAUDE.md` invariant 7).
+The block id **is** the capture's ULID, which is what makes a drain idempotent after a crash and what makes two devices draining the same synced file converge on one block.
+The format has exactly one second implementation, `OutlKit/Capture/CaptureInbox.swift`, because an iOS extension cannot load this library; Android reaches these functions through JNI, so Kotlin holds no copy.
+User-facing spec: [`clients.md` → Capturing from outside the app](clients.md#capturing-from-outside-the-app).
+
+| Intent | Use this | File |
+|---|---|---|
+| Write one capture (create-temp, fsync, rename, so a drain sees a whole capture or none) | `outl_actions::capture::write_capture` | `crates/outl-actions/src/capture.rs` |
+| Turn a share sheet's text + URL into the one line that goes in (newlines collapse; a capture is one block). THE single owner — mirrored only in `SharedLine.swift` | `outl_actions::capture::shared_line` | `crates/outl-actions/src/capture.rs` |
+| The inbox a mobile shell exported (iOS App Group container, Android `filesDir`) | `outl_actions::capture::inbox_from_env` / `CAPTURE_INBOX_ENV` | `crates/outl-actions/src/capture.rs` |
+| The workspace's own inbox, `<root>/.outl/captures` — what `outl capture` writes and every client with an open workspace drains | `outl_actions::capture::inbox_in_workspace` | `crates/outl-actions/src/capture.rs` |
+| Everything waiting in an inbox, in capture order (a temp file is skipped, an unreadable one is counted and left) | `outl_actions::capture::pending_captures` → `(Vec<PendingCapture>, usize)` | `crates/outl-actions/src/capture.rs` |
+| **Land every waiting capture and delete its file.** THE single owner of the drain *loop* — which captures are skipped, that a file goes only after its op, in what order. The per-capture step is a closure because the callers lock differently | `outl_actions::capture::drain_captures` → `DrainReport` (and `drain_capture_dir`, it against a `&mut Workspace`) | `crates/outl-actions/src/capture.rs` |
+| The journal day a capture belongs to — the day it was **made**, in the configured timezone (so a 23:58 capture drained at 00:10 lands on the right day) | `outl_actions::capture::capture_day` | `crates/outl-actions/src/capture.rs` |
+| Land one capture into a page (idempotent: a block already in the tree is left alone) | `outl_actions::capture::land_capture` / `capture_page` | `crates/outl-actions/src/capture.rs` |
+| The same drain behind a Tauri command, over both inboxes, with the page projected | `outl_tauri_shared::capture_inbox::drain_capture_inbox` (`drain_capture_inbox` command) | `crates/outl-tauri-shared/src/capture_inbox.rs` |
+| Drain on mount, on foreground, and when the native side says one arrived | `@outl/shared` `installForegroundRefresh` / `drainOnce` | `crates/outl-frontend-shared/src/capture/index.ts` |
+
+---
+
 ## 8. Frontend shared primitives (`@outl/shared`)
 
 The TS + Solid catalog's canonical home is [`crates/outl-frontend-shared/CLAUDE.md`](../crates/outl-frontend-shared/CLAUDE.md) → "Today's surface".

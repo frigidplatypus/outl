@@ -9,6 +9,7 @@ import {
   reloadWorkspace,
 } from "@outl/shared/api/commands";
 import type { PageView } from "@outl/shared/api/types";
+import { installForegroundRefresh } from "@outl/shared/capture";
 import { flattenAll } from "@outl/shared/outline";
 
 import {
@@ -281,6 +282,22 @@ export function AppShell() {
     } else {
       void loadToday();
     }
+
+    // Land anything `outl capture` left in the inbox (RFC 0363): on
+    // mount, and on every return to the foreground. That is what makes a
+    // macOS Service, a Shortcut or a hotkey daemon a real capture path on
+    // the desktop — none of them can boot a workspace, so they write a
+    // file and this drains it.
+    //
+    // The refresh is skipped while the user is in a block, for the reason
+    // `onPeerChange` defers: re-applying a view re-materializes the
+    // outline under the cursor. The capture is already in the op log
+    // either way, and the next refresh shows it.
+    installForegroundRefresh({
+      pull: () =>
+        appState.editingBlockId === null ? refreshActivePage() : undefined,
+      notify: setError,
+    });
 
     const handlers = buildHandlers({ applyView, setError });
     setHandlers(handlers);
