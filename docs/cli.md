@@ -169,6 +169,38 @@ Prefer this over chained `outl block append` calls when authoring structured con
 `<date>` accepts ISO (`2026-05-31`) and natural (`"April 22nd, 2026"`, `"yesterday"`, `"tomorrow"`).
 Range is inclusive on both sides and emits one entry per day in the interval — days that have no materialised journal come back as `{ exists: false }` placeholders so the caller can spot gaps.
 
+### Capture
+
+| CLI                                   | MCP tool |
+|---------------------------------------|----------|
+| `outl capture <text>` (`-` = stdin)   | —        |
+| `outl capture --list`                 | —        |
+
+Drops one line into the workspace's capture inbox (`<root>/.outl/captures/`) **without opening the workspace**.
+It becomes a block at the end of the journal for the day it was captured the next time a client is open — the desktop and phone apps drain on launch and on every return to the foreground, the TUI drains at launch.
+RFC 0363 owns the design; [`clients.md` → Capturing from outside the app](clients.md#capturing-from-outside-the-app) is the user-facing half.
+
+This is the entry point for every scriptable capture gesture: a macOS Service or Shortcut, Raycast, Alfred, a hotkey daemon, a shell alias.
+
+```bash
+outl capture "ring the dentist"
+pbpaste | outl capture -          # whatever's on the clipboard, as one block
+outl capture --list               # what's still waiting
+```
+
+**`outl capture` vs `outl daily append`** — they are not the same command with different spellings:
+
+| | `outl capture` | `outl daily append` |
+|---|---|---|
+| Writes | one small file | ops, straight into the op log |
+| Workspace boot | none | yes — seconds on a large graph |
+| Synced when the command exits | no | yes |
+| With a GUI client running | lands under *its* actor | falls back to an ephemeral actor, leaving a fresh `ops-<ulid>.jsonl` per call |
+| Text shape | collapsed to one line | kept as given |
+
+Reach for `append` when you want the line durable and syncing before the process exits, and for `capture` when the cost of a boot per line is the thing you are avoiding.
+No MCP tool: an MCP server has the workspace open already, so `outl_daily_append` is strictly better there.
+
 ### Asset
 
 | CLI                                                         | MCP tool          |
@@ -657,6 +689,7 @@ Shipping today:
 - `outl page get|create|update|delete|list|rename|render` (`create` accepts `--content` to seed the outline in one call)
 - `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree`
 - `outl daily today|get|append|range`
+- `outl capture <text>|-|--list` — a line into the capture inbox, no workspace boot (RFC 0363)
 - `outl search "<query>" [--in=blocks|pages|all]`
 - `outl query [--tag] [--not-tag] [--priority] [--not-priority] [--since=Nd] [--not-since] [--kind] [--not-kind] [--prop k[=v]] [--not-prop k[=v]]`
 - `outl backlinks page|block|embed`

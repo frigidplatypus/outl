@@ -1,5 +1,6 @@
-//! RFC 0363: `drain_capture_inbox` lands the iOS captures as blocks,
-//! projects them, and empties the inbox.
+//! RFC 0363: `drain_capture_inbox` lands the captures as blocks,
+//! projects them, and empties the inbox — from the mobile shell's inbox
+//! and from the workspace's own, which is the one `outl capture` writes.
 
 use std::fs;
 use std::path::PathBuf;
@@ -10,7 +11,7 @@ use outl_core::hlc::HlcGenerator;
 use outl_core::id::ActorId;
 use outl_core::workspace::Workspace;
 use outl_exec::RuntimeRegistry;
-use outl_tauri_shared::capture_inbox::drain_capture_dir;
+use outl_tauri_shared::capture_inbox::{drain_capture_dir, drain_capture_inbox};
 use outl_tauri_shared::host::AppHost;
 use parking_lot::Mutex;
 use tempfile::TempDir;
@@ -84,4 +85,19 @@ fn an_empty_inbox_is_a_no_op() {
     let out = drain_capture_dir(&host, inbox.path()).expect("drain");
     assert_eq!(out.landed, 0);
     assert!(out.page_ids.is_empty());
+}
+
+#[test]
+fn the_workspace_inbox_is_drained_without_any_env_var() {
+    let (_tmp, host) = host();
+    let inbox = outl_actions::capture::inbox_in_workspace(&host.storage_root().unwrap());
+    let now = chrono::Utc::now().timestamp_millis();
+    outl_actions::capture::write_capture(&inbox, "from a terminal", "cli", now).unwrap();
+
+    // No `OUTL_CAPTURE_INBOX` here: a desktop has only this inbox, and
+    // finding it must not depend on a shell having exported anything.
+    let out = drain_capture_inbox(&host).expect("drain");
+
+    assert_eq!(out.landed, 1);
+    assert_eq!(fs::read_dir(&inbox).unwrap().count(), 0);
 }

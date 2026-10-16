@@ -38,6 +38,8 @@ mod android_jni;
 mod bg_sync;
 #[cfg(test)]
 mod capability_parity;
+#[cfg(target_os = "android")]
+mod capture_jni;
 mod commands;
 // iOS-only: LAN peer discovery through the system Bonjour daemon. iOS cannot
 // join a multicast group without an Apple-granted entitlement, so the

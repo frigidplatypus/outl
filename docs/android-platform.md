@@ -8,11 +8,16 @@ The user-facing background-sync behaviour is [sync.md → Background sync on And
 
 ## Where the Android-specific code lives
 
-Seven files, none of which holds business logic — the same rule as every other client.
+Twelve files, none of which holds business logic — the same rule as every other client.
 
 | Piece | Path | Job |
 |---|---|---|
 | JNI bootstrap | `crates/outl-mobile/src-tauri/src/android_jni.rs` | Prime the JVM globals iroh's TLS + DNS need |
+| Capture JNI | `crates/outl-mobile/src-tauri/src/capture_jni.rs` | Write one capture through `outl_actions::capture` |
+| Capture plumbing | `gen/android/…/OutlCapture.kt` | Inbox folder, the env var, the webview nudge |
+| Share target | `gen/android/…/OutlShareActivity.kt` | `ACTION_SEND` → one capture, a toast, finish |
+| Widget | `gen/android/…/OutlCaptureWidget.kt` | One tap opens `outl://capture` |
+| Quick settings tile | `gen/android/…/OutlCaptureTile.kt` | Same, from the pull-down |
 | Background sync (Rust) | `crates/outl-mobile/src-tauri/src/bg_sync.rs` | Two JNI entry points over a shared, platform-agnostic core |
 | Activity | `gen/android/app/src/main/java/app/outl/mobile_app/MainActivity.kt` | Calls `NativeSetup.install` + `OutlBackgroundSync.install` before Tauri boots |
 | Native binding | `gen/android/…/NativeSync.kt` | `external fun` declarations matching the JNI symbols |
@@ -35,6 +40,68 @@ The `rustls-platform-verifier` Kotlin component is not on Maven ([rustls/rustls-
 Its `.aar` is therefore vendored under `gen/android/app/libs/`, and must be re-copied whenever the crate version bumps.
 
 ---
+
+## Capture from outside the app
+
+Three entry points, the same shapes iOS has (RFC 0363): a **share target**
+(`ACTION_SEND`, `text/plain`), a **home screen widget**, and a **quick
+settings tile** — the closest Android has to iOS's Lock Screen widget.
+
+The widget and the tile write nothing. They open `outl://capture` and the
+app's capture sheet does the work, which is why RFC 0363 ships that shape
+first. On Android that needs the `outl` scheme registered on
+`MainActivity` in `AndroidManifest.xml`; without the intent filter both
+open nothing at all, which is why it landed with them.
+
+### Android owns the format in Rust, iOS owns it in Swift
+
+The one deliberate difference from iOS, and the reason is the platform,
+not taste.
+
+An iOS widget and share extension are separate processes with their own
+sandbox and a memory ceiling far below what loading this library needs, so
+a small Swift writer (`OutlKit/Capture/CaptureInbox.swift`) owns the
+inbox file format there.
+
+Android has no extension model. The share target is an ordinary activity
+in **this** app's process, with `liboutl_mobile_lib.so` already loaded.
+So it writes through `Java_app_outl_mobile_1app_OutlCapture_write`, and
+`outl_actions::capture::write_capture` + `shared_line` stay the owners of
+the file format and of "a share becomes one line". Kotlin holds the
+folder and the user-facing strings; nothing else.
+
+That also means the Android path is covered by `cargo test`, where the
+Swift one needs `swift test` and the Kotlin side needs an APK build.
+
+### No "a capture arrived" notification, and that is not an omission
+
+iOS posts a Darwin notification after an extension's write, because an
+iOS extension can write **while the app is on screen** — a share sheet
+hosted over outl itself, a widget tap on the Lock Screen.
+
+Android has no such case. A share sheet belongs to the app the user is
+*in*, so outl is never foreground when the share target writes, and a
+widget or tile tap opens the app rather than writing. Coming back is
+therefore the only moment a capture can be new, which is why
+`MainActivity.onResume` nudges the webview
+(`OutlCapture.notifyWebView`) instead.
+
+The webview's own `visibilitychange` usually fires on resume too, and the
+drain is idempotent — the block id is the capture's ULID — so the two
+together cost one no-op call and remove the dependency on which one the
+platform actually delivers.
+
+### Where a capture waits
+
+`filesDir/captures`, exported to Rust as `OUTL_CAPTURE_INBOX` from
+`MainActivity.onCreate` **before** `super.onCreate` boots Tauri — the
+same ordering `NativeSetup.install` needs, so the variable is set before
+the first `drain_capture_inbox` asks.
+
+Not the workspace's own `.outl/captures`: the workspace root is
+user-picked and a share target has not opened it. `filesDir` is the
+Android equivalent of the iOS App Group container — device-local,
+reachable without resolving anything.
 
 ## Background sync (Android)
 
@@ -120,12 +187,13 @@ Closing it needs a headless transport bootstrap — open the workspace and start
 
 ## The Rust ↔ Kotlin contract
 
-`bg_sync.rs` exposes two JNI entry points; `NativeSync.kt` declares the matching `external fun`s.
+`bg_sync.rs` and `capture_jni.rs` expose the JNI entry points; `NativeSync.kt` and `OutlCapture.kt` declare the matching `external fun`s.
 
 | Kotlin | JNI symbol | Returns |
 |---|---|---|
 | `NativeSync.backgroundSync()` | `Java_app_outl_mobile_1app_NativeSync_backgroundSync` | `false` = no transport in this process |
 | `NativeSync.peerCount()` | `Java_app_outl_mobile_1app_NativeSync_peerCount` | paired devices, read fresh from `peers.json` |
+| `OutlCapture.write(dir, text, url, source, ms)` | `Java_app_outl_mobile_1app_OutlCapture_write` | `false` = nothing saved (blank input or a failed write) |
 
 Rules that keep this from crashing:
 
@@ -152,7 +220,8 @@ That is what keeps them covered by the host test suite, where neither platform's
 ## Gradle and manifest
 
 `AndroidManifest.xml` needs **no change** for background sync, and this was verified against the merged manifest rather than assumed.
-It does need one for **LAN peer discovery** — see below.
+It does need one for **LAN peer discovery** — see below — and four for capture: the `outl` scheme on `MainActivity`, the share activity, the widget receiver and the tile service.
+Those four were verified the same way, by reading them back out of the built APK (`aapt2 dump xmltree --file AndroidManifest.xml`) rather than from the source manifest, because a merge can drop what a source file declares.
 `androidx.work:work-runtime` merges in `WAKE_LOCK`, `ACCESS_NETWORK_STATE`, `RECEIVE_BOOT_COMPLETED` and `FOREGROUND_SERVICE`, plus the `androidx.startup` `WorkManagerInitializer` that boots WorkManager with no `Configuration.Provider` of our own.
 
 Two dependencies in `gen/android/app/build.gradle.kts`:
@@ -240,3 +309,30 @@ adb logcat -s outl:V RustStdoutStderr:V
 
 Then confirm the peer no longer reports `peer did not confirm durable ingest` when the phone is locked mid-sync.
 That is the actual acceptance test, and nothing short of two paired devices produces it.
+
+### Capture, and what an emulator *can* prove
+
+More than the background path, because the risky seam is one call rather than a scheduler.
+On an emulator, without touching the UI:
+
+```bash
+# The share target, shaped the way Chrome shares a page (subject + link).
+adb shell "am start -a android.intent.action.SEND -t text/plain \
+  --es android.intent.extra.SUBJECT 'a title' \
+  --es android.intent.extra.TEXT 'https://outl.app' \
+  -n app.outl.mobile_app/.OutlShareActivity"
+# What landed in the inbox, and whether `shared_line` composed it.
+adb shell run-as app.outl.mobile_app ls files/captures/
+# The widget, the tile and the scheme are registered.
+adb shell dumpsys appwidget | grep outl
+adb shell "cmd package query-services -a android.service.quicksettings.action.QS_TILE" | grep outl
+adb shell "cmd package resolve-activity -a android.intent.action.VIEW -d outl://capture"
+```
+
+That covers Kotlin → JNI → `write_capture` → a file with the right field
+names, which is the part no test in this repo reaches.
+
+What still needs a real device is the rest of the gesture: adding the
+widget to a home screen and the tile to the pull-down, and the drain
+landing the captures in a journal — the last one needs a workspace open,
+so it needs the app actually running, not an `am start`.

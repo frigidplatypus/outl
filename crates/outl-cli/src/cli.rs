@@ -352,6 +352,17 @@ pub(crate) enum Command {
         #[command(subcommand)]
         sub: cmd::block::BlockCommand,
     },
+    /// Drop a line into the capture inbox without opening the workspace.
+    ///
+    /// The line waits as one file in `<root>/.outl/captures/` and
+    /// becomes a block in the journal for the day it was captured the
+    /// next time a GUI client is open. Use it from a macOS Service or
+    /// Shortcut, Raycast, a hotkey daemon or a shell alias, where
+    /// paying a workspace boot per line is the thing you are avoiding;
+    /// `outl daily append` is the command when you want the op written
+    /// and syncing before the process exits (RFC 0363).
+    Capture(cmd::capture::CaptureArgs),
+
     /// Daily journal operations.
     Daily {
         #[command(subcommand)]

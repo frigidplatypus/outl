@@ -115,6 +115,22 @@ pub enum Capability {
     /// you, this keeps you where you are and only writes. Mobile's
     /// bottom bar `+` is the reference shape.
     QuickCapture,
+    /// Adding a line to the journal from **outside** the app — without
+    /// it being on screen, and without opening it first.
+    ///
+    /// Distinct from `QuickCapture`, which is the same destination from
+    /// inside the app: that one keeps you where you are, this one does
+    /// not need you to be there at all. The gestures are a Home or Lock
+    /// Screen widget, a share sheet, Siri or the Action button, a quick
+    /// settings tile, a macOS Service or a hotkey daemon.
+    ///
+    /// Every route goes through the capture inbox rather than the op log
+    /// (RFC 0363): the writer is a different process that cannot hold
+    /// the workspace open, so it leaves one file and the app lands it.
+    /// That is also what this row is really about — a client without a
+    /// drain cannot have the capability, however many gestures the OS
+    /// offers.
+    CaptureOutsideTheApp,
     /// One list of every open task (`TODO` / `DOING`) across the
     /// workspace, each row opening its block.
     ///
@@ -147,6 +163,7 @@ impl Capability {
         Capability::TableRendering,
         Capability::Trash,
         Capability::QuickCapture,
+        Capability::CaptureOutsideTheApp,
         Capability::TaskList,
     ];
 }
@@ -159,7 +176,7 @@ mod tests {
     /// what makes forgetting impossible: it will not compile once a
     /// new variant exists until this function's `match` grows an arm
     /// for it too.
-    const EXPECTED_14: usize = 14;
+    const EXPECTED_15: usize = 15;
 
     fn name(cap: Capability) -> &'static str {
         match cap {
@@ -176,6 +193,7 @@ mod tests {
             Capability::TableRendering => "TableRendering",
             Capability::Trash => "Trash",
             Capability::QuickCapture => "QuickCapture",
+            Capability::CaptureOutsideTheApp => "CaptureOutsideTheApp",
             Capability::TaskList => "TaskList",
         }
     }
@@ -193,9 +211,9 @@ mod tests {
         );
         assert_eq!(
             names.len(),
-            EXPECTED_14,
-            "Capability::ALL has {} entries but the enum has {EXPECTED_14} variants \
-             — add the new variant to Capability::ALL (and bump EXPECTED_14)",
+            EXPECTED_15,
+            "Capability::ALL has {} entries but the enum has {EXPECTED_15} variants \
+             — add the new variant to Capability::ALL (and bump EXPECTED_15)",
             names.len(),
         );
     }

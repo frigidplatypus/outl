@@ -34,11 +34,13 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./api/capture": "./src/api/capture.ts",
     "./api/commands": "./src/api/commands.ts",
     "./api/overview": "./src/api/overview.ts",
     "./api/types": "./src/api/types.ts",
     "./api/trust": "./src/api/trust.ts",
     "./autocomplete": "./src/autocomplete/index.ts",
+    "./capture": "./src/capture/index.ts",
     "./trust": "./src/trust/index.ts",
     "./trust/styles": "./src/trust/styles.css",
     "./drag-drop": "./src/drag-drop/index.ts",

@@ -164,6 +164,10 @@ fn main() -> Result<()> {
             let p = resolve_path(cli.workspace.as_ref(), None)?;
             cmd::plugin::run(&sub, &p)
         }
+        Some(Command::Capture(args)) => {
+            let p = resolve_path(cli.workspace.as_ref(), None)?;
+            std::process::exit(cmd::capture::run(&args, &p));
+        }
         Some(Command::Daily { sub }) => {
             let p = resolve_path(cli.workspace.as_ref(), None)?;
             std::process::exit(cmd::daily::run(&sub, &p));

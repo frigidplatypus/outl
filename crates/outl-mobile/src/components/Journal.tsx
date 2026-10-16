@@ -119,7 +119,7 @@ import {
   listenForWorkspaceReady,
   navigateDeepLink,
 } from "./Journal.listeners";
-import { installForegroundRefresh } from "./Journal.inbox";
+import { installForegroundRefresh } from "@outl/shared/capture";
 import {
   OPEN_TIMEOUT_MS,
   createJournalBoot,
@@ -556,7 +556,7 @@ export function Journal() {
         // unchanged and fences as plain highlighted code.
         void loadToolbar();
         void loadTransformers();
-        // Back in the foreground: pull peers' edits and drain the iOS
+        // Back in the foreground: pull peers' edits and drain the
         // capture inbox.
         installForegroundRefresh({
           pull: () => pullAndReload(),

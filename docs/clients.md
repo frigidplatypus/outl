@@ -373,6 +373,47 @@ Desktop and mobile share the drop-handling code (`installFileDrop` + `importAsse
 See [`outl-frontend-shared/CLAUDE.md`](../crates/outl-frontend-shared/CLAUDE.md#todays-surface) for the pure helpers underneath.
 The TUI has no OS drag events over SSH/tmux, so it treats a lone pasted file path as a drop instead (`outl-tui/CLAUDE.md` → "Drag-and-drop file upload").
 
+## Capturing from outside the app
+
+The cost of a thought is the time between having it and seeing it written down, and on a phone the whole app launch sits in the middle of that.
+So every client has a way to add a line to today's journal **without outl being on screen**.
+
+| Client | Gestures |
+|---|---|
+| iOS | Home Screen and Lock Screen widget, the "Add to today" Shortcut (Siri and the Action button use the same one), the share sheet |
+| Android | the share sheet, a home screen widget, a quick settings tile |
+| Desktop | `outl capture "your line"`, and whatever you wire it to — a macOS Service or Shortcut, Raycast, Alfred, a hotkey daemon |
+| TUI | `outl capture` from any terminal; it lands the next time you start outl here |
+
+**What the words mean.** A widget or a Shortcut says *"Saved, opens in outl"*, never "added".
+The line is on that device and not yet in the journal, not yet on your other devices.
+That is not hedging — it is the actual state, and RFC 0363 picked it over a reassuring lie.
+
+### Why it waits instead of being written straight away
+
+A widget, a share extension and a Shortcut each run in **their own process**, with their own sandbox and a memory ceiling far below what opening a workspace needs.
+None of them can hold the workspace open, and root [`CLAUDE.md`](../CLAUDE.md) invariant 7 forbids a second process appending to the op log behind the app's back.
+
+So each capture is one small file in an inbox, and the app turns it into a block:
+
+- **On launch, on every return to the foreground**, and — on iOS — within about a second when something writes while the app is already open.
+- Into the journal for the day the capture was **made**, not the day it was drained. A line captured at 23:58 and drained at 00:10 belongs to the 23:58 day, which means a drain can create a past day's journal page.
+- In capture order, and never twice: the block's id *is* the capture's id, so a drain interrupted between writing the op and deleting the file replays onto the same block.
+- Ordered against your own typing by **drain** time. A line captured on the lock screen while the app sat in the background appears below whatever you typed after it — the honest order of what the app saw.
+
+The block is an ordinary block from there on: it syncs, `Cmd+Z` undoes it, and it carries its capture time.
+
+**If you never open the app, the captures wait.** They are on that one device and they are not synced. `outl capture --list` shows what is still waiting in a workspace.
+
+### `outl capture` is not `outl daily append`
+
+`outl daily append --text=…` writes the block into the op log immediately, and is the better command when a second of workspace boot is free.
+`outl capture` writes a file and lets the app land it. Two things make that the right trade for a capture gesture: it pays no workspace boot, and it does not mint ops under a second actor when a GUI client is already holding the device's write actor.
+The full comparison is in [`cli.md` → Capture](cli.md#capture).
+
+Per-client coverage: `CaptureOutsideTheApp` in [`client-parity.md`](client-parity.md).
+Design, the rejected alternatives, and what this makes worse: [RFC 0363](rfcs/0363-ios-quick-capture.md).
+
 ## Opening a file from the OS ("Open With → outl")
 
 A file manager can hand outl a `.md` / `.markdown` / `.txt` / `.text` file that lives **outside** the workspace.

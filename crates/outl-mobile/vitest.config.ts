@@ -12,7 +12,8 @@ export default defineConfig({
       // package, so a client test that mocks `@tauri-apps/api/core` or
       // `/event` does not reach the shared module's import of it: the real
       // `invoke` runs and the test fails with the host error instead
-      // (`Journal.inbox.test.ts` was red for exactly that).
+      // (the capture-inbox drain test was red for exactly that, before it
+      // moved into `@outl/shared/capture`).
       "@tauri-apps/api": fileURLToPath(
         new URL("./node_modules/@tauri-apps/api", import.meta.url),
       ),

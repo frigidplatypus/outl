@@ -339,4 +339,12 @@ pub enum ActionError {
     /// the lock it holds and gets `open-in/<stem> 2`.
     #[error("`{0}` was taken by another file while it was being opened — try again")]
     ExternalFileTargetTaken(String),
+
+    /// [`crate::capture::write_capture`] was handed text that is empty
+    /// or only whitespace. Refused at the writer rather than dropped at
+    /// the drain, so the share target can say "nothing to save" while
+    /// the user is still looking at it — a capture that disappears
+    /// silently is the failure RFC 0363 exists to avoid.
+    #[error("there's nothing to save — the shared text is empty")]
+    EmptyCapture,
 }
