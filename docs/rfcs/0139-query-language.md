@@ -5,6 +5,7 @@
 | **Status** | Shipped |
 | **Issue** | [#139](https://github.com/outlmd/outl/issues/139) |
 | **PR** | — |
+| **Amended** | [#323](https://github.com/outlmd/outl/issues/323), [#359](https://github.com/outlmd/outl/issues/359) |
 | **Date** | 2026-08-06 |
 | **Reference doc** | [query.md](../query.md) |
 | **Invariant** | none |
@@ -23,6 +24,7 @@ A query syntax is a **format**, so it joins the op log, the sidecar and the mark
 
 A ` ```query ` fence holding one `key: value` directive per line, implicitly ANDed.
 Directives shipped today: the filters `status`, `tag`, `prop`, `kind`, `since`, `text` — each also spelled `not-<key>` — plus the controls `sort` and `limit`.
+`tag`, `prop`, `kind` and `text` accept a comma-separated value list, which unions — a node matches the line if it matches any listed value (issue #359).
 Blank lines and `#` comments are ignored.
 The `not-` family landed after this RFC — see [Amended by issue 323](#amended-by-issue-323) below.
 
@@ -86,7 +88,8 @@ A query narrowing from 300 hits to 3 shrinks that page again, and only the fence
 Nothing on that list has an issue yet.
 
 > `not` and `prop` shipped later — `not` as a single wrapper over any filter rather than as grammar, per [Amended by issue 323](#amended-by-issue-323).
-> `or`, `between`, `page` and `group` remain uncovered.
+> `or` shipped later per-key as a comma-separated value union, per [Amended by issue #359](#amended-by-issue-359).
+> `between`, `page` and `group` remain uncovered.
 
 **Not covered — inline `{{query: …}}`.**
 If ever wanted it is a new parser token, never a reuse of this runtime.
@@ -115,3 +118,26 @@ It matched by substring, so `tag: ops` also hit `#opsec`. Over-inclusive is harm
 
 **The block index now exposes block properties**, which is the prerequisite this RFC named for `prop` and the reason it was listed as not covered.
 `BlockEntry::properties` carries them, lowercased once at index time.
+
+Issue #359 closes the open question quoted above with per-key value unions — see [Amended by issue #359](#amended-by-issue-359).
+
+## Amended by issue #359
+
+[Issue #359](https://github.com/outlmd/outl/issues/359) admits the two missing boolean operators to the line-list DSL, each in the smallest form the format allows.
+
+**`OR` lands as a per-key value union, not as an infix.**
+`tag`, `prop`, `kind` and `text` accept `v1, v2, …`; the line matches any listed value.
+One `Filter` variant per key, its value becomes a vector, the matcher becomes `any` — the growth path this RFC anticipated ("one `enum Filter` variant plus one match arm") made smaller, not bypassed.
+The comma is a delimiter with no escape in v1; `status` and `since` reject a comma with the line-numbered parse error, because a union of a closed two-value set and a threshold are not queries.
+Cross-key disjunction (`tag: x` OR `status: todo`) needs the boolean grammar this RFC rejects, and stays uncovered.
+
+**`NOT` is `not-<key>`, confirmed as the admitted spelling.**
+Issue 323 shipped the wrapper; this amendment records it as the grammar's negation, so the DSL's admitted operators are: implicit AND (lines), union (commas), negation (`not-`).
+Invariants 14's rule is untouched: the negative is `!` over the positive's matcher over the same value list, so `tag: a, b` and `not-tag: a, b` can never both match a node.
+
+**What this makes worse:** `tag: meeting, code-review` reads as one tag string to anyone who has not read the table, and a tag whose name contains a comma is now unmatchable — over-inclusion of the delimiter.
+Accepted: the alternative (parens, precedence, `and`/`or` keywords) is the ceiling this RFC's "Why not the alternatives" section rejects on learnability grounds.
+
+**The mirrored case:** the union changes only the matcher; embeds, auto-run and the live-view write-path costs recorded above are unchanged.
+
+The directive table in [`docs/query.md`](../query.md) is updated by the implementation PR that lands the union; `parses_tag_value_union`, `tag_union_matches_any_listed_tag` and `not_tag_union_excludes_all_listed` join Guarded-by there.
