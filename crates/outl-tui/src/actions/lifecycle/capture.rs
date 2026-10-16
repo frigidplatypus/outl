@@ -13,7 +13,49 @@
 //! project the pages that gained blocks, reload the open view off that
 //! projection, and say so.
 
+use std::path::Path;
+use std::sync::Arc;
+
+use outl_actions::capture::{capture_day, capture_page, drain_captures, land_capture};
+use outl_actions::{commit_page, ActionError, CommitHooks, SyncTransport};
+use outl_core::hlc::HlcGenerator;
+use outl_core::id::NodeId;
+use outl_core::workspace::Workspace;
+
 use crate::state::{App, ToastKind};
+
+/// The TUI's half of `commit_page` for a landing capture: guarded
+/// projection (root invariant 8), the peer announce, and a flag for the
+/// backlink rebuild, which needs `&mut App` and so runs after the drain.
+struct CaptureCommit<'a> {
+    root: &'a Path,
+    hlc: &'a HlcGenerator,
+    transport: Option<&'a Arc<dyn SyncTransport>>,
+    backlinks_stale: bool,
+    projection_failure: Option<ActionError>,
+}
+
+impl CommitHooks for CaptureCommit<'_> {
+    fn project(&mut self, workspace: &Workspace, page: NodeId) {
+        if let Err(e) = outl_actions::apply_page_md_with_sidecar_guarded(workspace, self.root, page)
+        {
+            self.projection_failure = Some(e);
+        }
+    }
+
+    fn invalidate_backlinks(&mut self) {
+        self.backlinks_stale = true;
+    }
+
+    fn announce(&mut self, workspace: &Workspace, page: NodeId) {
+        let Some(transport) = self.transport else {
+            return;
+        };
+        if let Some(meta) = outl_actions::page_meta(workspace, page) {
+            transport.announce_local_ops(&meta.slug, self.hlc.next());
+        }
+    }
+}
 
 impl App {
     /// Drain the workspace inbox and show what landed.
@@ -23,55 +65,66 @@ impl App {
     /// draining earlier would file a late-evening capture under the
     /// wrong day.
     ///
-    /// Best-effort throughout. A failed drain leaves its file in the
-    /// inbox for the next launch, which is the whole point of an inbox,
-    /// so nothing here turns a capture into a failed boot.
+    /// Each capture goes through `commit_page`, so its page is projected
+    /// and announced before `drain_captures` deletes its file. A later
+    /// failure leaves that file and the rest for the next launch, and
+    /// what already landed is still refreshed and reported.
     pub(crate) fn drain_capture_inbox(&mut self) {
         let dir = outl_actions::capture::inbox_in_workspace(&self.workspace_root);
-        let report = match outl_actions::capture::drain_capture_dir(
-            &mut self.workspace,
-            &self.hlc,
-            &dir,
-            outl_actions::capture::capture_day,
-        ) {
-            Ok(report) => report,
-            Err(e) => {
-                self.toast(ToastKind::Warning, format!("capture inbox: {e}"));
-                return;
-            }
-        };
-        if report.landed.is_empty() {
+        if outl_actions::capture::pending_captures(&dir).0.is_empty() {
             return;
         }
+        // The open view may be the journal a capture lands in; snapshot
+        // it so `u` takes the landing back like any other edit.
+        self.snapshot_for_undo();
 
-        // The TUI loads a view by parsing its `.md`, so the projection
-        // has to happen before the reload or the blocks that just landed
-        // are invisible until something else writes the page. Guarded,
-        // like every other write path here: a page holding content the
-        // op log never saw is refused rather than overwritten (root
-        // invariant 8).
-        let mut pages: Vec<_> = report.landed.iter().map(|(page, _)| *page).collect();
-        pages.dedup();
-        for page in pages {
-            if let Err(e) = outl_actions::apply_page_md_with_sidecar_guarded(
-                &self.workspace,
-                &self.workspace_root,
-                page,
-            ) {
-                // The ops are durable either way; what failed is the
-                // projection. Naming it beats a silent stale page.
-                self.toast(ToastKind::Warning, format!("capture projection: {e}"));
+        let mut hooks = CaptureCommit {
+            root: &self.workspace_root,
+            hlc: &self.hlc,
+            transport: self.sync_transport.as_ref(),
+            backlinks_stale: false,
+            projection_failure: None,
+        };
+        let workspace = &mut self.workspace;
+        let hlc = &self.hlc;
+        let mut landed = 0usize;
+        let mut warnings = Vec::new();
+        let result = drain_captures(&dir, capture_day, |capture, day| {
+            let page = capture_page(workspace, hlc, day)?;
+            commit_page(workspace, &mut hooks, page, |ws| {
+                land_capture(ws, hlc, page, capture)
+            })?;
+            if let Some(e) = hooks.projection_failure.take() {
+                // The op is durable; what failed is the projection.
+                warnings.push(format!("capture projection: {e}"));
             }
+            landed += 1;
+            Ok::<_, ActionError>(page)
+        });
+        let backlinks_stale = hooks.backlinks_stale;
+        if let Err(e) = result {
+            warnings.push(format!("capture inbox: {e}"));
         }
-        self.refresh_workspace();
 
-        let n = report.landed.len();
+        if landed > 0 {
+            if backlinks_stale {
+                self.spawn_backlink_index_rebuild();
+            }
+            self.refresh_workspace();
+        }
+        for w in warnings {
+            self.toast(ToastKind::Warning, w);
+        }
+        if landed == 0 {
+            self.undo.pop();
+            return;
+        }
         self.toast(
             ToastKind::Info,
-            if n == 1 {
+            if landed == 1 {
                 "added 1 capture to your journal".to_string()
             } else {
-                format!("added {n} captures to your journal")
+                format!("added {landed} captures to your journal")
             },
         );
     }
