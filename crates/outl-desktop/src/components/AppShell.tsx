@@ -275,13 +275,14 @@ export function AppShell() {
     // an unread one cannot replay on the next plain launch.
     const pending = await takePendingDeepLink();
     const pendingFile = await takePendingOpenFile();
-    if (pending) {
-      void handleDeepLink(pending);
-    } else if (pendingFile) {
-      void handleOpenFile(pendingFile);
-    } else {
-      void loadToday();
-    }
+    // The drain below waits on this before refreshing, so a capture
+    // landing first cannot reach `refreshActivePage`'s no-page branch
+    // and load today over the requested target.
+    const initialNav: Promise<unknown> = pending
+      ? handleDeepLink(pending)
+      : pendingFile
+        ? handleOpenFile(pendingFile)
+        : loadToday();
 
     // Land anything `outl capture` left in the inbox (RFC 0363): on
     // mount, and on every return to the foreground. That is what makes a
@@ -294,8 +295,10 @@ export function AppShell() {
     // outline under the cursor. The capture is already in the op log
     // either way, and the next refresh shows it.
     installForegroundRefresh({
-      pull: () =>
-        appState.editingBlockId === null ? refreshActivePage() : undefined,
+      pull: async () => {
+        await initialNav.catch(() => undefined);
+        if (appState.editingBlockId === null) await refreshActivePage();
+      },
       notify: setError,
     });
 

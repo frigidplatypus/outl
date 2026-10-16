@@ -53,9 +53,13 @@ export function installForegroundRefresh(deps: InboxDeps) {
   document.addEventListener("visibilitychange", onVisible);
   const win = window as WindowWithInbox;
   const arrived = () => void drainOnce(deps);
+  // A desktop window regains focus without a visibility change (alt-tab
+  // to a terminal and back), so focus is a trigger of its own.
+  window.addEventListener("focus", arrived);
   win.__outlCapturesArrived = arrived;
   onCleanup(() => {
     document.removeEventListener("visibilitychange", onVisible);
+    window.removeEventListener("focus", arrived);
     if (win.__outlCapturesArrived === arrived) delete win.__outlCapturesArrived;
   });
   void drainOnce(deps);
