@@ -131,6 +131,7 @@ fn list(path: &Path) -> Result<Value, ApiError> {
             "source": c.record.source,
         })).collect::<Vec<_>>(),
         "skipped": skipped,
+        "inbox": dir.display().to_string(),
     }))
 }
 
@@ -150,8 +151,14 @@ fn print_waiting(v: &Value) {
         }
     }
     // A file the drain could not read is left in place, so it would
-    // otherwise be invisible here as well as in the journal.
+    // otherwise be invisible here as well as in the journal. It names
+    // the folder rather than `outl doctor`, which has no inbox check —
+    // pointing at a command that reports nothing is worse than saying
+    // where the files are.
     if let Some(n) = v.get("skipped").and_then(Value::as_u64).filter(|n| *n > 0) {
-        println!("{n} unreadable file(s) left in place — see `outl doctor`");
+        match v.get("inbox").and_then(Value::as_str) {
+            Some(dir) => println!("{n} unreadable file(s) left in {dir}"),
+            None => println!("{n} unreadable file(s) left in place"),
+        }
     }
 }

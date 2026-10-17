@@ -106,15 +106,6 @@ mod why {
         "Reminder banners can't carry buttons here — open the reminders list (Ctrl+R in the \
          TUI, Cmd/Ctrl+Shift+R on desktop) to snooze or tick off what came due.";
 
-    /// Neither the TUI nor the desktop renders a keyboard accessory
-    /// bar: both are driven by a physical keyboard, where every
-    /// toolbar action is a fixed chord from `defaults.rs`. A chord
-    /// does not move, so there is no order to pin and nothing a
-    /// lock would buy — this is a property of the input device, not
-    /// work left undone.
-    /// Capture on the keyboard clients is two steps: jump to today,
-    /// then add the block. Every piece exists; the one-gesture shape
-    /// from mobile's bottom bar does not.
     /// `outl capture` is a terminal command, so the TUI user already
     /// has every route a desktop has — and the TUI drains the inbox
     /// once, at boot, because nothing in it watches the folder. So a
@@ -134,6 +125,15 @@ mod why {
         "Capturing from outside the app runs `outl capture \"your line\"` — wire it to a \
          Shortcut, a macOS Service or a hotkey and it lands here on the next window focus.";
 
+    /// Neither the TUI nor the desktop renders a keyboard accessory
+    /// bar: both are driven by a physical keyboard, where every
+    /// toolbar action is a fixed chord from `defaults.rs`. A chord
+    /// does not move, so there is no order to pin and nothing a
+    /// lock would buy — this is a property of the input device, not
+    /// work left undone.
+    /// Capture on the keyboard clients is two steps: jump to today,
+    /// then add the block. Every piece exists; the one-gesture shape
+    /// from mobile's bottom bar does not.
     pub const TUI_CAPTURE_IS_TWO_STEPS: &str =
         "There's no one-key capture here. Press `t` to jump to today's journal, then add the \
          block there. Press `[` to go back to the day you were on.";

@@ -25,7 +25,10 @@ So the hard part is not the widget, it is who turns the captured text into an op
 Extensions never touch the workspace.
 They append one record per capture to an inbox in the App Group container, and the app drains it.
 
-- **Inbox.** `captures/` in the App Group container, one file per capture, named by a ULID so the names sort in capture order and two writers never collide. The file holds the text, the capture time and the source (`widget`, `intent`, `share`). Writing is create-temp, fsync, rename, so the app either sees a whole capture or none of it.
+- **Inbox.** `captures/` in the App Group container, one file per capture, named by a ULID so the names sort in capture order and two writers never collide.
+  The file holds the text, the capture time and the source (`intent` or `share` from iOS; `share` from Android, `cli` from `outl capture` — see the amendment below).
+  The reader takes `source` as a plain string and never matches on it, so a writer on a newer build can add a value without the file being refused.
+  Writing is create-temp, fsync, rename, so the app either sees a whole capture or none of it.
 - **Drain.** The app drains on launch, on every return to the foreground, and on a Darwin notification the extension posts after its rename, so a capture made while the app is open lands without a reload. Draining goes through `outl_actions` like any typed block: it opens or creates the journal for the capture's own day and appends one block per file, in name order. The file is deleted only after the op is durable in the op log.
 - **Idempotency.** The block id is derived from the capture's ULID, so a drain that crashes between the op and the delete replays to the same block instead of a second copy.
 - **Owner.** One function, `drain_capture_inbox`, in the mobile backend. The extensions share a small Swift writer and nothing else.

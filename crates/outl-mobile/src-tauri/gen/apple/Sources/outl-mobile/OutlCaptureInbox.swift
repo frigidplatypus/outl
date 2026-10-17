@@ -13,7 +13,7 @@ import WebKit
 ///
 /// `install()` listens for the Darwin notification an extension posts
 /// after writing, and asks the webview to drain
-/// (`window.__outlCapturesArrived`, see `Journal.inbox.ts`). Launch and
+/// (`window.__outlCapturesArrived`, see `@outl/shared/capture`). Launch and
 /// foreground drains are driven from the webview itself.
 @objc(OutlCaptureInbox)
 public final class OutlCaptureInbox: NSObject {

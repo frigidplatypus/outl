@@ -64,12 +64,9 @@ final class CaptureReplyTests: XCTestCase {
     }
 }
 
-final class SharedLineTests: XCTestCase {
-    func testTextAndURLBecomeOneLine() {
-        let url = URL(string: "https://outl.app/rfc")!
-        XCTAssertEqual(SharedLine.compose(text: "Read this\n later", url: url), "Read this later https://outl.app/rfc")
-        XCTAssertEqual(SharedLine.compose(text: nil, url: url), "https://outl.app/rfc")
-        XCTAssertEqual(SharedLine.compose(text: "see https://outl.app/rfc", url: url), "see https://outl.app/rfc")
-        XCTAssertNil(SharedLine.compose(text: "  \n", url: nil))
-    }
-}
+// `SharedLine.compose` is covered by `SharedLineParityTests`, which reads
+// `crates/outl-actions/tests/shared-line-cases.json` — the same cases the
+// Rust owner answers. The hand-written copy that used to live here
+// asserted four of them inline, so a case added to the fixture was not
+// added to it: two Swift spellings of one rule, only one of them governed
+// by the contract. That is the drift the fixture exists to remove.

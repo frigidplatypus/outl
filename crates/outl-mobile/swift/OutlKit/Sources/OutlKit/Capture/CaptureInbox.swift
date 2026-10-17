@@ -2,6 +2,17 @@ import Foundation
 
 /// Where a capture came from. Stored in the file; the app does not branch
 /// on it today, it is there for the log and for later per-source rules.
+///
+/// **Writer-side only.** This is a closed set, and the format has more
+/// values than it lists: `outl capture` writes `cli`, and a newer build
+/// may add another. The Rust reader takes `source` as a plain `String`
+/// for that reason. Decoding a `CaptureRecord` with this enum would
+/// throw `DecodingError` on a value it does not know and lose that
+/// capture — so if a reader is ever written here, widen this to a
+/// `String` (or add an unknown case) first.
+///
+/// `widget` is emitted by nobody: both platforms' widgets open
+/// `outl://capture` rather than writing a file.
 public enum CaptureSource: String, Codable {
     case widget
     case intent

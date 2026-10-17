@@ -9,11 +9,16 @@
 //! where `outl capture` writes. A client registers this command once and
 //! gets whichever of the two its platform actually has — the desktop has
 //! only the second, iOS only the first, Android both.
+//!
+//! That last sentence is enforced by `mobile_inbox`, not just stated.
+//! The env arm used to run everywhere, so on a desktop anything able to
+//! set the app's launch environment could aim the drain at a folder the
+//! user never chose.
 
 use std::path::Path;
 
 use outl_actions::capture::{
-    capture_day, capture_page, drain_captures, inbox_from_env, inbox_in_workspace, land_capture,
+    capture_day, capture_page, drain_captures, inbox_in_workspace, land_capture,
 };
 use serde::Serialize;
 
@@ -54,13 +59,39 @@ impl CaptureDrainDto {
 /// the whole point of an inbox.
 pub fn drain_capture_inbox<S: AppHost>(state: &S) -> Result<CaptureDrainDto, String> {
     let mut out = CaptureDrainDto::default();
-    for dir in inbox_from_env()
+    for dir in mobile_inbox()
         .into_iter()
         .chain(state.storage_root().ok().map(|r| inbox_in_workspace(&r)))
     {
         out.absorb(drain_capture_dir(state, &dir)?);
     }
     Ok(out)
+}
+
+/// The inbox a mobile shell exported in `OUTL_CAPTURE_INBOX`, on the
+/// platforms that have one.
+///
+/// Mobile-only deliberately. The variable exists because an iOS
+/// extension and an Android component cannot resolve which workspace is
+/// open, so the shell hands them a folder. A desktop has no such writer:
+/// `outl capture` resolves the workspace itself and writes inside it. So
+/// reading the variable there adds no capability and does add a way to
+/// aim the drain somewhere the user did not choose — anything that can
+/// set the app's launch environment (`launchctl setenv`, same user, no
+/// root) would get every file in that folder landed in the journal, and
+/// `inbox_from_env` checks only that the path is a directory.
+///
+/// This is what the module doc means by "the desktop has only the
+/// second". Before this split the code honoured the variable everywhere
+/// and the sentence was aspirational.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn mobile_inbox() -> Option<std::path::PathBuf> {
+    outl_actions::capture::inbox_from_env()
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn mobile_inbox() -> Option<std::path::PathBuf> {
+    None
 }
 
 /// [`drain_capture_inbox`] for an explicit folder.
