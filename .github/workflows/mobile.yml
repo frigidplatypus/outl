@@ -487,10 +487,15 @@ jobs:
           OutlWidget_PROFILE_BASE64: ${{ secrets.WIDGET_PROVISIONING_PROFILE_BASE64 }}
           OutlShare_PROFILE_BASE64: ${{ secrets.SHARE_PROVISIONING_PROFILE_BASE64 }}
         run: |
+          # No associative array here: the macOS runner's /bin/bash is
+          # 3.2, where `declare -A` is a parse error, not an unsupported
+          # option that degrades. It took the whole step down on line 4,
+          # before the unhook path below could ship the app alone — the
+          # exact fallback this step exists to provide. The target to
+          # bundle-id-suffix map is the `case` further down.
           PBX="crates/outl-mobile/src-tauri/gen/apple/outl-mobile.xcodeproj/project.pbxproj"
           SCRIPT="crates/outl-mobile/scripts/ios-extensions-signing.py"
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          declare -A SUFFIX=([OutlWidget]=widget [OutlShare]=share)
           PRESENT=()
           for t in OutlWidget OutlShare; do
             if grep -q "/\* $t \*/ = {" "$PBX"; then PRESENT+=("$t"); fi
@@ -515,7 +520,12 @@ jobs:
               uuid=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$plist")
               rm -f "$plist"
               python3 "$SCRIPT" sign "$PBX" "$t" "$name" "$uuid"
-              EXTRA="$EXTRA<key>app.outl.mobile-app.${SUFFIX[$t]}</key><string>$name</string>"
+              case "$t" in
+                OutlWidget) suffix=widget ;;
+                OutlShare) suffix=share ;;
+                *) echo "::error::no bundle-id suffix registered for $t"; exit 1 ;;
+              esac
+              EXTRA="$EXTRA<key>app.outl.mobile-app.${suffix}</key><string>$name</string>"
             done
           fi
           echo "extra=$EXTRA" >> "$GITHUB_OUTPUT"
