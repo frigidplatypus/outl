@@ -157,7 +157,11 @@ pub(crate) fn resolve_or_create_by_name(
     let existing = pages
         .iter()
         .find(|p| p.title.to_lowercase() == lower)
-        .or_else(|| pages.iter().find(|p| p.aliases.iter().any(|a| a.to_lowercase() == lower)));
+        .or_else(|| {
+            pages
+                .iter()
+                .find(|p| p.aliases.iter().any(|a| a.to_lowercase() == lower))
+        });
     if let Some(existing) = existing {
         use std::str::FromStr;
         if let Ok(id) = ulid::Ulid::from_str(&existing.id) {
@@ -279,12 +283,7 @@ mod tests {
         // two-pass match (titles first) keeps the title page winning.
         let (mut w, hlc) = ws();
         let titled = open_or_create_by_name(&mut w, &hlc, "NYC", PageKind::Page).unwrap();
-        let aliaser = open_or_create_by_name(
-            &mut w,
-            &hlc,
-            "Big Apple",
-            PageKind::Page,
-        ).unwrap();
+        let aliaser = open_or_create_by_name(&mut w, &hlc, "Big Apple", PageKind::Page).unwrap();
         crate::page::set_property(
             &mut w,
             &hlc,
