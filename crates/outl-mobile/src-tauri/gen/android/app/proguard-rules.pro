@@ -21,6 +21,12 @@
 # from this exact class + method names (Java_app_outl_mobile_1app_NativeSync_*),
 # so R8 renaming either one breaks background sync in release builds only.
 -keep class app.outl.mobile_app.NativeSync { *; }
+# Capture JNI (see capture_jni.rs): same contract as the two above —
+# `Java_app_outl_mobile_1app_OutlCapture_write` is derived from this exact
+# class + method name. Unlike the share activity, the widget and the tile,
+# this class is named in no manifest, so nothing else pins it. R8 renaming
+# it makes every share fail with "Nothing to save." in release builds only.
+-keep class app.outl.mobile_app.OutlCapture { *; }
 
 # Uncomment this to preserve the line number information for
 # debugging stack traces.

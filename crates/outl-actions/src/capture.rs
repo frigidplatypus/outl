@@ -30,7 +30,7 @@ use outl_core::workspace::Workspace;
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
-use crate::block::create_with_explicit_id;
+use crate::block::{create_with_explicit_id, edit_text};
 use crate::error::ActionError;
 use crate::page::open_journal;
 use crate::tree::position_for_new_last_child;
@@ -47,7 +47,12 @@ pub struct CaptureRecord {
     pub text: String,
     /// When it was captured (Unix ms); picks the journal day.
     pub captured_at_ms: i64,
-    /// `widget`, `intent` or `share`.
+    /// Where the capture came from: `intent` or `share` on iOS, `share`
+    /// on Android, `cli` from `outl capture`. Read as a plain `String`
+    /// and never matched on, so a writer on a newer build can add one
+    /// without this reader refusing the file. (`widget` is listed in
+    /// `CaptureSource` on the Swift side and emitted by nobody — both
+    /// platforms' widgets open `outl://capture` instead of writing.)
     pub source: String,
 }
 
@@ -60,6 +65,31 @@ pub struct PendingCapture {
     pub id: Ulid,
     /// What the file holds.
     pub record: CaptureRecord,
+}
+
+impl PendingCapture {
+    /// The one line this capture becomes, normalized on the way in.
+    ///
+    /// Read it through here rather than reaching for `record.text`. The
+    /// inbox is written by processes this crate did not run — an iOS
+    /// extension, a Shortcut handing the App Intent a multi-line string,
+    /// a peer's capture file arriving over a `file` transport, a script
+    /// using the documented format — so the shape a capture is
+    /// *documented* to have has to be enforced where the bytes are
+    /// **read**, not only where the in-tree writers write them.
+    ///
+    /// Landing `record.text` raw is not a cosmetic difference: the
+    /// renderer projects a newline as an indented continuation line, and
+    /// the parser reads those back as tree structure and `key:: value`
+    /// properties. One multi-line capture therefore becomes several
+    /// blocks plus a forged `title::` on the next reconcile, and the
+    /// capture's own block is moved to the trash as an orphan. Root
+    /// `CLAUDE.md` invariant 8 does not catch it, because those lines
+    /// came out of outl's own renderer and are inside
+    /// `last_synced_hash` — this is the producer half it names.
+    pub fn line(&self) -> String {
+        one_line(&self.record.text)
+    }
 }
 
 /// What one drain did.
@@ -78,6 +108,15 @@ pub struct DrainReport {
 /// read a Rust constant anyway (`OutlCapture.kt`, `CaptureInbox.swift`
 /// spell it themselves).
 const CAPTURE_DIR: &str = "captures";
+
+/// Biggest capture file [`pending_captures`] will read, 1 MiB.
+///
+/// Generous for one line of text — roughly a million characters — and
+/// the point is not to pick a tight bound, it is that there was none.
+/// The inbox is written by other processes and read on every foreground
+/// return, so a single oversized file stalled every drain for the rest
+/// of the install's life.
+const MAX_CAPTURE_BYTES: u64 = 1 << 20;
 
 /// The inbox folder from [`CAPTURE_INBOX_ENV`], when set and present.
 ///
@@ -130,21 +169,40 @@ pub fn inbox_in_workspace(root: &Path) -> PathBuf {
 /// `Java_app_outl_mobile_1app_OutlCapture_write`, and `outl capture`
 /// calls it directly, so Kotlin holds no copy of the rule.
 pub fn shared_line(text: Option<&str>, url: Option<&str>) -> Option<String> {
-    let body = text
-        .unwrap_or_default()
-        .lines()
+    let body = one_line(text.unwrap_or_default());
+    let link = one_line(url.unwrap_or_default());
+    match (body.is_empty(), link.is_empty()) {
+        (true, true) => None,
+        (true, false) => Some(link),
+        (false, true) => Some(body),
+        (false, false) if body.contains(&link) => Some(body),
+        (false, false) => Some(format!("{body} {link}")),
+    }
+}
+
+/// The one line a capture is: each line trimmed, blank lines dropped,
+/// the rest joined by a single space.
+///
+/// The single owner of "a capture is one block", used by **both** halves
+/// of [`shared_line`], by [`write_capture`] and by
+/// [`PendingCapture::line`] on the way in.
+///
+/// The `url` half used to only `trim()`. That held while every caller
+/// passed something URL-shaped, and broke the moment Android's share
+/// target started putting an arbitrary `EXTRA_TEXT` in that slot: with a
+/// subject present, `OutlShareActivity` pairs the two as
+/// `(subject, text)`, so sharing a multi-line selection from a browser
+/// composed a line with newlines still in it. The Swift twin cannot
+/// reach this case because it takes a typed `URL?`, which is why
+/// `shared-line-cases.json` has no case for it and both parity suites
+/// passed — see `a_multi_line_url_is_still_one_line` for the Rust-only
+/// pin that covers it instead.
+fn one_line(s: &str) -> String {
+    s.lines()
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
-        .join(" ");
-    let link = url.unwrap_or_default().trim();
-    match (body.is_empty(), link.is_empty()) {
-        (true, true) => None,
-        (true, false) => Some(link.to_string()),
-        (false, true) => Some(body),
-        (false, false) if body.contains(link) => Some(body),
-        (false, false) => Some(format!("{body} {link}")),
-    }
+        .join(" ")
 }
 
 /// Write one capture into `dir` and return the file it published.
@@ -174,7 +232,7 @@ pub fn write_capture(
     source: &str,
     captured_at_ms: i64,
 ) -> Result<PathBuf, ActionError> {
-    let body = text.trim();
+    let body = one_line(text);
     if body.is_empty() {
         return Err(ActionError::EmptyCapture);
     }
@@ -216,6 +274,17 @@ pub fn pending_captures(dir: &Path) -> (Vec<PendingCapture>, usize) {
         let Some(id) = capture_id(&path) else {
             continue;
         };
+        // A capture is one line, so a file this big is not one. Reading
+        // it would be pointless and expensive: this runs on every return
+        // to the foreground, and an unlandable file is left in place, so
+        // the cost repeats forever. Counted as skipped rather than
+        // deleted — refusing loudly is the rule (invariant 11), and
+        // `skipped` is reported to the user now.
+        if fs::metadata(&path).is_ok_and(|m| m.len() > MAX_CAPTURE_BYTES) {
+            tracing::warn!("capture inbox: oversized capture {}", path.display());
+            skipped += 1;
+            continue;
+        }
         match fs::read(&path)
             .ok()
             .and_then(|b| serde_json::from_slice::<CaptureRecord>(&b).ok())
@@ -269,18 +338,29 @@ pub fn land_capture(
     capture: &PendingCapture,
 ) -> Result<NodeId, ActionError> {
     let block = NodeId(capture.id);
+    let line = capture.line();
     if workspace.tree().contains(block) {
+        // "Present" is not "landed". Landing is two independently
+        // fsynced ops — `Op::Create`, then `Op::Edit` carrying the text
+        // — with no batch around them, so a process killed between the
+        // two (iOS jetsam, `SIGKILL`, power loss) replays with the block
+        // in the tree and **empty**. Returning `Ok` on that state is
+        // what lets `drain_captures` delete the file, and the captured
+        // line then exists nowhere while the user is told it landed.
+        //
+        // Empty, not "different": a block whose text merely diverges may
+        // have been edited by the user after it landed, and this same
+        // capture file reaches a second device through a `file`
+        // transport (see [`inbox_in_workspace`]). Re-asserting on
+        // divergence would let that second drain overwrite the edit.
+        // Empty is the one state only the torn write produces.
+        if workspace.block_text(block).unwrap_or_default().is_empty() {
+            edit_text(workspace, hlc, block, &line)?;
+        }
         return Ok(block);
     }
     let position = position_for_new_last_child(workspace, page);
-    create_with_explicit_id(
-        workspace,
-        hlc,
-        block,
-        page,
-        position,
-        Some(capture.record.text.as_str()),
-    )
+    create_with_explicit_id(workspace, hlc, block, page, position, Some(line.as_str()))
 }
 
 /// Drain `dir`: land every capture in order through `land`, then delete
@@ -311,7 +391,7 @@ pub fn drain_captures<E>(
         ..DrainReport::default()
     };
     for capture in &pending {
-        if capture.record.text.trim().is_empty() {
+        if capture.line().is_empty() {
             let _ = fs::remove_file(&capture.path);
             continue;
         }

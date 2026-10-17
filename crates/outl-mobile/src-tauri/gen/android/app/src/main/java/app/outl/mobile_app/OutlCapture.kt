@@ -28,9 +28,30 @@ import java.io.File
  * root invariant 7: a second writer must never append to the op log.
  */
 internal object OutlCapture {
-  init { System.loadLibrary("outl_mobile_lib") }
-
   private const val TAG = "OutlCapture"
+
+  /**
+   * Loaded on first use, never from `init`.
+   *
+   * A failing `System.loadLibrary` in an object initializer does not
+   * reach the `catch` inside `save`: the JVM wraps it in
+   * `ExceptionInInitializerError` and throws that at the point the class
+   * is first *touched*, which is `OutlCapture.save(...)` in
+   * `OutlShareActivity` — outside the try. So the guard that exists to
+   * keep the share sheet from crashing could not cover the one case it
+   * names ("a cold process reaching the native library for the first
+   * time"); it only covered a missing *symbol* once the library was
+   * already up. `by lazy` is synchronized, which `init` also gave us.
+   */
+  private val libraryLoaded: Boolean by lazy {
+    try {
+      System.loadLibrary("outl_mobile_lib")
+      true
+    } catch (e: UnsatisfiedLinkError) {
+      Log.w(TAG, "native library did not load; capture not saved", e)
+      false
+    }
+  }
 
   /** Folder inside `filesDir`, matching `outl_actions::capture::CAPTURE_DIR`. */
   private const val FOLDER = "captures"
@@ -79,7 +100,9 @@ internal object OutlCapture {
    * avoid.
    */
   fun save(context: Context, text: String?, url: String?, source: String): Boolean =
-    try {
+    if (!libraryLoaded) {
+      false
+    } else try {
       write(
         inboxDir(context).absolutePath,
         text ?: "",

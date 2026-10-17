@@ -262,13 +262,26 @@ Both directions live in `outl_md::view::{char_to_line_col, line_col_to_char}` an
 
 `actions/lifecycle/capture.rs` lands whatever `outl capture` left in `<root>/.outl/captures/` (RFC 0363), called from `runtime/event_loop.rs` right after `App::new`.
 
-Three things about the placement, each of which was the alternative:
+Four things about the placement, each of which was the alternative:
 
-- **Why the TUI drains at all.** `outl capture` is a terminal command, so the terminal client is the one most likely to be open when it runs. Not draining would make the command's promise ("lands the next time outl is open") false exactly where it is most often used.
-- **After `App::new`, not before.** The drain writes ops, so it must use the app's own `HlcGenerator`. A second generator on the same actor mints identical `(time, counter, actor)` triples — that is op identity, so `Workspace::apply`'s dedup silently drops one of the two ops.
-- **Project, then reload.** The TUI loads a view by parsing its `.md`, so `apply_page_md_with_sidecar_guarded` runs on each page that gained blocks before `refresh_workspace()`, or the landed blocks are invisible until something else writes the page.
+- **Why the TUI drains at all.**
+  `outl capture` is a terminal command, so this is the client most likely to be open when it runs.
+  Not draining would make the command's promise false exactly where it is most used.
+- **After `App::new`, not before.**
+  The drain writes ops, so it must use the app's own `HlcGenerator`.
+  A second generator on the same actor mints identical `(time, counter, actor)` triples, which is op identity — `Workspace::apply`'s dedup then silently drops one.
+- **Through `commit_page`, not a hand-written projection.**
+  Each page is projected and announced before `drain_captures` deletes the file.
+  The TUI loads a view by parsing its `.md`, so without that the landed blocks are invisible until something else writes the page.
+  `CaptureCommit` is the `CommitHooks` impl; the backlink rebuild is a flag because it needs `&mut App` and so runs after the loop.
+- **An unreadable file is reported, not skipped silently.**
+  The early return needs `unreadable == 0` too: `waiting.is_empty()` alone is also true when *every* file in the inbox is broken.
+  That is the one case where silence means the captures never appear at all.
+  `unreadable_notice` names the folder rather than pointing at `outl doctor`, which has no inbox check.
 
-Launch only: nothing here watches the folder, so a capture made while the TUI is up waits for the next start. Recorded as `Partial` on the TUI column of `Capability::CaptureOutsideTheApp`.
+Launch only: nothing here watches the folder, so a capture made while the TUI is up waits for the next start.
+Recorded as `Partial` on the TUI column of `Capability::CaptureOutsideTheApp`.
+The tests at the bottom of that file cover all three: the capture lands *and* its `.md` is written, an all-unreadable inbox still reports, an empty one says nothing.
 
 ## Persistence model
 
@@ -306,7 +319,10 @@ Policy + the "which client snapshots" table live in [`docs/clients.md` → Autom
 `outl_actions::commit_page` owns what happens around a page mutation: pre-mutation undo snapshot, the mutation, backlink-index invalidation, the peer announce, then the `.md` + sidecar projection.
 It takes `&mut Workspace`, so this crate *can* call it.
 
-It does not, yet.
+**One path here already does**: the capture drain (`actions/lifecycle/capture.rs`), whose `CaptureCommit` is this crate's first `CommitHooks` impl.
+It is the model for the rest.
+
+The editing path does not, yet.
 `save_page_with` in `actions/lifecycle/persistence.rs` writes the same sequence by hand.
 `render` → `write_atomic` → `reconcile_md` → `index.patch_page` → `spawn_backlink_index_rebuild` → `announce_local_ops`.
 It does that because this crate mutates an in-memory AST and derives ops from the rendered markdown — the inverted direction [issue 263](https://github.com/outlmd/outl/issues/263) tracks.

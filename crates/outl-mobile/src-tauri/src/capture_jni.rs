@@ -40,8 +40,11 @@
 ///
 /// # Safety
 ///
-/// Called by the JVM with a valid JNI env, class and three non-null
-/// `String` arguments.
+/// Called by the JVM with a valid JNI env and class, four non-null
+/// `String` arguments (`dir`, `text`, `url`, `source`) and a `jlong`.
+/// Kotlin's non-null signature on `OutlCapture.write` is what makes the
+/// strings non-null, and only this app's own process can reach the
+/// symbol.
 #[no_mangle]
 pub extern "system" fn Java_app_outl_mobile_1app_OutlCapture_write<'local>(
     mut unowned_env: jni::EnvUnowned<'local>,

@@ -403,6 +403,15 @@ So each capture is one small file in an inbox, and the app turns it into a block
 
 The block is an ordinary block from there on: it syncs, `Cmd+Z` undoes it, and it carries its capture time.
 
+**A capture is always one line.**
+Share a multi-line selection from a browser, or pipe a paragraph into `outl capture -`, and what lands is those lines joined by spaces, because a capture is one block.
+Newlines are collapsed when the capture is **read**, not only when it is written, so a file from an older build or copied in from another device gets the same treatment.
+
+**A capture that cannot be read is reported, not dropped.**
+A file the app fails to parse — or one over 1 MiB, which no single line is — stays in the inbox and is counted.
+The app says so when it drains, and `outl capture --list` names the folder it is sitting in.
+The alternative is a line that silently never appears, which is the failure this feature exists to prevent.
+
 **If you never open the app, the captures wait.** They are on that one device and they are not synced. `outl capture --list` shows what is still waiting in a workspace.
 
 ### `outl capture` is not `outl daily append`

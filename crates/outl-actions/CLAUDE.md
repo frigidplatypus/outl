@@ -167,6 +167,32 @@ Three decisions that are not obvious from the signatures:
 
 The report does not take the block id from the landing either: it **is** the capture's ULID, so the loop derives it rather than trusting the closure to agree.
 
+**The reader normalizes; it does not assume a writer did.**
+`one_line` is the single owner of "a capture is one block", and all four entry points go through it: both halves of `shared_line`, `write_capture`, and `PendingCapture::line` on the way in.
+Read `capture.line()`, never `record.text`.
+
+That is not tidiness.
+The inbox is written by processes this crate did not run — an iOS extension, a Shortcut handing the App Intent a multi-line string, a peer's file arriving over a `file` transport, a script using the documented format.
+Landing a newline raw makes the renderer emit indented continuation lines, which the parser reads back as **tree structure and `key:: value` properties**.
+One multi-line capture becomes several blocks plus a forged `title::`, and the capture's own block is trashed as an orphan on the next reconcile.
+Root `CLAUDE.md` invariant 8 does not catch it: those lines came out of outl's own renderer, so they are inside `last_synced_hash`.
+This is the producer half that invariant names.
+
+One writer-side gap closed with it.
+`shared_line`'s `url` half used to only `trim()`, which held while callers passed something URL-shaped and broke when Android's share target started putting an arbitrary `EXTRA_TEXT` in that slot.
+The Swift twin takes a typed `URL?` and cannot express a newline, which is why `shared-line-cases.json` has no case for it and both parity suites passed.
+`a_multi_line_url_is_still_one_line` is the Rust-only pin.
+
+**"Present" is not "landed".**
+Landing is two independently fsynced ops (`Op::Create`, then `Op::Edit` with the text) and nothing batches them, so a process killed between the two replays with the block in the tree and empty.
+`land_capture` therefore re-asserts the text when the block is **empty**, not when it merely differs.
+A diverging block may have been edited by the user after it landed, and the same capture file reaches a second device over a `file` transport, so re-asserting on divergence would let that second drain overwrite the edit.
+Empty is the one state only the torn write produces (`a_torn_landing_is_completed_by_the_next_drain`, `a_landed_capture_that_was_edited_is_left_alone`).
+
+`MAX_CAPTURE_BYTES` (1 MiB) bounds the read.
+A capture is one line, the drain runs on every foreground return, and a file it cannot land stays in the inbox — so an unbounded read was paid again forever.
+Oversized files are counted in `skipped`, never deleted.
+
 Who drains: `outl_tauri_shared::capture_inbox::drain_capture_inbox` for both GUI clients (over both inboxes, projecting each page), and `App::drain_capture_inbox` once at launch for the TUI.
 
 ## Trash

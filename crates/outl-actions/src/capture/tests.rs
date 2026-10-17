@@ -97,9 +97,14 @@ fn capture_lands_in_the_day_it_was_made() {
 #[test]
 fn partial_file_is_ignored() {
     let dir = tempfile::tempdir().unwrap();
+    // The name `outl_md::atomic`'s `tmp_path` actually publishes for
+    // `<ULID>.json`: the filename with a `.tmp` suffix *and* a leading
+    // dot. Spelling it any other way makes this test pass for a string
+    // the writer never emits, which is what it did when the hand-rolled
+    // writer here was swapped for `write_atomic`.
     let tmp = dir
         .path()
-        .join(format!(".{}.tmp", Ulid::from_parts(T0 as u64, 99)));
+        .join(format!(".{}.json.tmp", Ulid::from_parts(T0 as u64, 99)));
     fs::write(&tmp, "{\"text\":\"half").unwrap();
     let (mut w, hlc) = ws();
 
@@ -233,33 +238,190 @@ fn a_capture_written_before_1970_still_sorts_first() {
     assert_eq!(texts, ["clock was wrong", "clock was right"]);
 }
 
+/// The cases every `shared_line` implementation answers live in
+/// `tests/shared-line-cases.json`, read by `shared_line_parity.rs` here
+/// and by `SharedLineParityTests.swift` there. This file deliberately
+/// holds no copy of them: a third spelling of the rule is the drift that
+/// fixture exists to remove.
+///
+/// What belongs here is the half the fixture *cannot* carry.
 #[test]
-fn a_share_becomes_one_line() {
-    // Every case `SharedLine.swift` answers, so the two cannot drift
-    // without one of them failing a test.
-    assert_eq!(shared_line(None, None), None);
-    assert_eq!(shared_line(Some("  \n\t"), None), None);
+fn a_multi_line_url_is_still_one_line() {
+    // Rust-only on purpose, and the reason is why this bug survived the
+    // parity fixture: the Swift twin takes a typed `URL?`, and the Swift
+    // test builds its argument with `URL.init(string:)`, which returns
+    // nil for a string holding a newline. The case is therefore
+    // inexpressible on that side and cannot go in the shared file.
+    //
+    // Rust reaches it through Android: with a subject present,
+    // `OutlShareActivity` pairs the extras as `(subject, text)`, so a
+    // multi-line selection shared from a browser arrives in the `url`
+    // slot, which used to be `.trim()`-only.
     assert_eq!(
-        shared_line(Some("read this"), None).as_deref(),
-        Some("read this")
+        shared_line(Some("Title"), Some("first\nsecond")).as_deref(),
+        Some("Title first second"),
+        "the url half collapses newlines like the text half"
     );
     assert_eq!(
-        shared_line(None, Some("https://outl.app")).as_deref(),
-        Some("https://outl.app")
+        shared_line(None, Some("  first\n\n  second  ")).as_deref(),
+        Some("first second"),
+        "a url-only share is normalized too"
     );
-    assert_eq!(
-        shared_line(Some("read this"), Some("https://outl.app")).as_deref(),
-        Some("read this https://outl.app"),
-        "a link not already in the text is appended"
+}
+
+/// Write a capture the way a writer *outside* this crate does: the
+/// record straight to `<ULID>.json`, with no normalization applied.
+///
+/// That is what an iOS extension, a Shortcut handing the App Intent a
+/// multi-line string, or a peer's capture file arriving over a `file`
+/// transport actually looks like. Staging through `write_capture` would
+/// test the reader against the one writer that already normalizes, which
+/// is the gap these tests exist to close.
+fn stage_raw_capture(dir: &Path, ms: i64, text: &str) -> Ulid {
+    let id = Ulid::from_datetime(capture_instant(ms));
+    let record = CaptureRecord {
+        text: text.to_string(),
+        captured_at_ms: ms,
+        source: "share".to_string(),
+    };
+    fs::create_dir_all(dir).unwrap();
+    fs::write(
+        dir.join(format!("{id}.json")),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+    id
+}
+
+#[test]
+fn a_capture_from_an_outside_writer_lands_as_one_line() {
+    // Landing this raw would project as indented continuation lines,
+    // which the parser reads back as tree structure and `key:: value`
+    // properties — several blocks plus a forged `title::`, with the
+    // capture's own block trashed as an orphan on the next reconcile.
+    let dir = tempfile::tempdir().unwrap();
+    stage_raw_capture(
+        dir.path(),
+        T0,
+        "innocent\n- forged sibling\ntitle:: Hijacked",
     );
+    let (mut w, hlc) = ws();
+
+    drain_capture_dir(&mut w, &hlc, dir.path(), day_of).unwrap();
+
+    let page = find_by_slug(&w, &journal_slug(day_of(T0))).unwrap();
     assert_eq!(
-        shared_line(Some("see https://outl.app now"), Some("https://outl.app")).as_deref(),
-        Some("see https://outl.app now"),
-        "a link already in the text is not repeated"
+        texts(&w, page),
+        ["innocent - forged sibling title:: Hijacked"],
+        "one capture is one block, however it was written"
     );
+}
+
+#[test]
+fn a_torn_landing_is_completed_by_the_next_drain() {
+    // Landing is two independently fsynced ops. This is the state a
+    // kill between them leaves: `Op::Create` replayed, `Op::Edit` never
+    // written, so the block is present and empty. The guard used to read
+    // "present" as "landed", return Ok, and let the drain delete the
+    // file — losing the line for good.
+    let dir = tempfile::tempdir().unwrap();
+    stage_capture(dir.path(), T0, "call the venue");
+    let (mut w, hlc) = ws();
+    let (pending, _) = pending_captures(dir.path());
+    let page = capture_page(&mut w, &hlc, day_of(T0)).unwrap();
+    let position = position_for_new_last_child(&w, page);
+    crate::block::create_with_explicit_id(
+        &mut w,
+        &hlc,
+        NodeId(pending[0].id),
+        page,
+        position,
+        None,
+    )
+    .unwrap();
+    assert_eq!(texts(&w, page), [""], "the torn state: present but empty");
+
+    drain_capture_dir(&mut w, &hlc, dir.path(), day_of).unwrap();
+
+    assert_eq!(texts(&w, page), ["call the venue"]);
     assert_eq!(
-        shared_line(Some("first\n\n  second  \nthird"), None).as_deref(),
-        Some("first second third"),
-        "a capture is one block, so newlines collapse"
+        fs::read_dir(dir.path()).unwrap().count(),
+        0,
+        "the file is only deleted once the text is really there"
+    );
+}
+
+#[test]
+fn a_landed_capture_that_was_edited_is_left_alone() {
+    // The other half of the fix above, and the reason it tests for
+    // *empty* rather than *different*: this capture file reaches a
+    // second device through a `file` transport, so a second drain sees a
+    // block the user has since edited. Re-asserting on divergence would
+    // overwrite that edit.
+    let dir = tempfile::tempdir().unwrap();
+    stage_capture(dir.path(), T0, "call the venue");
+    let (mut w, hlc) = ws();
+    let (pending, _) = pending_captures(dir.path());
+    let page = capture_page(&mut w, &hlc, day_of(T0)).unwrap();
+    land_capture(&mut w, &hlc, page, &pending[0]).unwrap();
+    crate::block::edit_text(&mut w, &hlc, NodeId(pending[0].id), "call the venue at 3pm").unwrap();
+
+    drain_capture_dir(&mut w, &hlc, dir.path(), day_of).unwrap();
+
+    assert_eq!(texts(&w, page), ["call the venue at 3pm"]);
+}
+
+#[test]
+fn an_oversized_capture_is_counted_not_read() {
+    // The drain runs on every return to the foreground and leaves a file
+    // it cannot land, so an unbounded read is paid again on every pass
+    // for the life of the install. Counted, not deleted: `skipped`
+    // reaches the user now, and silently dropping someone's capture
+    // would be the worse answer.
+    let dir = tempfile::tempdir().unwrap();
+    let id = Ulid::from_datetime(capture_instant(T0));
+    let fat = "x".repeat((MAX_CAPTURE_BYTES as usize) + 1);
+    fs::write(
+        dir.path().join(format!("{id}.json")),
+        serde_json::to_vec(&CaptureRecord {
+            text: fat,
+            captured_at_ms: T0,
+            source: "share".to_string(),
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
+    let (pending, skipped) = pending_captures(dir.path());
+
+    assert!(pending.is_empty(), "an oversized file is not a capture");
+    assert_eq!(skipped, 1, "and the user is told it is still sitting there");
+}
+
+#[test]
+fn the_file_uses_the_keys_the_swift_writer_expects() {
+    // `OutlKit`'s `CaptureInboxTests` pins the same three keys from the
+    // other side. Without this half, a field added here (non-`Option`,
+    // so required on the way back in) would keep passing every Rust test
+    // while every Swift-written capture became an unparseable file that
+    // `pending_captures` counts in `skipped` and leaves in the inbox
+    // forever — a `tracing::warn!` the user never sees.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_capture(dir.path(), "read this", "intent", T0).unwrap();
+    let raw: serde_json::Value =
+        serde_json::from_slice(&fs::read(&path).unwrap()).expect("the record is JSON");
+
+    let mut keys: Vec<_> = raw
+        .as_object()
+        .expect("the record is a JSON object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["captured_at_ms", "source", "text"],
+        "the format has a second implementation in Swift; changing this \
+         key set needs `OutlKit/Capture/CaptureInbox.swift` changed with it"
     );
 }

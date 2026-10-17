@@ -67,6 +67,23 @@ Set `[tui] mouse_capture = true` in `~/.config/outl/config.toml` to enable mouse
 
 The drag-copy uses the same arboard + OSC 52 dual path as the keyboard yank.
 
+## Captures land at launch
+
+`outl capture "your line"` from any terminal drops a line into the workspace's capture inbox without opening the workspace.
+The TUI lands whatever is waiting **when it starts**, and says so: `added 1 capture to your journal`.
+
+Each line becomes a block at the end of the journal for the day it was *captured*, not the day it was drained.
+A capture made at 23:58 and drained at 00:10 belongs to the 23:58 day, so starting outl can create a past day's journal.
+The landing is one undo step: `u` takes it back like any other edit.
+
+Nothing watches the folder, so a capture made while the TUI is already up waits for the next start.
+That is the gap recorded on the TUI column of [`client-parity.md`](client-parity.md) — the desktop and phone apps pick one up while they are running.
+
+A file in the inbox that cannot be read is left there and named, with the folder it is sitting in, rather than being dropped silently.
+`outl capture --list` shows everything still waiting.
+
+Full behaviour, and why this is not `outl daily append`: [`clients.md` → Capturing from outside the app](clients.md#capturing-from-outside-the-app) and [`cli.md` → Capture](cli.md#capture).
+
 ## Config
 
 The TUI reads two layers of TOML before launching:

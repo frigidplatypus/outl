@@ -7,6 +7,29 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Fixed
 
+- **A capture no longer loses its text when the app is killed mid-drain.**
+  Landing a capture is two separately-fsynced ops: create the block, then write its text.
+  Nothing batched them, so a process killed between the two — iOS jetsam, a `SIGKILL`, power loss — came back with the block in the tree and empty.
+  The guard that makes a drain idempotent read "the block is there" as "the capture landed", returned success, and the drain deleted the file.
+  The line then existed nowhere, and the app said `added 1 capture to your journal`.
+  A capture whose block is **empty** now has its text re-applied before the file is deleted.
+  Empty, not merely different: the same capture file reaches a second device over a `file` transport, so re-applying whenever the text diverges would let that second drain overwrite an edit the user made after the capture landed.
+
+- **A shared selection is one block again, and cannot forge page structure.**
+  "A capture is one line" was enforced where captures are written and assumed where they are read.
+  Two paths got past it.
+  `shared_line` collapsed newlines in the text but only trimmed the URL, and Android's share target puts the shared `EXTRA_TEXT` in that slot whenever a subject is present — so sharing a multi-line selection from a browser composed a line with newlines still in it.
+  And any writer outside the Rust crate (an iOS Shortcut handing the App Intent a paragraph, a capture file synced in from a peer) was landed verbatim.
+  That is not cosmetic: the renderer turns a newline into an indented continuation line, and the parser reads those back as tree structure and `key:: value` properties.
+  One multi-line capture became several blocks plus a `title::` nobody typed, and the capture's own block was moved to the trash as an orphan on the next reconcile.
+  Normalisation now happens where the bytes are **read**, so a file written by an older build or another device gets it too.
+
+- **Captures that cannot be read are reported instead of vanishing.**
+  An unreadable or malformed capture file is left in the inbox by design, but nothing said so: the desktop and phone said nothing unless something landed, and the TUI returned silently in exactly the case where *every* file in the inbox was broken.
+  The only trace was a log line nobody reads.
+  All three clients now name the count, the TUI names the folder, and `outl capture --list` points at the folder rather than at `outl doctor`, which has no inbox check.
+  A capture file over 1 MiB — which no single line is — is refused the same way instead of being read on every return to the foreground, forever.
+
 - **Tapping "+" on the phone leaves you typing, instead of staring at an empty bullet.**
   A new block appeared and its textarea really was focused — the accessibility tree said so — and no keyboard came up, so the one gesture the app exists for ended in a dead end.
   WKWebView raises the software keyboard only for a `.focus()` that happens inside the tap's own user-gesture window, and creating a block is two awaits deep: commit whatever draft is open, then `create_block` over IPC.
