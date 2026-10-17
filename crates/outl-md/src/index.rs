@@ -63,6 +63,10 @@ pub struct PageEntry {
 pub struct WorkspaceIndex {
     pages: HashMap<String, PageEntry>,
     title_to_slug: HashMap<String, String>,
+    /// `alias::` names → slug. Kept separate from [`title_to_slug`] so
+    /// an alias can never shadow a page's real title in
+    /// [`by_title`](Self::by_title) — titles win, checked first.
+    alias_to_slug: HashMap<String, String>,
     /// Block-level index — owns the `((blk-XXXXXX))` lookup machinery.
     /// Kept private so the public surface stays a single `WorkspaceIndex`.
     blocks: BlockIndex,
@@ -160,7 +164,7 @@ impl WorkspaceIndex {
                 );
                 idx.title_to_slug.insert(title.clone(), slug.to_string());
                 for alias in &aliases {
-                    idx.title_to_slug.insert(alias.clone(), slug.to_string());
+                    idx.alias_to_slug.insert(alias.clone(), slug.to_string());
                 }
 
                 // Block-level indexing pass 1: register every block
@@ -206,10 +210,11 @@ impl WorkspaceIndex {
         let title = entry.title.clone();
         let aliases = entry.aliases.clone();
         self.title_to_slug.retain(|_, s| s != &slug);
+        self.alias_to_slug.retain(|_, s| s != &slug);
         self.pages.insert(slug.clone(), entry);
         self.title_to_slug.insert(title, slug.clone());
         for alias in aliases {
-            self.title_to_slug.insert(alias, slug.clone());
+            self.alias_to_slug.insert(alias, slug.clone());
         }
     }
 
@@ -242,8 +247,15 @@ impl WorkspaceIndex {
     /// Look up a page by its `title::`, one of its `alias::` names, or
     /// the slug fallback. Match is case-sensitive — use
     /// `pages_by_title_prefix` for autocomplete.
+    ///
+    /// Titles win over aliases: a page's real `title::` is matched
+    /// before any `alias::` name, so an alias can never steal a lookup
+    /// from a page that owns the name as its title.
     pub fn by_title(&self, title: &str) -> Option<&PageEntry> {
-        let slug = self.title_to_slug.get(title)?;
+        let slug = self
+            .title_to_slug
+            .get(title)
+            .or_else(|| self.alias_to_slug.get(title))?;
         self.pages.get(slug)
     }
 
@@ -316,6 +328,7 @@ impl WorkspaceIndex {
         // and alias rows both point at this slug, so one retain clears
         // them together.
         self.title_to_slug.retain(|_, s| s != &slug);
+        self.alias_to_slug.retain(|_, s| s != &slug);
 
         let entry = PageEntry {
             path: path.to_path_buf(),
@@ -330,7 +343,7 @@ impl WorkspaceIndex {
         self.pages.insert(slug.clone(), entry);
         self.title_to_slug.insert(title, slug.clone());
         for alias in &aliases {
-            self.title_to_slug.insert(alias.clone(), slug.clone());
+            self.alias_to_slug.insert(alias.clone(), slug.clone());
         }
 
         // Block-level re-index: drop everything this page used to
@@ -349,6 +362,7 @@ impl WorkspaceIndex {
     pub fn remove_page(&mut self, slug: &str) {
         self.pages.remove(slug);
         self.title_to_slug.retain(|_, s| s != slug);
+        self.alias_to_slug.retain(|_, s| s != slug);
         self.blocks.forget_page(slug);
     }
 
