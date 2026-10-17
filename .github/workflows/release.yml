@@ -784,7 +784,12 @@ jobs:
             exit 1
           fi
           BT=$(ls -d "${ANDROID_SDK_ROOT}"/build-tools/* | sort -V | tail -n1)
-          "${BT}/zipalign" -f -p 4 "${SRC}" "${RUNNER_TEMP}/aligned.apk"
+          # `-P 16`, not `-p 4`. An uncompressed `.so` is mapped straight
+          # out of the APK, so its offset has to land on a page boundary of
+          # the device reading it, and 16 KB is a page size Android devices
+          # already run. Needs build-tools 35+, which is
+          # what the newest-installed pick above resolves to.
+          "${BT}/zipalign" -f -P 16 4 "${SRC}" "${RUNNER_TEMP}/aligned.apk"
           "${BT}/apksigner" sign \
             --ks "${RUNNER_TEMP}/debug.keystore" \
             --ks-pass pass:android --key-pass pass:android \
@@ -793,6 +798,20 @@ jobs:
             "${RUNNER_TEMP}/aligned.apk"
           "${BT}/apksigner" verify outl-android-arm64.apk
           shasum -a 256 outl-android-arm64.apk > outl-android-arm64.apk.sha256
+
+      - name: Check the APK loads where pages are 16 KB
+        shell: bash
+        # v0.12.0-beta.226 shipped an APK that crashed on open for anyone on a
+        # 16 KB-page device: the Rust `.so` had 4 KB-aligned LOAD segments, so
+        # `dlopen` refused it and `MainActivity.onCreate` died on its first
+        # `System.loadLibrary`. Nothing went red, because the build and the
+        # signature were both fine.
+        #
+        # The two steps that decide this are the linker flag in
+        # `.cargo/config.toml` and the `zipalign` above, and each fails
+        # silently. The finished APK is where both are visible at once, and it
+        # also covers a library we do not build arriving through a dependency.
+        run: python3 crates/outl-mobile/scripts/android-apk-page-alignment.py outl-android-arm64.apk
 
       - name: Upload APK to draft release
         env:

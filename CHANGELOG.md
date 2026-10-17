@@ -7,6 +7,13 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Fixed
 
+- **The Android app no longer crashes on open on a phone with 16 KB memory pages.**
+  Some Android devices page at 16 KB rather than 4 KB — the Pixel 8 and 9 families as a developer option, newer hardware by default — and there `dlopen` refuses a library whose LOAD segments are aligned to 4 KB.
+  The refusal lands on the first `System.loadLibrary`, in `MainActivity.onCreate`, so the app died before running a line of its own — on a device where nothing else was wrong.
+  Our Rust `.so` was the only one in the APK built that way; the two vendored `.aar` libraries beside it were already 16 KB aligned.
+  Neither the NDK nor rustc passes `max-page-size` for a cargo build, so the APK was correct everywhere pages are 4 KB and unusable everywhere they are not.
+  The flag now lives in `.cargo/config.toml` for both 64-bit Android targets, `zipalign` page-aligns to 16 KB instead of 4, and the release job reads the finished APK back and fails if either stops holding.
+
 - **A capture no longer loses its text when the app is killed mid-drain.**
   Landing a capture is two separately-fsynced ops: create the block, then write its text.
   Nothing batched them, so a process killed between the two — iOS jetsam, a `SIGKILL`, power loss — came back with the block in the tree and empty.

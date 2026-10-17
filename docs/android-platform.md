@@ -289,6 +289,44 @@ It gates on the `clang` binary `cargo-ndk` will invoke, not on the exit code: a 
 Version comes from the workspace `Cargo.toml`, injected via `cargo tauri android build --config`.
 Tauri's mobile path does not fall back to `Cargo.toml` on its own — the same trap as iOS, see [`crates/outl-mobile/CLAUDE.md`](../crates/outl-mobile/CLAUDE.md).
 
+### The `.so` has to be linked for 16 KB pages
+
+Some Android devices page at 16 KB rather than 4 KB, and there `dlopen` refuses a library whose LOAD segments are aligned to 4 KB.
+The Pixel 8 and 9 families expose the mode as a developer option, newer hardware ships with it on, and since November 2025 Google Play has required support from every app update targeting Android 15+.
+The app dies on its first `System.loadLibrary`, which is `NativeSetup`'s initializer in `MainActivity.onCreate` — so the whole app crashes on open, before any of our code runs, on a device where nothing else is wrong.
+
+v0.12.0-beta.226 shipped exactly that.
+Its three native libraries, read out of the published APK:
+
+| library | `p_align` |
+|---|---|
+| `libimage_processing_util_jni.so` (vendored AAR) | `0x4000` |
+| `libsurface_util_jni.so` (vendored AAR) | `0x4000` |
+| `liboutl_mobile_lib.so` (ours) | `0x1000` |
+
+Nothing in the toolchain was going to fix that for us.
+The NDK does set `max-page-size` for 64-bit targets, but it sets it in its CMake and ndk-build toolchain files, and cargo uses neither: it drives the NDK's `clang` as a bare linker.
+rustc 1.95 does not pass it either.
+So the flag lives in `.cargo/config.toml`, per Android 64-bit target, and the two vendored `.aar` libraries were only correct because whoever built them passed it.
+
+Two alignments have to hold, and they come from different steps:
+
+- **The ELF**, from the linker flag above. Governs every device, because it is a property of the library itself.
+- **The zip offset**, from `zipalign -P 16` in `release.yml`. Only governs an *uncompressed* entry, which is all of them: `extractNativeLibs` defaults to false, so the libraries are mapped straight out of the APK rather than unpacked on install.
+
+Neither says anything when it stops working — the build is green, the APK installs, the signature verifies, and the app dies on the device.
+So `build_android` runs [`android-apk-page-alignment.py`](../crates/outl-mobile/scripts/android-apk-page-alignment.py) over the signed APK and fails the job.
+Checking the finished artifact covers both steps at once, plus any library arriving through a dependency we do not build.
+
+To check an APK by hand:
+
+```bash
+python3 crates/outl-mobile/scripts/android-apk-page-alignment.py outl-android-arm64.apk
+```
+
+A `RUSTFLAGS` exported into the environment **replaces** the `rustflags` in `.cargo/config.toml` rather than merging with it, so a workflow that sets one has to carry the link flag itself.
+`build_android` deliberately sets none.
+
 ---
 
 ## What can only be checked on a device

@@ -44,3 +44,33 @@
 # `outl_sync_iroh::default_device_dir`, whose own docs asked for a persistent
 # path while this file pointed at the one directory guaranteed to be erased.
 OUTL_DEVICE_DIR = { value = ".dev-device-store", relative = true }
+
+# Link the Android `.so` for 16 KB memory pages.
+#
+# Devices that page at 16 KB are already in the field: the Pixel 8 and 9
+# families expose it as a developer option, newer hardware ships with it on,
+# and since November 2025 Google Play requires support from every app update
+# targeting Android 15+. On one of those, `dlopen` refuses a library whose
+# LOAD segments are aligned to 4 KB, and the app dies on its very first
+# `System.loadLibrary`, which is
+# `NativeSetup`'s initializer in `MainActivity.onCreate` — so the symptom is
+# "crashes on open", with nothing of ours having run yet.
+#
+# Nothing in the toolchain does this for us. Measured on the beta.226 APK:
+# the two vendored AAR libraries carried `p_align 0x4000` and ours carried
+# `0x1000`. The NDK does set `max-page-size` for 64-bit targets, but it sets
+# it in its CMake and ndk-build toolchain files, and cargo uses neither — it
+# drives the NDK's `clang` as a bare linker. rustc 1.95 does not pass it
+# either.
+#
+# 32-bit targets are left out on purpose: 16 KB pages are a 64-bit change.
+#
+# An exported `RUSTFLAGS` REPLACES this rather than merging with it, so a
+# workflow that sets one has to carry the flag itself. `release.yml`'s
+# `build_android` sets none, and `android-apk-page-alignment.py` fails the
+# build if this ever stops taking effect.
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
