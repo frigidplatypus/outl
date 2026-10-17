@@ -451,3 +451,48 @@ fn patch_page_refreshes_page_type() {
         Some("person")
     );
 }
+
+#[test]
+fn alias_never_shadows_a_title_and_dropping_it_does_not_orphan_it() {
+    // Review regression: with page A `title:: NYC` and page B
+    // `alias:: NYC`, `by_title("NYC")` must resolve to A no matter the
+    // build order, and dropping B's alias must not take A's title row
+    // down with it. The fix keeps titles and aliases in separate maps,
+    // checked titles-first, so a slug-scoped retain on B can never
+    // delete A's title row.
+    let dir = TempDir::new().unwrap();
+    let mut idx = WorkspaceIndex::build(dir.path());
+
+    let a = outl_md::index::PageEntry {
+        path: dir.path().join("pages/a.md"),
+        slug: "a".into(),
+        title: "NYC".into(),
+        icon: None,
+        is_journal: false,
+        pinned: false,
+        page_type: None,
+        aliases: vec![],
+    };
+    let mut b = outl_md::index::PageEntry {
+        path: dir.path().join("pages/b.md"),
+        slug: "b".into(),
+        title: "Big Apple".into(),
+        icon: None,
+        is_journal: false,
+        pinned: false,
+        page_type: None,
+        aliases: vec!["NYC".into()],
+    };
+
+    // Alias page inserted *after* the title page — the order that used
+    // to let B's alias row overwrite A's title row in one flat map.
+    idx.insert_page(a);
+    idx.insert_page(b.clone());
+    assert_eq!(idx.by_title("NYC").unwrap().slug, "a");
+
+    // B drops the alias. A's title row must survive the retain that
+    // clears B's rows.
+    b.aliases = vec![];
+    idx.insert_page(b);
+    assert_eq!(idx.by_title("NYC").unwrap().slug, "a");
+}
