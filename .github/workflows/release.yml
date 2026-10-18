@@ -33,6 +33,16 @@ name: Release
 #      re-running that job can never attach it. The only recovery is a new
 #      beta; `build_android`'s upload step says so rather than letting
 #      `gh` answer with a bare 422.
+#   3. A job whose `if` omits `always()` / `!cancelled()` still carries the
+#      implicit "every ancestor succeeded", and that reads the whole
+#      ancestor tree, not the direct `needs`. On a GA run the `tag` job is
+#      skipped by design (the tag is already on origin), `create_release`
+#      survives on its own `always()`, and every build job under it was
+#      skipped anyway — through a `create_release` that had succeeded.
+#      v0.12.0 produced a draft release with zero assets that way, while
+#      the beta.227 run twenty seconds earlier built all 26. So the build
+#      jobs carry `!cancelled()` too, the same guard `publish_release` and
+#      `update_tap` already needed for the same reason.
 
 on:
   push:
@@ -169,7 +179,9 @@ jobs:
   build:
     name: build ${{ matrix.target }}
     needs: [prepare, create_release]
-    if: needs.create_release.result == 'success'
+    if: >-
+      !cancelled() &&
+      needs.create_release.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -320,7 +332,9 @@ jobs:
   build_desktop:
     name: build desktop macOS (universal)
     needs: [prepare, create_release]
-    if: needs.create_release.result == 'success'
+    if: >-
+      !cancelled() &&
+      needs.create_release.result == 'success'
     runs-on: blacksmith-6vcpu-macos-15
     # Single universal dmg instead of a matrix split. Tauri 2's
     # `--target universal-apple-darwin` builds both aarch64 and
@@ -430,7 +444,9 @@ jobs:
   build_desktop_linux:
     name: build desktop Linux (x86_64)
     needs: [prepare, create_release]
-    if: needs.create_release.result == 'success'
+    if: >-
+      !cancelled() &&
+      needs.create_release.result == 'success'
     # Pinned to 22.04 on purpose: AppImage/.deb/.rpm link against the
     # runner's glibc + webkit2gtk, so building on the oldest supported
     # image gives the widest downstream compatibility. `ubuntu-latest`
@@ -540,7 +556,9 @@ jobs:
   build_desktop_windows:
     name: build desktop Windows (x86_64)
     needs: [prepare, create_release]
-    if: needs.create_release.result == 'success'
+    if: >-
+      !cancelled() &&
+      needs.create_release.result == 'success'
     runs-on: blacksmith-4vcpu-windows-2025
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -638,7 +656,9 @@ jobs:
   build_android:
     name: build Android (arm64 APK)
     needs: [prepare, create_release]
-    if: needs.create_release.result == 'success'
+    if: >-
+      !cancelled() &&
+      needs.create_release.result == 'success'
     runs-on: blacksmith-8vcpu-ubuntu-2404
     # Optimized (release-build) APK, debug-signed, attached to the GitHub
     # Release (no Google Play). Like iOS, the build is RELEASE (optimized);
@@ -848,7 +868,10 @@ jobs:
     # every push to main: those also get a tag, but `github.ref` is then
     # `refs/heads/main`. When skipped, `publish_release` still runs: it
     # carries `!cancelled()` and doesn't check this job's result.
-    if: needs.create_release.result == 'success' && startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      !cancelled() &&
+      needs.create_release.result == 'success' &&
+      startsWith(github.ref, 'refs/tags/v')
     # Best-effort, like `build_android`: listed in `publish_release.needs`
     # so the images land while the release is still a draft, but absent
     # from its conditions, so a broken shot never blocks a release.
