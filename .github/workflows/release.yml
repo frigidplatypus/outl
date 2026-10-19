@@ -76,6 +76,18 @@ on:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      # Runs every build and every check against the branch it is
+      # dispatched on, and touches nothing outside this run: no tag, no
+      # draft release, no asset upload, no tap bump, no npm or crates.io
+      # publish. A change to this file, or to a step only this workflow
+      # runs (the strip gates, the bundlers), is otherwise first exercised
+      # by the beta it cuts on main. Push events carry no inputs, so they
+      # read this as false and behave exactly as before.
+      dry_run:
+        description: "Build and verify every artifact, publish nothing"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -97,6 +109,7 @@ jobs:
       tag: ${{ steps.compute.outputs.tag }}
       prerelease: ${{ steps.compute.outputs.prerelease }}
       create_tag: ${{ steps.compute.outputs.create_tag }}
+      dry_run: ${{ steps.compute.outputs.dry_run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -117,6 +130,11 @@ jobs:
             CREATE_TAG="true"
           fi
 
+          DRY_RUN='${{ inputs.dry_run == true }}'
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            CREATE_TAG="false"
+          fi
+
           # Anything containing -alpha / -beta / -rc is a prerelease.
           if [[ "${VERSION}" == *-alpha* || "${VERSION}" == *-beta* || "${VERSION}" == *-rc* ]]; then
             PRERELEASE="true"
@@ -129,7 +147,8 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
           echo "create_tag=${CREATE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "::notice::Building ${TAG} (prerelease=${PRERELEASE})"
+          echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Building ${TAG} (prerelease=${PRERELEASE}, dry_run=${DRY_RUN})"
 
   tag:
     name: Create tag
@@ -158,7 +177,11 @@ jobs:
     name: Create draft release
     needs: [prepare, tag]
     # `tag` is skipped for tag-triggered runs; don't let that fail us.
-    if: always() && needs.prepare.result == 'success' && (needs.tag.result == 'success' || needs.tag.result == 'skipped')
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.dry_run != 'true' &&
+      (needs.tag.result == 'success' || needs.tag.result == 'skipped')
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       # Check out the commit, not the tag we just pushed. The runner
@@ -208,7 +231,8 @@ jobs:
     needs: [prepare, create_release]
     if: >-
       !cancelled() &&
-      needs.create_release.result == 'success'
+      (needs.create_release.result == 'success' ||
+       (needs.prepare.outputs.dry_run == 'true' && needs.create_release.result == 'skipped'))
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -494,6 +518,7 @@ jobs:
           "${PY}" scripts/check-artifact-stripped.py "${ARTIFACTS[@]}"
 
       - name: Upload assets to draft release
+        if: needs.prepare.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -529,7 +554,8 @@ jobs:
     needs: [prepare, create_release]
     if: >-
       !cancelled() &&
-      needs.create_release.result == 'success'
+      (needs.create_release.result == 'success' ||
+       (needs.prepare.outputs.dry_run == 'true' && needs.create_release.result == 'skipped'))
     runs-on: blacksmith-6vcpu-macos-15
     # Single universal dmg instead of a matrix split. Tauri 2's
     # `--target universal-apple-darwin` builds both aarch64 and
@@ -719,6 +745,7 @@ jobs:
           python3 scripts/check-artifact-stripped.py "${APP}"
 
       - name: Upload dmg to draft release
+        if: needs.prepare.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -734,7 +761,8 @@ jobs:
     needs: [prepare, create_release]
     if: >-
       !cancelled() &&
-      needs.create_release.result == 'success'
+      (needs.create_release.result == 'success' ||
+       (needs.prepare.outputs.dry_run == 'true' && needs.create_release.result == 'skipped'))
     # Pinned to 22.04 on purpose: AppImage/.deb/.rpm link against the
     # runner's glibc + webkit2gtk, so building on the oldest supported
     # image gives the widest downstream compatibility. `ubuntu-latest`
@@ -768,6 +796,33 @@ jobs:
             librsvg2-dev \
             libsoup-3.0-dev \
             patchelf
+
+      # The AppImage's launcher is not ours, and it is not stripped either.
+      # Tauri copies `AppRun-x86_64` from its tool cache into the AppDir
+      # (linuxdeploy's gtk plugin then renames it `AppRun.wrapped`), and
+      # downloads it from tauri-apps/binary-releases only when the cache has
+      # none. That prebuilt binary carries DWARF and a `.symtab`. Once
+      # linuxdeploy has sealed the squashfs it cannot be changed, so the
+      # cache is the one place to strip it: seed it with a stripped copy of
+      # the same file. If Tauri ever renames or moves it, the seed is simply
+      # not used and the strip gate below goes red on `AppRun.wrapped`,
+      # which is the signal to update this step.
+      - name: Seed Tauri's AppImage launcher, stripped
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOLS="${XDG_CACHE_HOME:-${HOME}/.cache}/tauri"
+          mkdir -p "${TOOLS}"
+          # apprun-old is a mutable release asset, so pin the bytes we strip
+          # and ship. Bump the hash only after checking the new upload.
+          APPRUN_SHA256=f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-connrefused \
+            -o "${TOOLS}/AppRun-x86_64" \
+            https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64
+          echo "${APPRUN_SHA256}  ${TOOLS}/AppRun-x86_64" | sha256sum -c -
+          strip "${TOOLS}/AppRun-x86_64"
+          chmod +x "${TOOLS}/AppRun-x86_64"
+          python3 scripts/check-artifact-stripped.py "${TOOLS}/AppRun-x86_64"
 
       - name: Patch workspace version to ${{ needs.prepare.outputs.version }}
         shell: bash
@@ -921,6 +976,7 @@ jobs:
           python3 scripts/check-artifact-stripped.py "${WORK}/appimage" "${WORK}/deb"
 
       - name: Upload bundles to draft release
+        if: needs.prepare.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -940,7 +996,8 @@ jobs:
     needs: [prepare, create_release]
     if: >-
       !cancelled() &&
-      needs.create_release.result == 'success'
+      (needs.create_release.result == 'success' ||
+       (needs.prepare.outputs.dry_run == 'true' && needs.create_release.result == 'skipped'))
     runs-on: blacksmith-4vcpu-windows-2025
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1095,9 +1152,13 @@ jobs:
           set -euo pipefail
           PY=python3
           command -v python3 >/dev/null 2>&1 || PY=python
-          "${PY}" scripts/check-artifact-stripped.py target/release/outl.exe
+          # `outl-desktop.exe`, the Cargo binary name: Tauri's "Built
+          # application at" line names it, and `productName` (`outl`) is
+          # only what the installer calls it.
+          "${PY}" scripts/check-artifact-stripped.py target/release/outl-desktop.exe
 
       - name: Upload installer to draft release
+        if: needs.prepare.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -1114,7 +1175,8 @@ jobs:
     needs: [prepare, create_release]
     if: >-
       !cancelled() &&
-      needs.create_release.result == 'success'
+      (needs.create_release.result == 'success' ||
+       (needs.prepare.outputs.dry_run == 'true' && needs.create_release.result == 'skipped'))
     runs-on: blacksmith-8vcpu-ubuntu-2404
     # Optimized (release-build) APK, debug-signed, attached to the GitHub
     # Release (no Google Play). Like iOS, the build is RELEASE (optimized);
@@ -1361,9 +1423,14 @@ jobs:
         run: python3 crates/outl-mobile/scripts/android-apk-page-alignment.py outl-android-arm64.apk
 
       # There is no `llvm-strip` step for Android because AGP already does it:
-      # the release buildType in `gen/android/app/build.gradle.kts` sets no
-      # `jniLibs.keepDebugSymbols` (only the debug one does), so Gradle's
-      # strip task runs on every `.so` on its way into the APK.
+      # `gen/android/app/build.gradle.kts` keeps debug symbols for the debug
+      # variant only (through `androidComponents`, not a `packaging` block
+      # inside the build type, which Kotlin applies to every variant), so
+      # Gradle's strip task runs on every `.so` on its way into the release
+      # APK. It strips with the NDK that file's `ndkVersion` names, which has
+      # to be the `NDK_VERSION` installed above: AGP falls back to its own
+      # default NDK otherwise, finds none, and packages the library
+      # unstripped with only a warning that `--quiet` Gradle never prints.
       #
       # Which makes the finished APK the only place that can confirm it. With
       # `[profile.release]` no longer stripping, the library Gradle is handed
@@ -1375,6 +1442,7 @@ jobs:
         run: python3 scripts/check-artifact-stripped.py outl-android-arm64.apk
 
       - name: Upload APK to draft release
+        if: needs.prepare.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         # Two decisions meet here and close the recovery path, so the step
@@ -1434,6 +1502,7 @@ jobs:
     # is already uploaded before we flip the draft to published.
     if: >-
       !cancelled() &&
+      needs.prepare.outputs.dry_run != 'true' &&
       needs.build.result == 'success' &&
       needs.build_desktop.result == 'success' &&
       needs.build_desktop_linux.result == 'success' &&
@@ -1595,7 +1664,7 @@ jobs:
     #   job is a two-second `npm publish`, so the runner choice costs nothing.
     # - npm >= 11.5.1 (Node 24 ships it). Older npm ignores OIDC and fails
     #   with ENEEDAUTH.
-    if: needs.prepare.result == 'success'
+    if: needs.prepare.result == 'success' && needs.prepare.outputs.dry_run != 'true'
     runs-on: ubuntu-24.04
     # Keeps the environment's protection rules on the publish; the trusted
     # publisher entry on npmjs.com names this environment.
@@ -1679,7 +1748,7 @@ jobs:
     # Only the embedder closure publishes (`outl-ws` -> `outl-actions` ->
     # {`outl-core`, `outl-md`, `outl-exec`}); every other crate carries
     # `publish = false` in its manifest.
-    if: needs.prepare.result == 'success'
+    if: needs.prepare.result == 'success' && needs.prepare.outputs.dry_run != 'true'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     # `CARGO_REGISTRY_TOKEN` lives in the `release` environment.
     environment: release
