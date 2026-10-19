@@ -1,20 +1,11 @@
 /**
  * The textarea's input handlers vs. an IME (issue #399).
  *
- * A Chinese / Japanese / Korean keyboard types into *marked* text: the
- * run between the composition start and the caret belongs to the
- * keyboard until the user picks a candidate. Two platform facts make
- * that hostile to pair completion, and both are asserted here:
- *
- * - While the `input` event fires mid-composition WebKit reports
- *   `selectionStart` at the **start** of the marked run, so the two
- *   characters left of it are the `[[` typed before the keyboard was
- *   switched and the two on the right are the pinyin — which reads
- *   exactly like an unclosed ref.
- * - Assigning a *different* string to `ta.value` commits the marked
- *   run as plain text (the setter is a no-op only when the string is
- *   unchanged), so the keyboard restarts a composition at the parked
- *   caret and the pinyin stays behind.
+ * A Chinese / Japanese / Korean keyboard types into *marked* text, and
+ * two platform facts make that hostile to pair completion: WebKit
+ * reports `selectionStart` at the **start** of the marked run while the
+ * `input` event fires, and assigning a different string to `ta.value`
+ * commits that run as plain text.
  */
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -41,19 +32,13 @@ function mount(value: string) {
   return { ta, onInput };
 }
 
-/** One `input` event, as the platform delivers it. */
+/** One `input` event, as the platform delivers it. The handler reads
+ *  only these two fields plus the textarea, never `data`. */
 function input(
   ta: HTMLTextAreaElement,
-  init: { inputType: string; isComposing: boolean; data?: string },
+  init: { inputType: string; isComposing: boolean },
 ) {
-  ta.dispatchEvent(
-    new InputEvent("input", {
-      bubbles: true,
-      inputType: init.inputType,
-      isComposing: init.isComposing,
-      data: init.data ?? "",
-    }),
-  );
+  ta.dispatchEvent(new InputEvent("input", { bubbles: true, ...init }));
 }
 
 describe("EditableTextarea with an IME", () => {
@@ -92,7 +77,7 @@ describe("EditableTextarea with an IME", () => {
     const { ta, onInput } = mount("[[");
     ta.value = "[[";
     ta.setSelectionRange(2, 2);
-    input(ta, { inputType: "insertText", isComposing: false, data: "[" });
+    input(ta, { inputType: "insertText", isComposing: false });
     expect(ta.value).toBe("[[]]");
     expect(onInput).toHaveBeenLastCalledWith("[[]]");
     expect(ta.selectionStart).toBe(2);

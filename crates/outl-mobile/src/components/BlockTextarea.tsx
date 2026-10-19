@@ -143,29 +143,22 @@ export function EditableTextarea(props: {
       }}
       onInput={(e) => {
         const ta = e.currentTarget;
-        // Never rewrite `ta.value` while an IME composes (issue #399).
-        // Mid-composition WebKit reports `selectionStart` at the
-        // *start* of the marked run, so the two characters left of it
-        // are the `[[` typed before the keyboard was switched and the
-        // two on the right are the pinyin — which reads exactly like
-        // an unclosed ref. Pair completion appended a second `]]`, and
-        // assigning a *different* string to `ta.value` commits the
-        // marked run as plain text, so the keyboard restarted a
-        // composition at the parked caret and the next keystroke did it
-        // again. (The setter is a no-op when the string is unchanged,
-        // which is why the draft re-binding is harmless on every other
-        // keystroke.) Skipping costs nothing: `autoPairBracket` closes
-        // the pair in `onBeforeInput`, which guards composition for the
-        // same reason. The event that *ends* a composition is skipped
-        // too — some WebKit builds report it with `isComposing` already
-        // false, caret still at the start.
-        if (e.isComposing || e.inputType === "insertCompositionText") {
-          props.onInput(ta.value);
-          autoResize();
-          return;
-        }
+        // Pair completion sits out an IME composition (issue #399).
+        // Mid-composition WebKit reports `selectionStart` at the start
+        // of the marked run, so `[[` plus the pinyin reads as an
+        // unclosed ref, and writing a closer back commits that run as
+        // plain text — the keyboard then restarts a composition at the
+        // parked caret, once per keystroke. Only a *different* string
+        // does that, which is why the draft re-binding is harmless on
+        // every other keystroke. The event that ends a composition
+        // counts too: some WebKit builds report it with `isComposing`
+        // already false, caret still at the start. Nothing is lost by
+        // sitting out, since `autoPairBracket` closed the pair on the
+        // keystroke itself (the desktop never calls this at all).
+        const composing =
+          e.isComposing || e.inputType === "insertCompositionText";
         const caret = ta.selectionStart ?? ta.value.length;
-        const completion = autoClosePair(ta.value, caret);
+        const completion = composing ? null : autoClosePair(ta.value, caret);
         if (completion) {
           // Same caret-reset trap as Backspace above. The user just
           // typed the second `[` (or `(`) and we appended the
