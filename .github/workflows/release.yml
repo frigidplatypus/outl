@@ -849,8 +849,9 @@ jobs:
         run: bun install
 
       - name: Build Linux bundles
-        # `tauri.conf.json` has `"targets": "all"`, so on Linux this
-        # produces AppImage + .deb + .rpm in target/release/bundle/.
+        # AppImage + .deb here, .rpm in the next step. `tauri.conf.json` has
+        # `"targets": "all"`, which on Linux would make all three in one go,
+        # but the rpm needs a different version string (see below).
         #
         # `RUSTFLAGS=-C strip=symbols` for the same reason as the macOS
         # desktop job: `tauri build` compiles and packages in one command, and
@@ -869,7 +870,40 @@ jobs:
         env:
           OUTL_SENTRY_DSN: ${{ secrets.OUTL_SENTRY_DSN_DESKTOP }}
           RUSTFLAGS: "-C strip=symbols"
-        run: bun run tauri build --features sentry
+        run: bun run tauri build --bundles deb,appimage --features sentry
+
+      # RPM reserves `-` in Version for the name-version-release separator,
+      # and `@tauri-apps/cli` 2.12 started enforcing it: every beta since
+      # the bun lockfile refresh died here on
+      #
+      #   > invalid version "0.12.0-beta.238": contains invalid character
+      #
+      # RPM's own `0.12.0~beta.238` is not semver, and Tauri refuses any
+      # config `version` that is not. So a pre-release is spelled the way
+      # Fedora's packaging guidelines spelled it before `~` existed: the base
+      # version, and the pre-release in a Release that starts with `0.`
+      # (`outl-0.12.0-0.beta.238`). That sorts before the GA's default
+      # Release `1`, so `dnf` treats the GA as the upgrade it is.
+      #
+      # `tauri bundle` packages the binary `tauri build` already produced
+      # rather than compiling again, so the rpm carries the same stripped
+      # `outl-desktop`, and that binary still reports `0.12.0-beta.N`. A GA
+      # version has no `-` and is bundled with the config as is.
+      - name: Build Linux rpm
+        working-directory: crates/outl-desktop
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          CONFIG=()
+          if [[ "${VERSION}" == *-* ]]; then
+            PRE="${VERSION#*-}"
+            RPM_CONFIG="{\"version\": \"${VERSION%%-*}\", \"bundle\": {\"linux\": {\"rpm\": {\"release\": \"0.${PRE//-/.}\"}}}}"
+            echo "rpm config: ${RPM_CONFIG}"
+            CONFIG=( --config "${RPM_CONFIG}" )
+          fi
+          bun run tauri bundle --bundles rpm --features sentry "${CONFIG[@]}"
 
       - name: Upload debug symbols to Sentry
         shell: bash
@@ -952,20 +986,15 @@ jobs:
       # Two extractions, because each bundler copies the binary itself rather
       # than sharing one. The AppImage unpacks itself (`--appimage-extract`
       # needs no FUSE, which the runner has no kernel module for) and
-      # `dpkg-deb` is core on Ubuntu.
-      #
-      # **Declared gap: the .rpm is not opened.** `rpm2cpio` is not on this
-      # image, and adding the `rpm` package to the apt step above to verify a
-      # third copy of the binary the other two already cover is not worth the
-      # build dependency. If the rpm bundler ever stops copying the same
-      # `target/release/outl`, this will not catch it.
+      # `dpkg-deb` is core on Ubuntu. The rpm is extracted below with
+      # `bsdtar` from `libarchive-tools`, which the step installs.
       - name: Verify the Linux bundles carry no debug info
         shell: bash
         run: |
           set -euo pipefail
           WORK="${RUNNER_TEMP}/bundle-verify"
           rm -rf "${WORK}"
-          mkdir -p "${WORK}/appimage" "${WORK}/deb"
+          mkdir -p "${WORK}/appimage" "${WORK}/deb" "${WORK}/rpm"
 
           chmod +x outl-desktop-linux-x86_64.AppImage
           ( cd "${WORK}/appimage" \
@@ -973,7 +1002,16 @@ jobs:
 
           dpkg-deb -x outl-desktop-linux-x86_64.deb "${WORK}/deb"
 
-          python3 scripts/check-artifact-stripped.py "${WORK}/appimage" "${WORK}/deb"
+          # The rpm is packaged by a separate `tauri bundle` call, so read
+          # its payload too instead of trusting it matches the deb. bsdtar,
+          # not rpm2cpio: rpm2cpio exits 1 without a word when the copied
+          # payload doesn't match the header's archive size, which is the
+          # case for the rpm Tauri writes.
+          sudo apt-get install -y --no-install-recommends libarchive-tools
+          bsdtar -xf outl-desktop-linux-x86_64.rpm -C "${WORK}/rpm"
+          test -s "${WORK}/rpm/usr/bin/outl-desktop"
+
+          python3 scripts/check-artifact-stripped.py "${WORK}/appimage" "${WORK}/deb" "${WORK}/rpm"
 
       - name: Upload bundles to draft release
         if: needs.prepare.outputs.dry_run != 'true'
