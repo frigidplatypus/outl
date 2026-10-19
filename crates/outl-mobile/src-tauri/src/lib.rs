@@ -31,8 +31,12 @@
 //! workspace lands, Tauri emits a `workspace-ready` event the frontend
 //! can listen for to refresh proactively.
 
-// Android-only: primes the JVM-backed globals iroh's TLS verifier + DNS reader
-// need, via a JNI entry point `MainActivity.onCreate` calls before boot.
+// Android-only: primes the JVM-backed global iroh's TLS verifier needs, via a
+// JNI entry point `MainActivity.onCreate` calls before boot. The DNS reader's
+// global (`ndk_context`) is tao's and must NOT be primed here — see
+// `android_globals`, which is not `cfg(android)` precisely so it runs in CI.
+#[cfg(test)]
+mod android_globals;
 #[cfg(target_os = "android")]
 mod android_jni;
 mod bg_sync;

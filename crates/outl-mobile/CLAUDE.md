@@ -48,7 +48,7 @@ outl-mobile (this crate)
    │   ├── workspace_picker.rs     (set_workspace — folder choice + persistence; native picker deferred)
    │   ├── iroh_sync.rs            (wire_iroh_transport — boot the P2P transport, register the bg-sync handle)
    │   ├── bg_sync.rs              (one forced-sync core + per-platform exports: iOS C ABI, Android JNI)
-   │   ├── android_jni.rs          (Android-only: primes rustls-platform-verifier + ndk_context before iroh's first QUIC connect)
+   │   ├── android_jni.rs          (Android-only: primes rustls-platform-verifier before iroh's first QUIC connect; NOT ndk_context — that one is tao's, see below)
    │   ├── ios_bonjour.rs          (iOS-only: LAN peer discovery bridge to OutlBonjour.swift, over the outl_sync_iroh::lan seam)
    │   ├── plugin_service.rs       (PluginService + dedicated plugin thread — Boa Context is !Send, so it can't live in AppState)
    │   └── commands/               (Tauri command surface — one `outl_tauri_shared::*_commands!` invocation per module; see outl-tauri-shared/CLAUDE.md → "One command surface, not two")
@@ -235,6 +235,18 @@ Both platforms enter through `outl-sync-iroh`'s `bind::attach_mdns`, and *how* t
 The seam is `outl_sync_iroh::lan` — plain Rust, because that crate is `#![forbid(unsafe_code)]`, so the FFI lives here in `ios_bonjour.rs`.
 
 Full reasoning, the two wire constants both paths must agree on, and the permission traps: [`docs/ios-platform.md`](../../docs/ios-platform.md#lan-peer-discovery-bonjour-and-why-not-multicast) and [`docs/android-platform.md`](../../docs/android-platform.md#mdns-peer-discovery-the-permission-is-not-the-whole-story).
+
+## Android JNI bootstrap: prime the verifier, never `ndk_context`
+
+`android_jni.rs` primes `rustls-platform-verifier`'s JVM handle from `MainActivity.onCreate`, before `super.onCreate` boots Tauri and therefore before iroh's first QUIC connection.
+That global is ours because nothing else primes it.
+
+**`ndk_context` is not ours**, though the system-DNS reader goes through it.
+`tao`'s `ndk_glue::onCreate` seeds it inside `Rust_onCreate`, and `ndk_context::initialize_android_context` asserts it is called exactly once — so seeding it here first did not prevent tao's call, it made tao's call abort the process.
+Every Android launch died in `panic_cannot_unwind`, on every device, on a clean install, hidden behind the 16 KB page-size bug sitting in front of it.
+`outl-mobile` must not name `ndk-context` in its own `Cargo.toml` again; it stays in the graph transitively, for tao to write and `iroh-dns` to read.
+
+The stack trace, the reasoning and the rule it generalises to: [`docs/android-platform.md` → `ndk_context` belongs to `tao`](../../docs/android-platform.md#ndk_context-belongs-to-tao-and-seeding-it-here-aborted-every-launch).
 
 ## Background sync (iOS + Android)
 

@@ -3,6 +3,19 @@
 All notable changes to outl are documented here.
 Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The Android app closed on open on every device, and the 16 KB page-size fix was hiding it.**
+  `liboutl_mobile_lib.so` loaded correctly and the process aborted a moment later inside `Rust_onCreate`, so the symptom read exactly like the 16 KB bug fixed in 0.12.0-beta.227: an icon that flashes and closes.
+  It was a second defect standing behind the first, unrelated to it, present since the Android app first ran, and reproducible on a 4 KB-page emulator.
+  `ndk_context::initialize_android_context` must be called exactly once and enforces that with an assert.
+  `android_jni.rs` called it from `MainActivity.onCreate` to prime iroh's system-DNS reader, and `tao` calls it again from `Rust_onCreate` with the same application context, so the assert tripped, the panic unwound into an `extern "C"` frame, and `panic_cannot_unwind` aborted the process.
+  `tao` owns that global now, and this crate primes only the `rustls-platform-verifier` handle that nothing else primes.
+  The DNS reader still finds its context: `tao` seeds it inside `super.onCreate`, well before the transport opens a connection.
+  A device that refused the `.so` never reached this code, which is why the earlier fix looked like it had worked.
+
 ## [0.13.0]
 
 ### Added

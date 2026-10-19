@@ -19,6 +19,11 @@ tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# `android_globals.rs` reads this manifest back to check that `ndk-context`
+# has not returned as a direct dependency. Parsed, not grepped, for the reason
+# `outl-telemetry`'s own manifest test gives: a textual check passes against
+# the same dependency written with different spacing.
+toml = { workspace = true }
 
 [dependencies]
 outl-core = { workspace = true }
@@ -105,16 +110,21 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 ] }
 
 # Android JNI bootstrap for iroh (see `android_jni.rs`). iroh's relay client
-# verifies TLS certs through `rustls-platform-verifier` and reads system DNS
-# through `iroh-dns`/`hickory`; both call into the JVM and need a process-wide
-# JNI context that neither Tauri/wry nor `tao`'s `ndk_glue` installs. We prime
-# both globals from `MainActivity.onCreate` before iroh's first connection.
-# All three are already in the graph (transitive via iroh); pinned to the
-# resolved versions so no new tree lands. `jni` MUST match the version
+# verifies TLS certs through `rustls-platform-verifier`, which calls into the
+# JVM and needs a process-wide handle nothing else primes. We prime it from
+# `MainActivity.onCreate` before iroh's first connection.
+#
+# No `ndk-context` here on purpose, though the system-DNS reader goes through
+# it: `tao` owns that global and seeds it inside `Rust_onCreate`, and a second
+# seed is an `assert!` failure that aborts the app on launch. It stays in the
+# graph transitively, for tao to write and `iroh-dns` to read — this crate must
+# not name it again. See `android_jni.rs`.
+#
+# Both are already in the graph (transitive via iroh); pinned to the resolved
+# versions so no new tree lands. `jni` MUST match the version
 # `rustls-platform-verifier` uses (0.22) or the `Env`/`JObject` types differ.
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.22"
-ndk-context = "0.1"
 rustls-platform-verifier = "0.7"
 
 [features]

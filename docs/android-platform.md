@@ -33,13 +33,39 @@ Everything under `gen/android/app/build/` is **build output** — never edit it.
 
 ## JNI bootstrap (why the app used to `SIGABRT` on launch)
 
-iroh's relay client verifies certificates through `rustls-platform-verifier` and reads system DNS through `iroh-dns` / `hickory`.
-Both call into the JVM — the Android KeyStore and `ConnectivityManager` — and both read a process-wide JNI context that neither Tauri/wry nor `tao`'s bundled `ndk_glue` installs.
+iroh's relay client verifies certificates through `rustls-platform-verifier`, which calls into the JVM (the Android KeyStore) and reads a process-wide handle that nothing else primes.
 So the first QUIC connection panicked, the panic poisoned a `quinn` mutex, and the next task's `.unwrap()` on the `PoisonError` aborted the process: a `SIGABRT` on a `tokio-rt-worker` thread seconds after boot.
 
-`MainActivity.onCreate` calls `NativeSetup.install(applicationContext)` **before** `super.onCreate` boots Tauri, priming both globals exactly once.
+`MainActivity.onCreate` calls `NativeSetup.install(applicationContext)` **before** `super.onCreate` boots Tauri, priming that global once.
 The `rustls-platform-verifier` Kotlin component is not on Maven ([rustls/rustls-platform-verifier#115](https://github.com/rustls/rustls-platform-verifier/issues/115)).
 Its `.aar` is therefore vendored under `gen/android/app/libs/`, and must be re-copied whenever the crate version bumps.
+
+### `ndk_context` belongs to `tao`, and seeding it here aborted every launch
+
+The system-DNS reader (`iroh-dns` → `hickory` → `LinkProperties.getDnsServers()`) reads the JavaVM and Context out of `ndk_context`, and `android_jni.rs` used to seed that alongside the verifier.
+It must not, and this is the sharper of the two "crashes on open" bugs on this page, because it had nothing to do with the device.
+
+`ndk_context::initialize_android_context` is documented as "must be called **exactly once**" and enforces it with `assert!(previous.is_none())`.
+`tao`'s `ndk_glue::onCreate` already calls it, inside the `APPLICATION_CONTEXT.get_or_init` that `Java_app_outl_mobile_1app_Rust_onCreate` runs — with the same `getApplicationContext()` we were passing.
+That `OnceCell` is tao's, so it could not see our `INSTALLED` flag, and seeding first did not stop the second call.
+It made the second call fail:
+
+```
+F libc  : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid … (outl.mobile_app)
+F DEBUG :   #09 pc … (panic_cannot_unwind)
+F DEBUG :   #10 pc … (Java_app_outl_mobile_1app_Rust_onCreate+96)
+```
+
+The assert panicked, the panic unwound into an `extern "C"` frame, and `panic_cannot_unwind` aborted.
+Every Android device, every clean install, from the day `android_jni.rs` landed — reproduced on a 4 KB-page emulator, so the 16 KB fix below never had anything to do with it.
+It stayed invisible because the 16 KB bug sat in front of it: a device that refused the `.so` never got far enough to hit this one.
+
+So the split is: **the verifier is ours, `ndk_context` is tao's.**
+tao seeds it from inside `super.onCreate`, well before the transport opens a connection, so the DNS reader still finds it.
+`outl-mobile` must not name `ndk-context` in its own `Cargo.toml` — it stays in the graph transitively, for tao to write and `iroh-dns` to read.
+
+The general shape, which is [root invariant 11](../CLAUDE.md#critical-invariants-never-violate) read backwards: before priming a global "early, to be safe", check whether somebody downstream already owns it.
+A global that tolerates a second write costs nothing either way; one that asserts costs the whole app, and the assert fires in the **other** library's frame, where nothing points back at you.
 
 ---
 
