@@ -143,6 +143,27 @@ export function EditableTextarea(props: {
       }}
       onInput={(e) => {
         const ta = e.currentTarget;
+        // Never rewrite `ta.value` while an IME composes (issue #399).
+        // Mid-composition WebKit reports `selectionStart` at the
+        // *start* of the marked run, so the two characters left of it
+        // are the `[[` typed before the keyboard was switched and the
+        // two on the right are the pinyin — which reads exactly like
+        // an unclosed ref. Pair completion appended a second `]]`, and
+        // assigning a *different* string to `ta.value` commits the
+        // marked run as plain text, so the keyboard restarted a
+        // composition at the parked caret and the next keystroke did it
+        // again. (The setter is a no-op when the string is unchanged,
+        // which is why the draft re-binding is harmless on every other
+        // keystroke.) Skipping costs nothing: `autoPairBracket` closes
+        // the pair in `onBeforeInput`, which guards composition for the
+        // same reason. The event that *ends* a composition is skipped
+        // too — some WebKit builds report it with `isComposing` already
+        // false, caret still at the start.
+        if (e.isComposing || e.inputType === "insertCompositionText") {
+          props.onInput(ta.value);
+          autoResize();
+          return;
+        }
         const caret = ta.selectionStart ?? ta.value.length;
         const completion = autoClosePair(ta.value, caret);
         if (completion) {

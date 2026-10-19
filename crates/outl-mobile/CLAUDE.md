@@ -151,6 +151,10 @@ The haptics stay on that side on purpose — a buzz is feedback for a *decision*
   Presentational only — neither knows what a tap means.
 - **`BlockTextarea.tsx`** — `EditableTextarea`.
   Its own file because the rules in it are about iOS text input, not about outlines: `beforeinput` rather than `keydown` (WKWebView emits no reliable per-character key events) and `parkCaret` twice around every programmatic `value =`.
+  **The third rule is that nothing writes `ta.value` while an IME composes** ([#399](https://github.com/outlmd/outl/issues/399)).
+  WebKit reports `selectionStart` at the start of the marked run, so pair completion read `[[` plus the pinyin as an unclosed ref and appended a second `]]`.
+  Writing a different string then commits that run as plain text, which is how `nihao` typed inside `[[]]` became `[[]]nihao]]niha]]nih]]ni]]n]]`.
+  `BlockTextarea.test.tsx` pins all three handlers, including the one that needs no guard, and the handlers carry the reasoning and what the guard costs.
 
 **A prop this component accepts must reach the recursive call, and `BlockRow.recursion.test.ts` is what makes that fail.**
 Two were declared and never forwarded, and both were invisible: optional props, so omitting them compiles.

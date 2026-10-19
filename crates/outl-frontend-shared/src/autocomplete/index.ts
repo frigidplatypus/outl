@@ -41,6 +41,17 @@ export interface PairCompletion {
  * present-on-the-right) — pair completion only fires when the right
  * side starts with something other than the matching closer, so we
  * never end up with `]]]]`.
+ *
+ * **Never run this over a caret an IME is composing at.** Browsers
+ * report that caret at the *start* of the marked run, so a `[[` typed
+ * before the keyboard was switched plus the marked text reads exactly
+ * like an unclosed ref — and the caller's write then commits the
+ * marked run as plain text. Issue #399: mobile's `onInput` did both,
+ * and five pinyin keystrokes inside `[[]]` left
+ * `[[]]nihao]]niha]]nih]]ni]]n]]` in the block. Callers that run on
+ * `input` skip `isComposing` / `insertCompositionText` events; the
+ * `[[` flow does not depend on it anyway, since
+ * {@link autoPairBracket} already closes the pair in `beforeinput`.
  */
 export function autoClosePair(
   value: string,

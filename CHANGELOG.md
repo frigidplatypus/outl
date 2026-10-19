@@ -7,6 +7,14 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Fixed
 
+- **Typing with a Chinese, Japanese or Korean keyboard inside `[[…]]` corrupted the block on iOS.**
+  Five pinyin keystrokes in an empty page ref left `[[]]nihao]]niha]]nih]]ni]]n]]` in the block, one `]]` per keystroke, with the pinyin stranded behind as plain text.
+  The same keyboard outside a ref was fine, which is what made this look like a ref bug instead of an input one.
+  Those keyboards type into *marked* text, and WebKit reports the caret at the **start** of that run while the `input` event fires.
+  The two characters left of it were therefore the `[[` typed before the keyboard was switched and the two on the right were the pinyin, which reads exactly like an unclosed ref, so pair completion appended a second `]]`.
+  Assigning that new value then committed the marked run as plain text, the keyboard restarted a composition at the parked caret, and the next keystroke did it again.
+  Pair completion now sits out any composition, including the event that ends one, and `((…))` is covered by the same guard.
+  Skipping it costs nothing, because the pair is already closed on the keystroke itself, which is why the desktop has never run it.
 - **The Android app closed on open on every device, and the 16 KB page-size fix was hiding it.**
   `liboutl_mobile_lib.so` loaded correctly and the process aborted a moment later inside `Rust_onCreate`, so the symptom read exactly like the 16 KB bug fixed in 0.12.0-beta.227: an icon that flashes and closes.
   It was a second defect standing behind the first, unrelated to it, present since the Android app first ran, and reproducible on a 4 KB-page emulator.
