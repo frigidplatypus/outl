@@ -45,7 +45,7 @@
 //! - **boa 0.22** (`js`) — `RuntimeLimits` caps loop iterations,
 //!   recursion depth and stack size; nothing per-instruction or
 //!   wall-clock, and `HostHooks` has no interrupt point.
-//! - **rustpython 0.5** (`python`) — `eval_breaker_tripped` is
+//! - **rustpython 0.6** (`python`) — `eval_breaker_tripped` is
 //!   `pub(crate)`, and the opcode trace hook only fires when a frame's
 //!   `f_trace_opcodes` is set from Python.
 //! - **steel 0.8.3** (`lisp`, opt-in, not in the default feature set).
@@ -169,6 +169,8 @@ where
         )));
     }
 
+    const WORKER_STACK: usize = 16 * 1024 * 1024;
+
     let state = Arc::new(AtomicU8::new(RUNNING));
     let slot = WorkerSlot {
         state: state.clone(),
@@ -177,6 +179,11 @@ where
     let (tx, rx) = mpsc::sync_channel::<Result<T, ExecError>>(1);
     thread::Builder::new()
         .name("outl-exec".into())
+        // RustPython 0.6 bootstraps importlib and the codec modules on
+        // every interpreter, and that recursion overflows the 2 MiB
+        // default (it surfaces as a `RecursionError` during init, then a
+        // panic). 16 MiB is virtual address space, not resident memory.
+        .stack_size(WORKER_STACK)
         .spawn(move || {
             // Dropped when the closure returns, including by unwinding.
             let _slot = slot;
