@@ -7,6 +7,13 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Fixed
 
+- **An Android crash report did not say which build it came from.**
+  The APK's `versionName` was the base version, so every beta of 0.13.0 reported `0.13.0`, and `versionCode` was Tauri's semver derivation, which ignores the prerelease and gave all of them `13000`.
+  The reasoning was that the Release tag carries the beta string, which it does, except the tag stays on GitHub while the APK goes to a phone.
+  [Issue #401](https://github.com/outlmd/outl/issues/401) arrived as a `SIGABRT` from `Version='0.13.0'`, a range of builds that straddled the `ndk_context` fix the reporter needed.
+  Identifying it meant matching the tombstone's symbol address against the `.so` inside each published APK until one lined up (beta.256).
+  The APK now carries the full version, `-beta.N` included, and `versionCode` is the run number that names the beta, so beta.261 ships `versionCode=261`.
+  This only brings the manifest in line with Sentry, whose release already came from `CARGO_PKG_VERSION` and already had the beta.
 - **Typing with a Chinese, Japanese or Korean keyboard inside `[[…]]` corrupted the block on iOS.**
   Five pinyin keystrokes in an empty page ref left `[[]]nihao]]niha]]nih]]ni]]n]]` in the block, one `]]` per keystroke, with the pinyin stranded behind as plain text.
   The same keyboard outside a ref was fine, which is what made this look like a ref bug instead of an input one.

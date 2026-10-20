@@ -1337,11 +1337,18 @@ jobs:
         working-directory: crates/outl-mobile
         # RELEASE build (Rust optimized + stripped, R8/proguard) — NOT
         # `--debug`, whose unoptimized `.so` + kept debug symbols balloon
-        # the APK past 1 GB. `--apk` skips the .aab. `--config` injects the
-        # marketing versionName (base version, sans `-beta.N`; the Release
-        # tag carries the full beta string). versionCode is Tauri's default
-        # derivation — fine for direct download; a monotonic scheme is only
-        # needed for Play (issue #171).
+        # the APK past 1 GB. `--apk` skips the .aab.
+        #
+        # `--config` injects the FULL version, `-beta.N` included, so the
+        # APK's versionName says which build it is. It used to inject the
+        # base version, so every beta of 0.13.0 reported `0.13.0` and a
+        # crash report (issue #401) named a range of builds instead of one.
+        # versionCode is `github.run_number`, the same counter that names
+        # `beta.N`; Tauri's own derivation ignores the prerelease and gave
+        # all of them 13000. Starting below that 13000 is harmless because
+        # an update here already needs an uninstall (throwaway debug key
+        # per release, issue #171). Full reasoning:
+        # `docs/android-platform.md` → Release.
         #
         # No `RUSTFLAGS` here, deliberately. `.cargo/config.toml` carries the
         # `max-page-size=16384` link flag for the Android targets, an exported
@@ -1352,7 +1359,7 @@ jobs:
           OUTL_SENTRY_DSN: ${{ secrets.OUTL_SENTRY_DSN_MOBILE }}
         run: |
           cargo tauri android build --target aarch64 --apk --features sentry \
-            --config "{\"version\": \"${{ needs.prepare.outputs.base }}\"}"
+            --config "{\"version\": \"${{ needs.prepare.outputs.version }}\", \"bundle\": {\"android\": {\"versionCode\": ${{ github.run_number }}}}}"
 
       # The unstripped library, before AGP's copy of it reaches the APK.
       #
