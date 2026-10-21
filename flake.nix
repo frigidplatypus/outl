@@ -104,7 +104,7 @@
             gdk-pixbuf
             glib
             dbus
-            openssl_3
+            openssl
             libsoup_3
             librsvg
             libappindicator-gtk3
