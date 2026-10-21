@@ -115,6 +115,22 @@ pub enum Capability {
     /// you, this keeps you where you are and only writes. Mobile's
     /// bottom bar `+` is the reference shape.
     QuickCapture,
+    /// Adding a line to the journal from **outside** the app — without
+    /// it being on screen, and without opening it first.
+    ///
+    /// Distinct from `QuickCapture`, which is the same destination from
+    /// inside the app: that one keeps you where you are, this one does
+    /// not need you to be there at all. The gestures are a Home or Lock
+    /// Screen widget, a share sheet, Siri or the Action button, a quick
+    /// settings tile, a macOS Service or a hotkey daemon.
+    ///
+    /// Every route goes through the capture inbox rather than the op log
+    /// (RFC 0363): the writer is a different process that cannot hold
+    /// the workspace open, so it leaves one file and the app lands it.
+    /// That is also what this row is really about — a client without a
+    /// drain cannot have the capability, however many gestures the OS
+    /// offers.
+    CaptureOutsideTheApp,
     /// One list of every open task (`TODO` / `DOING`) across the
     /// workspace, each row opening its block.
     ///
@@ -122,6 +138,48 @@ pub enum Capability {
     /// question on every client, inside a page; this is whether the
     /// client has a place for it of its own.
     TaskList,
+    /// Drawing a mermaid fence as a diagram.
+    ///
+    /// Desktop and mobile do this with Pele when `[editor] diagrams`
+    /// is `pele` (the default). `off` leaves the highlighted source
+    /// on those two. The TUI has no diagram surface and keeps the
+    /// fence as source either way.
+    DiagramRendering,
+    /// Turning crash reporting off.
+    ///
+    /// Reports are **on by default** (RFC 0377), so a client without
+    /// this is a client whose user has no opt-out — and the
+    /// legitimate-interest footing the whole feature stands on is the
+    /// user's ability to say no. That makes a missing toggle a legal
+    /// problem, not a thinner settings screen.
+    ///
+    /// Not about *what* gets sent: the allowlist lives in
+    /// `outl_telemetry` and is identical on every client, as is the
+    /// promise that no note text is part of it. This row is only
+    /// whether the person on the device can switch it off from where
+    /// they are.
+    CrashReportingOptOut,
+    /// Telling the user, unprompted, that crashes are sent.
+    ///
+    /// The sibling of [`Capability::CrashReportingOptOut`] and not the
+    /// same question. That row asks whether the user *can* say no;
+    /// this one asks whether they were ever told there was something
+    /// to say no to.
+    ///
+    /// Both halves are load-bearing for the same reason, and RFC 0377
+    /// section 6 is explicit about it: reporting is on by default, so
+    /// the legitimate-interest footing rests on **disclosure coming
+    /// first**. A user whose first notice is reading the source has
+    /// not been disclosed to, and a client that reports without ever
+    /// saying so has the opt-out and still not the consent story.
+    ///
+    /// "Proactive" is the whole content of the verdict. `outl
+    /// telemetry status` answers truthfully and answers only when
+    /// asked, which is a different thing from arriving unasked, so a
+    /// client that has the command and no notice is `Missing` here
+    /// rather than `Full`. `docs/privacy.md` is disclosure too, and it
+    /// is not in the product.
+    CrashReportingDisclosure,
 }
 
 impl Capability {
@@ -147,7 +205,11 @@ impl Capability {
         Capability::TableRendering,
         Capability::Trash,
         Capability::QuickCapture,
+        Capability::CaptureOutsideTheApp,
         Capability::TaskList,
+        Capability::DiagramRendering,
+        Capability::CrashReportingOptOut,
+        Capability::CrashReportingDisclosure,
     ];
 }
 
@@ -159,7 +221,7 @@ mod tests {
     /// what makes forgetting impossible: it will not compile once a
     /// new variant exists until this function's `match` grows an arm
     /// for it too.
-    const EXPECTED_14: usize = 14;
+    const EXPECTED_18: usize = 18;
 
     fn name(cap: Capability) -> &'static str {
         match cap {
@@ -176,7 +238,11 @@ mod tests {
             Capability::TableRendering => "TableRendering",
             Capability::Trash => "Trash",
             Capability::QuickCapture => "QuickCapture",
+            Capability::CaptureOutsideTheApp => "CaptureOutsideTheApp",
             Capability::TaskList => "TaskList",
+            Capability::DiagramRendering => "DiagramRendering",
+            Capability::CrashReportingOptOut => "CrashReportingOptOut",
+            Capability::CrashReportingDisclosure => "CrashReportingDisclosure",
         }
     }
 
@@ -193,9 +259,9 @@ mod tests {
         );
         assert_eq!(
             names.len(),
-            EXPECTED_14,
-            "Capability::ALL has {} entries but the enum has {EXPECTED_14} variants \
-             — add the new variant to Capability::ALL (and bump EXPECTED_14)",
+            EXPECTED_18,
+            "Capability::ALL has {} entries but the enum has {EXPECTED_18} variants \
+             — add the new variant to Capability::ALL (and bump EXPECTED_18)",
             names.len(),
         );
     }

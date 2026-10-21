@@ -39,6 +39,7 @@ mod commands;
 mod fs_watcher;
 mod helpers;
 mod iroh_sync;
+mod log_target;
 mod open_with;
 mod plugin_service;
 mod quick_capture;
@@ -59,24 +60,25 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use crate::commands::{
     attach_asset, clear_reminder_snooze, copy_block_markdown, copy_block_ref, copy_markdown,
     create_block, current_workspace, cut_block, date_title, delete_block, delete_page,
-    deliver_due_reminders, device_activity, edit_block, export_markdown, get_settings, get_theme,
-    get_theme_config, import_asset_file, indent_block, instantiate_template_at,
-    journal_days_with_content, known_property_keys, list_action_support, list_all_pages,
-    list_open_tasks, list_reminders, list_shortcut_bindings, list_templates_cmd, list_themes,
-    mark_block_done, merged_edits, move_block_after, move_block_down, move_block_up, next_day,
-    open_asset, open_external_file, open_journal_for, open_page_by_slug, open_ref,
-    open_today_journal, outdent_block, outl_emoji_search, outl_peer_list, outl_peer_pair_host,
-    outl_peer_pair_join, outl_peer_remove, outl_peer_status, outl_sync_now, page_backlinks,
-    page_timeline, paste_block_after, paste_markdown_at, paste_plain_at, plugin_config_set,
-    plugin_install_official, plugin_keybindings, plugin_list, plugin_registry_list, plugin_run,
-    plugin_secret_remove, plugin_secret_set, plugin_set_enabled, plugin_settings_describe,
-    plugin_sync_hooks, plugin_toolbar, plugin_transform, plugin_transformers, plugin_uninstall,
-    previous_day, read_asset_data_url, redo_page, reload_workspace, reminder_settings,
-    resolve_embeds, resolve_page_labels, resolve_ref, run_auto_run_blocks, run_code_block,
-    search_blocks, search_pages, search_persons, set_backlinks_order, set_block_collapsed,
-    set_block_property, set_block_remind, set_page_property, set_reminder_settings, set_workspace,
-    snooze_presets, snooze_reminder, split_block, today_slug_cmd, toggle_pin, toggle_quote,
-    toggle_todo, undo_merged_edit, undo_page, update_settings, workspace_stats,
+    deliver_due_reminders, device_activity, drain_capture_inbox, edit_block, export_markdown,
+    get_settings, get_telemetry_enabled, get_theme, get_theme_config, import_asset_file,
+    indent_block, instantiate_template_at, journal_days_with_content, known_property_keys,
+    list_action_support, list_all_pages, list_open_tasks, list_reminders, list_shortcut_bindings,
+    list_templates_cmd, list_themes, mark_block_done, merged_edits, move_block_after,
+    move_block_down, move_block_up, next_day, open_asset, open_external_file, open_journal_for,
+    open_page_by_slug, open_ref, open_today_journal, outdent_block, outl_emoji_search,
+    outl_peer_list, outl_peer_pair_host, outl_peer_pair_join, outl_peer_remove, outl_peer_status,
+    outl_sync_now, page_backlinks, page_timeline, paste_block_after, paste_markdown_at,
+    paste_plain_at, plugin_config_set, plugin_install_official, plugin_keybindings, plugin_list,
+    plugin_registry_list, plugin_run, plugin_secret_remove, plugin_secret_set, plugin_set_enabled,
+    plugin_settings_describe, plugin_sync_hooks, plugin_toolbar, plugin_transform,
+    plugin_transformers, plugin_uninstall, previous_day, read_asset_data_url, redo_page,
+    reload_workspace, reminder_settings, resolve_embeds, resolve_page_labels, resolve_ref,
+    run_auto_run_blocks, run_code_block, search_blocks, search_pages, search_persons,
+    set_backlinks_order, set_block_collapsed, set_block_property, set_block_remind,
+    set_page_property, set_reminder_settings, set_telemetry_enabled, set_workspace, snooze_presets,
+    snooze_reminder, split_block, today_slug_cmd, toggle_pin, toggle_quote, toggle_todo,
+    undo_merged_edit, undo_page, update_settings, workspace_stats,
 };
 use crate::plugin_service::spawn_plugin_service;
 use crate::state::AppState;
@@ -143,9 +145,45 @@ fn dispatch_deep_link(app: &tauri::AppHandle, raw: &str) {
     }
 }
 
+/// Repeat Rust's `SIG_IGN` for `SIGPIPE` so a library cannot restore the
+/// default and kill a GUI on the next write to a closed pipe.
+#[cfg(unix)]
+fn ignore_sigpipe() {
+    // SAFETY: `signal` is async-signal-safe. `SIG_IGN` is a valid disposition
+    // and does not run user code. The return value is the previous disposition;
+    // `SIG_ERR` is the only failure, and leaving the runtime's existing
+    // `SIG_IGN` in place is the outcome we already wanted.
+    unsafe {
+        let _ = libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
+}
+
+#[cfg(not(unix))]
+fn ignore_sigpipe() {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Install a `tracing` subscriber FIRST so the iroh P2P transport's
+    // Before anything that writes. Rust already ignores SIGPIPE; a library
+    // that restores the default disposition would turn the next write to a
+    // closed pipe into a kill, which a GUI launched with no terminal hits
+    // the moment its log pipe goes away. The write path still has to tolerate
+    // EPIPE — that is `outl_telemetry::lossy_stderr`, below.
+    ignore_sigpipe();
+
+    // Crash reporting (RFC 0377) goes up next, before the subscriber and
+    // before the crypto provider, because the crashes worth the most are the
+    // ones during boot — the Android app that closed on open is what motivated
+    // this, and a reporter installed after the failing call reports nothing.
+    //
+    // `init` returns `None` unless all four conditions hold. A build without
+    // `--features sentry` links no SDK, so this is a no-op in every build but
+    // the release pipeline's.
+    //
+    // Named binding, never `let _ =`: the guard flushes pending events when
+    // dropped, and `let _ =` would drop it on this line.
+    let _telemetry = outl_telemetry::init("desktop", outl_config::telemetry_enabled());
+
+    // Install a `tracing` subscriber before anything that logs, so the iroh P2P transport's
     // `info!`/`warn!`/`debug!` lines are visible in the terminal running the
     // app (stderr). Without this the transport runs blind. `RUST_LOG` overrides
     // the default.
@@ -164,7 +202,13 @@ pub fn run() {
                 tracing_subscriber::EnvFilter::new("info,outl_sync_iroh=debug,iroh=info")
             }),
         )
-        .with_writer(std::io::stderr)
+        // `std::io::stderr` plus the fmt layer's default `log_internal_errors`
+        // panics when the pipe is closed: the layer reports the failed write
+        // with `eprintln!`, and that macro turns EPIPE into
+        // `failed printing to stderr`. A desktop with no terminal hits this
+        // on the first log line.
+        .with_writer(outl_telemetry::lossy_stderr)
+        .log_internal_errors(false)
         .finish();
     let _ = tracing::subscriber::set_global_default(subscriber);
 
@@ -201,8 +245,9 @@ pub fn run() {
         }))
         // Unified logging (React-Native-style): the frontend logs via
         // `@tauri-apps/plugin-log` + `attachConsole()`, and everything lands on
-        // three targets — Stdout (the terminal running `cargo tauri dev`), the
-        // Webview console, and a rotating file in the OS log dir
+        // three targets — stdout (the terminal running `cargo tauri dev`; a
+        // closed pipe is ignored, see `log_target`), the Webview console,
+        // and a rotating file in the OS log dir
         // (`~/Library/Logs/<bundle>/` on macOS, `%APPDATA%/<bundle>/` on
         // Windows, `~/.config/<bundle>/` on Linux). This owns the `log` crate
         // slot (see the tracing note above); our own `tracing::` events still go
@@ -211,7 +256,7 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    log_target::stdout_target(),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
                         file_name: None,
@@ -395,6 +440,14 @@ pub fn run() {
             // Settings
             get_settings,
             update_settings,
+            // Privacy (crash reporting) — its own pair, deliberately not
+            // part of `update_settings`: the flat `Settings` does not
+            // model the telemetry section and restores it from disk on
+            // save. (A comment in this list must carry no closing square
+            // bracket: `command_parity.rs` ends the list at the first one
+            // it finds, so a bracket here hides every command after it.)
+            get_telemetry_enabled,
+            set_telemetry_enabled,
             // Theme
             list_themes,
             get_theme,
@@ -419,6 +472,8 @@ pub fn run() {
             export_markdown,
             merged_edits,
             undo_merged_edit,
+            // Capture inbox: lines `outl capture` left for this app to land
+            drain_capture_inbox,
             // Properties (`key:: value`) — catalogue + page-level writer
             known_property_keys,
             set_page_property,

@@ -90,6 +90,7 @@ For the reuse-first rule (why this matters, past drift incidents, what to do whe
 | Acquire the cross-process workspace lock (one writer at a time) | `outl_core::WorkspaceLock::acquire` | `crates/outl-core/src/lock.rs` |
 | Acquire the per-actor write lock (one process writing this actor's jsonl) — advisory and **machine-local**, so it can never arbitrate between devices | `outl_core::ActorWriteLock::try_acquire` | `crates/outl-core/src/lock.rs` |
 | Resolve which actor this **process** writes as (device actor, or an ephemeral one when a co-resident process holds it) | `outl_core::resolve_write_actor` | `crates/outl-core/src/lock.rs` |
+| Open a workspace to read, without taking a write lock or minting an actor | `outl_ws::open_read` | `crates/outl-ws/src/lib.rs` |
 | Resolve which actor this **device** writes as for a workspace — the migration-safe entry point every CLI / TUI / MCP / embedder opener calls | `outl_ws::actor::resolve_device_actor` | `crates/outl-ws/src/actor.rs` |
 | Device-local actor store — per workspace *instance* (`actor_for_instance`, keyed by `WorkspaceId` **and** the workspace directory) and device-wide (`device_actor`, the Tauri clients' `<dir>/actor`) | `outl_core::DeviceStore` (errors: `outl_core::DeviceError`) | `crates/outl-core/src/device/` |
 | Stable fingerprint of one physical device — the claim marker that lets exactly one device adopt a legacy `config.toml` actor | `outl_core::MachineId` (via `DeviceStore::machine_id`) | `crates/outl-core/src/device/` |
@@ -127,7 +128,7 @@ A user's `.gitignore` cannot exclude the required paths (`ops/`, `pages/`, `jour
 | Is `git` usable? / does this workspace have a repo? / where is it? | `outl_actions::backup::git_available` / `is_initialized` / `repo_dir` | `crates/outl-actions/src/backup/mod.rs` |
 | Drive an explicit `(git dir, work tree)` pair instead of the derived one | `outl_actions::backup::BackupRepo::at` | `crates/outl-actions/src/backup/repo.rs` |
 | Why a backup failed (incl. `OpLogNotCaptured` — a snapshot missing `ops/` is an error, not a success) | `outl_actions::backup::BackupError` | `crates/outl-actions/src/backup/mod.rs` |
-| Device-local preference (`enabled` defaults **on**, `interval_minutes`) | `outl_config::BackupCfg` | `crates/outl-config/src/schema.rs` |
+| Device-local preference (`enabled` defaults **on**, `interval_minutes`) | `outl_config::BackupCfg` | `crates/outl-config/src/schema/storage.rs` |
 
 Backed up: `ops/` (the source of truth), `pages/`, `journals/`, `templates/`, `assets/`, `.outl/config.toml`.
 Excluded: derived caches that the next boot rebuilds — `.outl/snapshots/`, `*.idx`, locks, `*.tmp`.

@@ -8,13 +8,20 @@ The user-facing background-sync behaviour is [sync.md → Background sync on And
 
 ## Where the Android-specific code lives
 
-Seven files, none of which holds business logic — the same rule as every other client.
+Fourteen files, none of which holds business logic — the same rule as every other client.
 
 | Piece | Path | Job |
 |---|---|---|
 | JNI bootstrap | `crates/outl-mobile/src-tauri/src/android_jni.rs` | Prime the JVM globals iroh's TLS + DNS need |
+| Capture JNI | `crates/outl-mobile/src-tauri/src/capture_jni.rs` | Write one capture through `outl_actions::capture` |
+| Capture plumbing | `gen/android/…/OutlCapture.kt` | Inbox folder, the env var, the webview nudge |
+| Share target | `gen/android/…/OutlShareActivity.kt` | `ACTION_SEND` → one capture, a toast, finish |
+| Widget | `gen/android/…/OutlCaptureWidget.kt` | One tap opens `outl://capture` |
+| Quick settings tile | `gen/android/…/OutlCaptureTile.kt` | Same, from the pull-down |
 | Background sync (Rust) | `crates/outl-mobile/src-tauri/src/bg_sync.rs` | Two JNI entry points over a shared, platform-agnostic core |
-| Activity | `gen/android/app/src/main/java/app/outl/mobile_app/MainActivity.kt` | Calls `NativeSetup.install` + `OutlBackgroundSync.install` before Tauri boots |
+| Activity | `gen/android/app/src/main/java/app/outl/mobile_app/MainActivity.kt` | Checks the native library loaded, then calls `NativeSetup.install` + `OutlBackgroundSync.install` before Tauri boots |
+| Library probe | `gen/android/…/OutlNativeLibrary.kt` | The one "did `liboutl_mobile_lib.so` load?" answer, logged with ABI and page size |
+| Load error screen | `gen/android/…/NativeLoadErrorActivity.kt` | Plain activity shown instead of a crash when the library will not load |
 | Native binding | `gen/android/…/NativeSync.kt` | `external fun` declarations matching the JNI symbols |
 | Scheduler | `gen/android/…/OutlBackgroundSync.kt` | Lifecycle observer + the two WorkManager schedules |
 | Worker | `gen/android/…/SyncWorker.kt` | Drives one forced pass, then finishes |
@@ -26,15 +33,136 @@ Everything under `gen/android/app/build/` is **build output** — never edit it.
 
 ## JNI bootstrap (why the app used to `SIGABRT` on launch)
 
-iroh's relay client verifies certificates through `rustls-platform-verifier` and reads system DNS through `iroh-dns` / `hickory`.
-Both call into the JVM — the Android KeyStore and `ConnectivityManager` — and both read a process-wide JNI context that neither Tauri/wry nor `tao`'s bundled `ndk_glue` installs.
+iroh's relay client verifies certificates through `rustls-platform-verifier`, which calls into the JVM (the Android KeyStore) and reads a process-wide handle that nothing else primes.
 So the first QUIC connection panicked, the panic poisoned a `quinn` mutex, and the next task's `.unwrap()` on the `PoisonError` aborted the process: a `SIGABRT` on a `tokio-rt-worker` thread seconds after boot.
 
-`MainActivity.onCreate` calls `NativeSetup.install(applicationContext)` **before** `super.onCreate` boots Tauri, priming both globals exactly once.
+`MainActivity.onCreate` calls `NativeSetup.install(applicationContext)` **before** `super.onCreate` boots Tauri, priming that global once.
 The `rustls-platform-verifier` Kotlin component is not on Maven ([rustls/rustls-platform-verifier#115](https://github.com/rustls/rustls-platform-verifier/issues/115)).
 Its `.aar` is therefore vendored under `gen/android/app/libs/`, and must be re-copied whenever the crate version bumps.
 
+### `ndk_context` belongs to `tao`, and seeding it here aborted every launch
+
+The system-DNS reader (`iroh-dns` → `hickory` → `LinkProperties.getDnsServers()`) reads the JavaVM and Context out of `ndk_context`, and `android_jni.rs` used to seed that alongside the verifier.
+It must not, and this is the sharper of the two "crashes on open" bugs on this page, because it had nothing to do with the device.
+
+`ndk_context::initialize_android_context` is documented as "must be called **exactly once**" and enforces it with `assert!(previous.is_none())`.
+`tao`'s `ndk_glue::onCreate` already calls it, inside the `APPLICATION_CONTEXT.get_or_init` that `Java_app_outl_mobile_1app_Rust_onCreate` runs — with the same `getApplicationContext()` we were passing.
+That `OnceCell` is tao's, so it could not see our `INSTALLED` flag, and seeding first did not stop the second call.
+It made the second call fail:
+
+```
+F libc  : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid … (outl.mobile_app)
+F DEBUG :   #09 pc … (panic_cannot_unwind)
+F DEBUG :   #10 pc … (Java_app_outl_mobile_1app_Rust_onCreate+96)
+```
+
+The assert panicked, the panic unwound into an `extern "C"` frame, and `panic_cannot_unwind` aborted.
+Every Android device, every clean install, from the day `android_jni.rs` landed — reproduced on a 4 KB-page emulator, so the 16 KB fix below never had anything to do with it.
+It stayed invisible because the 16 KB bug sat in front of it: a device that refused the `.so` never got far enough to hit this one.
+
+So the split is: **the verifier is ours, `ndk_context` is tao's.**
+tao seeds it from inside `super.onCreate`, well before the transport opens a connection, so the DNS reader still finds it.
+`outl-mobile` must not name `ndk-context` in its own `Cargo.toml` — it stays in the graph transitively, for tao to write and `iroh-dns` to read.
+
+The general shape, which is [root invariant 11](../CLAUDE.md#critical-invariants-never-violate) read backwards: before priming a global "early, to be safe", check whether somebody downstream already owns it.
+A global that tolerates a second write costs nothing either way; one that asserts costs the whole app, and the assert fires in the **other** library's frame, where nothing points back at you.
+
 ---
+
+## When the native library does not load
+
+A device can refuse `liboutl_mobile_lib.so` outright: a 4 KB-aligned build on a 16 KB-page phone (v0.12.0-beta.226, see [below](#the-so-has-to-be-linked-for-16-kb-pages)), or an ABI the APK does not carry.
+Before this was handled, that refusal surfaced inside Tauri's generated `Rust` object, whose static initializer calls `System.loadLibrary`.
+A throwing static initializer reaches the caller as `ExceptionInInitializerError` at the first line that touches the class — `super.onCreate` in `MainActivity` — so the app closed on open with nothing on screen.
+
+`OutlNativeLibrary` now owns the question.
+It loads the library once, remembers the error, and logs one line under the `outl` tag with what a report needs: supported ABIs, the kernel page size (`Os.sysconf(_SC_PAGESIZE)`), API level, device and app version.
+
+```bash
+adb logcat -s outl
+# E outl: native library liboutl_mobile_lib.so did not load: abis=[arm64-v8a] pageSize=16384 sdk=35 ...
+```
+
+Every Kotlin path that reaches Rust asks it first:
+
+| Entry point | When the library did not load |
+|---|---|
+| `MainActivity` | Starts `NativeLoadErrorActivity` and finishes; `NativeSetup`, the capture env var and `OutlBackgroundSync` are never reached |
+| `OutlShareActivity` (via `OutlCapture.save`) | "Nothing to save." toast, no write |
+| `SyncWorker` | `Result.failure()` without touching `NativeSync` |
+
+`NativeLoadErrorActivity` is a plain `AppCompatActivity`, not a `TauriActivity`, because wry and Tauri call into the library from every lifecycle hook.
+It says the app could not load its native library on this device, shows the ABI and page size as selectable text, and links to the issue tracker.
+
+**`MainActivity` still calls `super.onCreate`, and catches what it throws.**
+Android requires the call, and the part it checks (`Activity.onCreate`) runs first in the chain; wry's `Rust.onCreate` comes after and is what throws.
+The activity then finishes from `onCreate`, which sends it straight to `onDestroy` and skips `onStart`, `onResume`, `onPause` and `onStop` — every other hook where wry calls `Rust`.
+`onDestroy` catches the same `LinkageError` for the same reason.
+This depends on wry calling `super` before `Rust` in those two hooks, which is true of wry 0.57; re-read `WryActivity.kt` when bumping it.
+
+---
+
+## Capture from outside the app
+
+Three entry points, the same shapes iOS has (RFC 0363): a **share target**
+(`ACTION_SEND`, `text/plain`), a **home screen widget**, and a **quick
+settings tile** — the closest Android has to iOS's Lock Screen widget.
+
+The widget and the tile write nothing. They open `outl://capture` and the
+app's capture sheet does the work, which is why RFC 0363 ships that shape
+first. On Android that needs the `outl` scheme registered on
+`MainActivity` in `AndroidManifest.xml`; without the intent filter both
+open nothing at all, which is why it landed with them.
+
+### Android owns the format in Rust, iOS owns it in Swift
+
+The one deliberate difference from iOS, and the reason is the platform,
+not taste.
+
+An iOS widget and share extension are separate processes with their own
+sandbox and a memory ceiling far below what loading this library needs, so
+a small Swift writer (`OutlKit/Capture/CaptureInbox.swift`) owns the
+inbox file format there.
+
+Android has no extension model. The share target is an ordinary activity
+in **this** app's process, with `liboutl_mobile_lib.so` already loaded.
+So it writes through `Java_app_outl_mobile_1app_OutlCapture_write`, and
+`outl_actions::capture::write_capture` + `shared_line` stay the owners of
+the file format and of "a share becomes one line". Kotlin holds the
+folder and the user-facing strings; nothing else.
+
+That also means the Android path is covered by `cargo test`, where the
+Swift one needs `swift test` and the Kotlin side needs an APK build.
+
+### No "a capture arrived" notification, and that is not an omission
+
+iOS posts a Darwin notification after an extension's write, because an
+iOS extension can write **while the app is on screen** — a share sheet
+hosted over outl itself, a widget tap on the Lock Screen.
+
+Android has no such case. A share sheet belongs to the app the user is
+*in*, so outl is never foreground when the share target writes, and a
+widget or tile tap opens the app rather than writing. Coming back is
+therefore the only moment a capture can be new, which is why
+`MainActivity.onResume` nudges the webview
+(`OutlCapture.notifyWebView`) instead.
+
+The webview's own `visibilitychange` usually fires on resume too, and the
+drain is idempotent — the block id is the capture's ULID — so the two
+together cost one no-op call and remove the dependency on which one the
+platform actually delivers.
+
+### Where a capture waits
+
+`filesDir/captures`, exported to Rust as `OUTL_CAPTURE_INBOX` from
+`MainActivity.onCreate` **before** `super.onCreate` boots Tauri — the
+same ordering `NativeSetup.install` needs, so the variable is set before
+the first `drain_capture_inbox` asks.
+
+Not the workspace's own `.outl/captures`: the workspace root is
+user-picked and a share target has not opened it. `filesDir` is the
+Android equivalent of the iOS App Group container — device-local,
+reachable without resolving anything.
 
 ## Background sync (Android)
 
@@ -120,12 +248,13 @@ Closing it needs a headless transport bootstrap — open the workspace and start
 
 ## The Rust ↔ Kotlin contract
 
-`bg_sync.rs` exposes two JNI entry points; `NativeSync.kt` declares the matching `external fun`s.
+`bg_sync.rs` and `capture_jni.rs` expose the JNI entry points; `NativeSync.kt` and `OutlCapture.kt` declare the matching `external fun`s.
 
 | Kotlin | JNI symbol | Returns |
 |---|---|---|
 | `NativeSync.backgroundSync()` | `Java_app_outl_mobile_1app_NativeSync_backgroundSync` | `false` = no transport in this process |
 | `NativeSync.peerCount()` | `Java_app_outl_mobile_1app_NativeSync_peerCount` | paired devices, read fresh from `peers.json` |
+| `OutlCapture.write(dir, text, url, source, ms)` | `Java_app_outl_mobile_1app_OutlCapture_write` | `false` = nothing saved (blank input or a failed write) |
 
 Rules that keep this from crashing:
 
@@ -152,7 +281,8 @@ That is what keeps them covered by the host test suite, where neither platform's
 ## Gradle and manifest
 
 `AndroidManifest.xml` needs **no change** for background sync, and this was verified against the merged manifest rather than assumed.
-It does need one for **LAN peer discovery** — see below.
+It does need one for **LAN peer discovery** — see below — and four for capture: the `outl` scheme on `MainActivity`, the share activity, the widget receiver and the tile service.
+Those four were verified the same way, by reading them back out of the built APK (`aapt2 dump xmltree --file AndroidManifest.xml`) rather than from the source manifest, because a merge can drop what a source file declares.
 `androidx.work:work-runtime` merges in `WAKE_LOCK`, `ACCESS_NETWORK_STATE`, `RECEIVE_BOOT_COMPLETED` and `FOREGROUND_SERVICE`, plus the `androidx.startup` `WorkManagerInitializer` that boots WorkManager with no `Configuration.Provider` of our own.
 
 Two dependencies in `gen/android/app/build.gradle.kts`:
@@ -217,8 +347,91 @@ The runner image does not ship that revision, so every run downloads ~700 MB, an
 beta.207 died at 33% on `Error reading Zip content from a SeekableByteChannel`, which `sdkmanager` logs as a *Warning* before exiting 1.
 The install retries three times, deleting the half-unzipped package and the download scratch between attempts.
 It gates on the `clang` binary `cargo-ndk` will invoke, not on the exit code: a partial unzip still leaves `source.properties` behind and claims to be installed.
+The same revision is `ndkVersion` in `gen/android/app/build.gradle.kts`, and the two move together.
+AGP strips the Rust `.so` on its way into the release APK with that NDK's `llvm-strip`; without `ndkVersion` it looks for its own default NDK, finds none on the runner, and packages the library with full DWARF behind a warning `--quiet` Gradle never prints.
+Debug builds keep the library's symbols through an `androidComponents` block scoped to the debug variant.
+The Tauri template's `packaging { jniLibs.keepDebugSymbols... }` inside `getByName("debug")` is not scoped at all: a build type has no `packaging`, so Kotlin resolves it on `android {}` and it kept the symbols in the release APK too.
+`scripts/check-artifact-stripped.py` reads the finished APK and is what turns that into a red job.
+It reads every `lib/<abi>/*.so` inside the archive, so the same pass also fails the APK when a library carries the name of a CI runner variable (`GITHUB_RUN_ID`, `RUNNER_TEMP`, `ACTIONS_RUNTIME`, `BLACKSMITH_`), which is a dependency's build script having snapshotted the runner's environment into the crate.
+That rule is separate from the strip rules and has its own escape hatch, `--allow-build-env`.
 Version comes from the workspace `Cargo.toml`, injected via `cargo tauri android build --config`.
 Tauri's mobile path does not fall back to `Cargo.toml` on its own — the same trap as iOS, see [`crates/outl-mobile/CLAUDE.md`](../crates/outl-mobile/CLAUDE.md).
+
+**The APK carries the full version, `-beta.N` included.**
+`versionName` is the string an OEM crash handler, a bug report and `adb shell dumpsys package` quote back.
+It used to be the base version, on the reasoning that the Release tag carries the beta string.
+The tag stays on GitHub; the APK goes to a phone.
+Every beta of 0.13.0 therefore reported `versionName=0.13.0`, and [issue #401](https://github.com/outlmd/outl/issues/401) arrived as a `SIGABRT` from `Version='0.13.0'`, a range of builds that straddled the fix the reporter needed.
+Pinning it down took the tombstone and `llvm-nm`, below.
+The Rust side was already honest: `outl-telemetry` builds the Sentry release from `CARGO_PKG_VERSION`, which CI patches to the full string, so this only brings the manifest in line with Sentry.
+
+`versionCode` is `github.run_number`, the same counter that names `beta.N`, so beta.261 ships `versionCode=261` and the two cannot disagree.
+Tauri's own derivation is `major*1e6 + minor*1e3 + patch`, which ignores the prerelease and gave every 0.13.0 beta `13000`.
+The new numbers start below that `13000`, which matters only for an in-place update, and there is no such thing here.
+Each release is signed with a throwaway debug key, so installing over an older APK already fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`.
+The move to a real upload key ([#171](https://github.com/outlmd/outl/issues/171)) is one more signature change and one more uninstall.
+Nothing in the app or the frontend reads either field; the consumers are the OEM crash handler, `pm dump`, and a future Play upload.
+
+For an APK older than beta.261 `versionName` only says `0.13.0`, and the fallback is the tombstone's `pc`.
+Match it against `llvm-nm --dynamic lib/arm64-v8a/liboutl_mobile_lib.so` from each candidate APK: `pc` is the address inside the library, and the frame's `+N` gives the symbol's own address.
+That is how #401 was placed on beta.256, from `Rust_onCreate+96` at `pc 0xfeee88` (so the symbol sits at `0xfeee28`).
+
+### Play Console: Data Safety
+
+The Data Safety form is a Play Console answer, not a file in the repo, so nothing fails if it drifts from the app.
+Before the first Play submission, and again whenever what the app sends changes, fill it in to match [`privacy.md`](privacy.md) → Crash reports:
+
+| Question | Answer |
+|---|---|
+| Does the app collect or share user data? | Collects, does not share |
+| Data type | App info and performance → **Crash logs** |
+| Shared with third parties | **No** (Sentry processes the report for us, and a service provider acting on our behalf is not "sharing" under Play's definition) |
+| Linked to the user | **No**: no account, no device id, no persistent identifier |
+| Collection is optional | **Yes**: the user can turn it off in Settings, Privacy |
+| Purpose | App functionality |
+| Data encrypted in transit | Yes |
+| Way for users to request deletion | Not applicable, nothing is linked to a user; say so in the form |
+
+Crash reporting covers Rust panics only, not Kotlin exceptions ([RFC 0377](rfcs/0377-crash-reporting.md)), so the form must not claim broader coverage than the app has.
+
+### The `.so` has to be linked for 16 KB pages
+
+Some Android devices page at 16 KB rather than 4 KB, and there `dlopen` refuses a library whose LOAD segments are aligned to 4 KB.
+The Pixel 8 and 9 families expose the mode as a developer option, newer hardware ships with it on, and since November 2025 Google Play has required support from every app update targeting Android 15+.
+The app dies on its first `System.loadLibrary`, which is `NativeSetup`'s initializer in `MainActivity.onCreate` — so the whole app crashes on open, before any of our code runs, on a device where nothing else is wrong.
+It now shows an error screen instead of closing ([When the native library does not load](#when-the-native-library-does-not-load)), but that only makes the failure legible; the APK is still unusable on that device until the alignment below holds.
+
+v0.12.0-beta.226 shipped exactly that.
+Its three native libraries, read out of the published APK:
+
+| library | `p_align` |
+|---|---|
+| `libimage_processing_util_jni.so` (vendored AAR) | `0x4000` |
+| `libsurface_util_jni.so` (vendored AAR) | `0x4000` |
+| `liboutl_mobile_lib.so` (ours) | `0x1000` |
+
+Nothing in the toolchain was going to fix that for us.
+The NDK does set `max-page-size` for 64-bit targets, but it sets it in its CMake and ndk-build toolchain files, and cargo uses neither: it drives the NDK's `clang` as a bare linker.
+rustc 1.95 does not pass it either.
+So the flag lives in `.cargo/config.toml`, per Android 64-bit target, and the two vendored `.aar` libraries were only correct because whoever built them passed it.
+
+Two alignments have to hold, and they come from different steps:
+
+- **The ELF**, from the linker flag above. Governs every device, because it is a property of the library itself.
+- **The zip offset**, from `zipalign -P 16` in `release.yml`. Only governs an *uncompressed* entry, which is all of them: `extractNativeLibs` defaults to false, so the libraries are mapped straight out of the APK rather than unpacked on install.
+
+Neither says anything when it stops working — the build is green, the APK installs, the signature verifies, and the app dies on the device.
+So `build_android` runs [`android-apk-page-alignment.py`](../crates/outl-mobile/scripts/android-apk-page-alignment.py) over the signed APK and fails the job.
+Checking the finished artifact covers both steps at once, plus any library arriving through a dependency we do not build.
+
+To check an APK by hand:
+
+```bash
+python3 crates/outl-mobile/scripts/android-apk-page-alignment.py outl-android-arm64.apk
+```
+
+A `RUSTFLAGS` exported into the environment **replaces** the `rustflags` in `.cargo/config.toml` rather than merging with it, so a workflow that sets one has to carry the link flag itself.
+`build_android` deliberately sets none.
 
 ---
 
@@ -240,3 +453,30 @@ adb logcat -s outl:V RustStdoutStderr:V
 
 Then confirm the peer no longer reports `peer did not confirm durable ingest` when the phone is locked mid-sync.
 That is the actual acceptance test, and nothing short of two paired devices produces it.
+
+### Capture, and what an emulator *can* prove
+
+More than the background path, because the risky seam is one call rather than a scheduler.
+On an emulator, without touching the UI:
+
+```bash
+# The share target, shaped the way Chrome shares a page (subject + link).
+adb shell "am start -a android.intent.action.SEND -t text/plain \
+  --es android.intent.extra.SUBJECT 'a title' \
+  --es android.intent.extra.TEXT 'https://outl.app' \
+  -n app.outl.mobile_app/.OutlShareActivity"
+# What landed in the inbox, and whether `shared_line` composed it.
+adb shell run-as app.outl.mobile_app ls files/captures/
+# The widget, the tile and the scheme are registered.
+adb shell dumpsys appwidget | grep outl
+adb shell "cmd package query-services -a android.service.quicksettings.action.QS_TILE" | grep outl
+adb shell "cmd package resolve-activity -a android.intent.action.VIEW -d outl://capture"
+```
+
+That covers Kotlin → JNI → `write_capture` → a file with the right field
+names, which is the part no test in this repo reaches.
+
+What still needs a real device is the rest of the gesture: adding the
+widget to a home screen and the tile to the pull-down, and the drain
+landing the captures in a journal — the last one needs a workspace open,
+so it needs the app actually running, not an `am start`.

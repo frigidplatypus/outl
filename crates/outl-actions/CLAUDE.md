@@ -147,6 +147,54 @@ During the #281 upgrade window (op log carrying a page's frontmatter fence as bu
 It is gone, and `tests/projection_writer_gates.rs` now pins both halves: every `pub fn` in `apply.rs` has a recorded verdict, and `guard.rs`'s doc names all six.
 Adding a writer without saying which side of the gate it is on fails there.
 
+## The capture inbox
+
+`capture.rs` is both halves of RFC 0363: the writer a capture gesture calls, and the **only** path from an inbox into the op log.
+
+The rule that matters: **no writer touches the workspace.** A widget, a share target, a Shortcut and `outl capture` each leave one `<ULID>.json` file, and `drain_capture_dir` lands it. That is what keeps root invariant 7 — a second process appending to `ops-<actor>.jsonl` is the thing this design exists to avoid.
+
+Three decisions that are not obvious from the signatures:
+
+- **The block id *is* the capture's ULID.** That is what makes a drain idempotent (a crash between the op and the `remove_file` replays onto the same block) and what makes two devices draining the same `file`-transport-synced capture converge on one block rather than duplicating it, since `do_op(Create)` is idempotent.
+- **`capture_day` resolves the day the capture was *made*, in the configured timezone.** A capture at 23:58 drained at 00:10 belongs to the 23:58 day, so a drain can create a *past* day's journal — which opening the app never does on its own. Any caller must run `clock::init` first or a late-evening capture files under the wrong day.
+- **Two inbox locations, answering different questions.** `inbox_from_env` is the mobile one (an iOS extension only reaches the App Group container, an Android component only knows `filesDir`, so neither can resolve which workspace is open). `inbox_in_workspace` is `<root>/.outl/captures` — what `outl capture` writes, aimed at the workspace it resolved.
+
+**The format has exactly one second implementation**, `OutlKit/Capture/CaptureInbox.swift`, because an iOS widget and share extension are separate processes under a memory ceiling this library would not fit. Android goes through JNI to `write_capture`, so Kotlin holds no copy — and neither does it hold `shared_line`, the "a share becomes one line" rule, whose only mirror is `SharedLine.swift`. **Adding a third copy of either is the thing to refuse in review.**
+
+`write_capture` is create-temp, fsync, rename: only the rename publishes the `<ULID>.json` name `pending_captures` looks for, so a drain racing a write sees a whole capture or none.
+
+**The loop has one owner, the per-capture step does not.** `drain_captures` holds everything that must not differ between clients — which captures are skipped, that a file is deleted only after its op is applied, the order — and takes the landing as a closure, because the Tauri clients take the workspace lock per capture and project the page while a caller holding a plain `&mut Workspace` needs neither. `drain_capture_dir` is that second shape. A second copy of the loop is how "does a blank capture get deleted" starts differing between the phone and the terminal, and the loop's tests only ever covered one of them.
+
+The report does not take the block id from the landing either: it **is** the capture's ULID, so the loop derives it rather than trusting the closure to agree.
+
+**The reader normalizes; it does not assume a writer did.**
+`one_line` is the single owner of "a capture is one block", and all four entry points go through it: both halves of `shared_line`, `write_capture`, and `PendingCapture::line` on the way in.
+Read `capture.line()`, never `record.text`.
+
+That is not tidiness.
+The inbox is written by processes this crate did not run — an iOS extension, a Shortcut handing the App Intent a multi-line string, a peer's file arriving over a `file` transport, a script using the documented format.
+Landing a newline raw makes the renderer emit indented continuation lines, which the parser reads back as **tree structure and `key:: value` properties**.
+One multi-line capture becomes several blocks plus a forged `title::`, and the capture's own block is trashed as an orphan on the next reconcile.
+Root `CLAUDE.md` invariant 8 does not catch it: those lines came out of outl's own renderer, so they are inside `last_synced_hash`.
+This is the producer half that invariant names.
+
+One writer-side gap closed with it.
+`shared_line`'s `url` half used to only `trim()`, which held while callers passed something URL-shaped and broke when Android's share target started putting an arbitrary `EXTRA_TEXT` in that slot.
+The Swift twin takes a typed `URL?` and cannot express a newline, which is why `shared-line-cases.json` has no case for it and both parity suites passed.
+`a_multi_line_url_is_still_one_line` is the Rust-only pin.
+
+**"Present" is not "landed".**
+Landing is two independently fsynced ops (`Op::Create`, then `Op::Edit` with the text) and nothing batches them, so a process killed between the two replays with the block in the tree and empty.
+`land_capture` therefore re-asserts the text when the block is **empty**, not when it merely differs.
+A diverging block may have been edited by the user after it landed, and the same capture file reaches a second device over a `file` transport, so re-asserting on divergence would let that second drain overwrite the edit.
+Empty is the one state only the torn write produces (`a_torn_landing_is_completed_by_the_next_drain`, `a_landed_capture_that_was_edited_is_left_alone`).
+
+`MAX_CAPTURE_BYTES` (1 MiB) bounds the read.
+A capture is one line, the drain runs on every foreground return, and a file it cannot land stays in the inbox — so an unbounded read was paid again forever.
+Oversized files are counted in `skipped`, never deleted.
+
+Who drains: `outl_tauri_shared::capture_inbox::drain_capture_inbox` for both GUI clients (over both inboxes, projecting each page), and `App::drain_capture_inbox` once at launch for the TUI.
+
 ## Trash
 
 `trash.rs` is the reading half of invariant 6. Delete is `Move(node, TRASH_ROOT)`, so the *preserving* half has always worked; until issue #287 nothing could list a deletion or put one back, which made the invariant's safety property "the bytes are still on disk" rather than "you can get it back".
@@ -195,7 +243,8 @@ User-facing contract: [`docs/clients.md` → Opening a file from the OS](../../d
 Four decisions worth not re-litigating:
 
 - **The namespace is a title, never a slug.** `slugify` folds the `/`, so the page projects to `pages/open-in-<stem>.md` while `open-in` becomes a real parent page (same mechanism as [Page namespaces](#page-namespaces)).
-  **`import_into` calls `page::open_or_create` with the slug `slug_for` already resolved, never `resolve::open_or_create_by_name`.** The by-name path re-slugifies the title, and that is precisely how a non-ASCII stem (`会議メモ`) reached the namespace page: it folds to nothing, `open-in/<stem>` collapses to bare `open-in`, and the import lands on the parent. `slug_for` refuses that collision; going back through the by-name helper undoes it. Pinned by `a_non_latin_file_name_never_lands_on_the_namespace_page`.
+  **`import_into` calls `page::open_or_create` with the slug `slug_for` already resolved, never `resolve::open_or_create_by_name`.** The by-name path re-slugifies the title, and that is precisely how a stem that slugifies to nothing (`📝`, `...`) reaches the namespace page: `open-in/<stem>` collapses to bare `open-in`, and the import lands on the parent. `slug_for` refuses that collision; going back through the by-name helper undoes it. Pinned by `a_stem_that_slugifies_to_nothing_still_links_back`.
+  This used to be *every* file for a user who names them in their own script, because `slugify` dropped each character it could not fold to ASCII ([issue #405](https://github.com/outlmd/outl/issues/405)). It keeps letters and digits now, so `会議メモ` projects to itself and only punctuation or emoji still reach the fallback — which is why the test that covered this path needed a replacement rather than an update: `a_non_latin_file_name_never_lands_on_the_namespace_page` still passes and no longer exercises it.
 - **Re-opening a file does not import again.** The page carries `page-source::` (the canonicalised absolute path), and `resolve_target` returns `OpenWithTarget::Existing` when it matches. That key is in `tree::is_page_model_key`, so it **never reaches the `.md`** — the value is the user's directory structure, and `outl export hugo` copies unknown properties straight into published front matter. Hiding it costs nothing, because the check reads the op log and `outl_md::diff` only emits `SetProp` for properties the `.md` actually has. A second import would duplicate every block; overwriting would delete whatever the user wrote after the first import. Neither is acceptable, so the client navigates instead.
   The same property is what stops two *different* files named `notes.md` from being merged into one page — the second becomes `open-in/notes 2`.
   **The value is carried on `OpenWithTarget::New`, never recomputed at import time.** It used to be derived twice — once to match against, once to write — and a file that moved between the two made `canonicalize` fail on the second, so the page recorded the uncanonicalised path while the match had used the canonical one. The next open then failed to recognise its own page and minted `open-in/notes 2`: the duplicate the property exists to prevent, produced by the property itself. Pinned by `the_recorded_source_survives_the_file_moving_mid_import`.

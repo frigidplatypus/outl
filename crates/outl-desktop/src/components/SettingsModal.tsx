@@ -1,7 +1,22 @@
-import { For, Show, createMemo, createResource, createSignal, onMount } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  onMount,
+} from "solid-js";
 
 import { listThemes } from "@outl/shared/api/commands";
+import {
+  getTelemetryEnabled,
+  setTelemetryEnabled,
+} from "@outl/shared/api/telemetry";
+import { CRASH_REPORTS_SETTING } from "@outl/shared/onboarding";
 import { installTheme, pickSide, type ThemeConfig, type ThemeMode } from "@outl/shared/theme";
+
+import { setDiagramsMode } from "@outl/shared/diagram";
 
 import { getSettings, updateSettings, type Settings } from "../lib/api";
 import { appState, setAppState } from "../lib/store";
@@ -20,7 +35,29 @@ import { rovingKeydown } from "../lib/keyboard-reach";
 export function SettingsModal() {
   const [draft, setDraft] = createSignal<Settings | null>(null);
   const [busy, setBusy] = createSignal(false);
+  /**
+   * Crash reporting is **not** part of `draft()`, deliberately.
+   *
+   * The flat `Settings` wire shape does not model `[telemetry]` and
+   * `settings.rs::restore_unmodeled_sections` puts the section back from
+   * disk on every save, so routing this through the modal's Save would
+   * make the toggle inert. It writes through its own command instead,
+   * the way the backlinks direction button does. `null` while the first
+   * read is in flight, so the checkbox is not drawn claiming a state
+   * nobody has read yet.
+   */
+  const [telemetry, setTelemetry] = createSignal<boolean | null>(null);
+  const [telemetryBusy, setTelemetryBusy] = createSignal(false);
+  /**
+   * Separate from `telemetry() === null`, which is also the state while
+   * the first read is in flight. Only this one means "we asked and
+   * failed", so only this one may put "could not read" in front of
+   * somebody whose answer is simply still arriving. Mobile's sheet
+   * carries the same pair for the same reason.
+   */
+  const [telemetryError, setTelemetryError] = createSignal(false);
   let activeTheme: ThemeConfig | null = null;
+  let initialDiagrams = "pele";
   const [themes] = createResource(async () => {
     try {
       return await listThemes();
@@ -59,6 +96,7 @@ export function SettingsModal() {
 
   function close(restore = true) {
     if (restore && activeTheme) void installTheme(activeTheme);
+    if (restore) setDiagramsMode(initialDiagrams);
     setAppState("settingsOpen", false);
   }
 
@@ -66,12 +104,66 @@ export function SettingsModal() {
     try {
       const s = await getSettings();
       activeTheme = themeConfig(s);
+      initialDiagrams = s.diagrams === "off" ? "off" : "pele";
+      setDiagramsMode(initialDiagrams);
       setDraft(s);
     } catch (e) {
       setAppState("lastError", e instanceof Error ? e.message : String(e));
       close();
     }
   });
+
+  /**
+   * Its own read, for the same reason it has its own write: the flag is
+   * not in `Settings`.
+   *
+   * On every open, not `onMount`: `AppShell` mounts this component for
+   * the app's lifetime and only `<Show>` gates its markup, so an
+   * `onMount` read happens once at boot — and this value lives in a file
+   * another process writes (`outl telemetry off` in a terminal, a
+   * hand-edited `config.toml`), so a boot-time answer can be wrong with
+   * nothing in this window having changed it. Mobile's sheet re-reads on
+   * open for the same reason.
+   *
+   * A failure leaves the state unknown rather than falling back: the
+   * default is `true`, so a guess would show "on" to someone who turned
+   * it off.
+   */
+  createEffect(() => {
+    if (!appState.settingsOpen) return;
+    void (async () => {
+      try {
+        setTelemetry(await getTelemetryEnabled());
+        setTelemetryError(false);
+      } catch (e) {
+        setTelemetry(null);
+        setTelemetryError(true);
+        setAppState("lastError", e instanceof Error ? e.message : String(e));
+      }
+    })();
+  });
+
+  /**
+   * Flip the crash-reporting flag, moving the checkbox only once the
+   * write has landed.
+   *
+   * No optimistic update: a save that fails would leave the box reading
+   * "off" over a reporter that is still on, which is the one thing this
+   * row must never say.
+   */
+  async function toggleTelemetry(next: boolean) {
+    if (telemetryBusy()) return;
+    setTelemetryBusy(true);
+    try {
+      setTelemetry(await setTelemetryEnabled(next));
+      setTelemetryError(false);
+    } catch (e) {
+      setTelemetryError(true);
+      setAppState("lastError", e instanceof Error ? e.message : String(e));
+    } finally {
+      setTelemetryBusy(false);
+    }
+  }
 
   /**
    * Apply a theme to the live document as soon as the user picks
@@ -93,6 +185,7 @@ export function SettingsModal() {
     try {
       const persisted = await updateSettings(d);
       activeTheme = themeConfig(persisted);
+      setDiagramsMode(persisted.diagrams);
       setDraft(persisted);
       await installTheme(activeTheme);
       close(false);
@@ -215,6 +308,26 @@ export function SettingsModal() {
               </div>
 
               <label class="block">
+                <div class="mb-1 text-sm font-medium">Diagrams</div>
+                <select
+                  aria-label="Diagrams"
+                  value={draft()!.diagrams === "off" ? "off" : "pele"}
+                  onChange={(e) => {
+                    const diagrams = e.currentTarget.value === "off" ? "off" : "pele";
+                    setDraft({ ...draft()!, diagrams });
+                    setDiagramsMode(diagrams);
+                  }}
+                  class="w-full rounded border border-(--color-outl-fg)/15 bg-(--color-outl-fg)/5 px-2 py-1 text-sm outline-none focus:border-(--color-outl-fg)/30"
+                >
+                  <option value="pele">Pele</option>
+                  <option value="off">Off</option>
+                </select>
+                <div class="mt-1 text-xs opacity-50">
+                  Mermaid fences. Off leaves the highlighted source. Applies as you pick it. Cancel puts the previous choice back.
+                </div>
+              </label>
+
+              <label class="block">
                 <div class="mb-1 text-sm font-medium">Font size (px)</div>
                 <input
                   type="number"
@@ -306,6 +419,49 @@ export function SettingsModal() {
               </label>
 
               <SyncPanel />
+
+              {/* Privacy (RFC 0377). Reporting is on by default, so this
+                  section is the disclosure the opt-out footing rests on,
+                  not a preference among others. The copy is
+                  `@outl/shared/onboarding`'s — mobile renders the same
+                  sentences, and three of outl's privacy declarations go
+                  to an app store, so a client must not phrase it. */}
+              <div>
+                <div class="mb-1 text-sm font-medium">Privacy</div>
+                <label class="flex items-center justify-between gap-4">
+                  <div>
+                    <div class="text-sm font-medium">
+                      {CRASH_REPORTS_SETTING.title}
+                    </div>
+                    {/* An unchecked box is a claim, and on a failed read
+                        it is the wrong one: reporting defaults to on, so
+                        "off, and locked" is the one thing this row must
+                        never say. The sentence is the catalog's, so both
+                        clients fail the same way. */}
+                    <div class="text-xs opacity-60">
+                      <Show
+                        when={!telemetryError()}
+                        fallback={CRASH_REPORTS_SETTING.unavailable}
+                      >
+                        {CRASH_REPORTS_SETTING.body}
+                      </Show>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={telemetry() === true}
+                    disabled={telemetry() === null || telemetryBusy()}
+                    onChange={(e) =>
+                      void toggleTelemetry(e.currentTarget.checked)
+                    }
+                    class="h-4 w-4"
+                  />
+                </label>
+                <div class="mt-1 text-xs opacity-50">
+                  Saved as soon as you flip it — this one is not part of
+                  Save or Cancel.
+                </div>
+              </div>
             </div>
           </Show>
 

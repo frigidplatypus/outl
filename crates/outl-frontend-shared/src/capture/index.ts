@@ -1,17 +1,23 @@
 /**
- * Coming back to the journal: pull peers' changes and drain the iOS
- * capture inbox (RFC 0363). Drains run on mount, on every return to the
- * foreground, and when the native side calls
- * `window.__outlCapturesArrived()` after an extension wrote a capture
- * while the app was open.
+ * Draining the capture inbox (RFC 0363): lines captured outside the app
+ * become blocks in the journal for the day they were made.
  *
- * Must be called from inside the component body (`onCleanup` needs an
- * owner).
+ * Shared because the trigger is the same everywhere and only the writer
+ * differs. On a phone the captures come from the iOS widget, the "Add to
+ * today" App Intent, the iOS share extension or the Android share
+ * target; on a desktop from `outl capture`, and through it from a macOS
+ * Service or Shortcut, Raycast or a hotkey daemon. Either way the client
+ * drains on mount, on every return to the foreground, and when the
+ * native side calls `window.__outlCapturesArrived()` because something
+ * wrote a capture while the app was already open.
+ *
+ * Must be called from inside a component body — `onCleanup` needs an
+ * owner.
  */
 
 import { onCleanup } from "solid-js";
 
-import { drainCaptureInbox, drainMessage } from "@outl/shared/api/capture";
+import { drainCaptureInbox, drainMessage } from "../api/capture";
 
 type WindowWithInbox = Window & { __outlCapturesArrived?: () => void };
 
@@ -47,9 +53,13 @@ export function installForegroundRefresh(deps: InboxDeps) {
   document.addEventListener("visibilitychange", onVisible);
   const win = window as WindowWithInbox;
   const arrived = () => void drainOnce(deps);
+  // A desktop window regains focus without a visibility change (alt-tab
+  // to a terminal and back), so focus is a trigger of its own.
+  window.addEventListener("focus", arrived);
   win.__outlCapturesArrived = arrived;
   onCleanup(() => {
     document.removeEventListener("visibilitychange", onVisible);
+    window.removeEventListener("focus", arrived);
     if (win.__outlCapturesArrived === arrived) delete win.__outlCapturesArrived;
   });
   void drainOnce(deps);

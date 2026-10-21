@@ -102,6 +102,31 @@ Which paths arm it, and which do not need to:
 | Return inside a block, the accessory bar's "New line" (`handleCreateAfter`) | up | no — `armKeyboard()` would be a no-op anyway, and stealing focus from the open textarea would commit its draft |
 | Tapping a block to edit it | down | no — that path mounts and focuses in the same task as the tap, which is why it always worked |
 
+## Capturing without opening the app
+
+Three OS-level surfaces per platform, and none of them needs the app running.
+Each writes one file into an inbox, and the app lands it on launch and on every return to the foreground.
+
+| | iOS | Android |
+|---|---|---|
+| Home screen | widget → opens the capture sheet | widget → opens the capture sheet |
+| Share sheet | share extension → writes the line | share target → writes the line |
+| One-tap | "Add to today" App Intent (Shortcuts, Back Tap, Action button) | quick settings tile → opens the capture sheet |
+
+The widgets and the tile write **nothing**: they fire `outl://capture`, which opens the in-app `<CaptureSheet />`.
+Only the share surfaces write a file, which is why they are the ones that work with the app closed.
+
+What lands is always **one block**, at the end of the journal for the day the capture was *made*.
+Sharing a multi-line selection from a browser gives you those lines joined by spaces, not a block with newlines in it.
+
+**Nothing is lost if you never open the app** — the captures wait in the inbox on that one device, unsynced, until a drain picks them up.
+A file that cannot be read stays there and is counted in what the app reports after a drain.
+
+The in-app quick capture (`+` → `<CaptureSheet />`) is a different thing and is unchanged: it writes through the op log directly, because the app is already open.
+
+Full behaviour and the per-client table: [`clients.md` → Capturing from outside the app](clients.md#capturing-from-outside-the-app).
+Android's components, the JNI boundary and why they need no "a capture arrived" notification: [`android-platform.md`](android-platform.md#capture-from-outside-the-app).
+
 ## Keyboard accessory bar (Android web bar / iOS native bar)
 
 The keyboard toolbar + suggester strip have two renderings.

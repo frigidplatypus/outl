@@ -4,6 +4,11 @@ Capture from outside the app: a widget, an App Intent ("Add to today",
 which Shortcuts, Siri and the Action button use) and a share extension.
 Design and invariants: [`docs/rfcs/0363-ios-quick-capture.md`](../../docs/rfcs/0363-ios-quick-capture.md).
 
+This file is the **iOS** half. Android has the same three shapes with a
+different hand-off and no signing story at all, in
+[`docs/android-platform.md`](../../docs/android-platform.md) → Capture
+from outside the app.
+
 ## What lives where
 
 | Piece | Path | Target |
@@ -14,7 +19,7 @@ Design and invariants: [`docs/rfcs/0363-ios-quick-capture.md`](../../docs/rfcs/0
 | Share extension (text, one web link) | `src-tauri/gen/apple/OutlShare/` | `OutlShare` app extension, iOS 15+ |
 | App bridge (inbox path, arrival notification) | `src-tauri/gen/apple/Sources/outl-mobile/OutlCaptureInbox.swift` | app |
 | Drain | `outl_actions::capture`, `outl-tauri-shared/src/capture_inbox.rs` (`drain_capture_inbox`) | Rust, tested on Linux |
-| When to drain | `src/components/Journal.inbox.ts` (mount, foreground, `__outlCapturesArrived`) | webview |
+| When to drain | `@outl/shared/capture` `installForegroundRefresh` (mount, foreground, `__outlCapturesArrived`) | webview, shared with the desktop |
 
 The `iOS N+` column is the **API** each piece needs, not the floor the app
 ships with: the deployment target is **iOS 17**, declared in

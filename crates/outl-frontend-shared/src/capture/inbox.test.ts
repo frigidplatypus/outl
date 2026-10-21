@@ -4,8 +4,8 @@ import { createRoot } from "solid-js";
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 
-import { drainMessage } from "@outl/shared/api/capture";
-import { drainOnce, installForegroundRefresh } from "./Journal.inbox";
+import { drainMessage } from "../api/capture";
+import { drainOnce, installForegroundRefresh } from "./index";
 
 const drained = (landed: number) => ({ landed, skipped: 0, page_ids: landed ? ["p"] : [] });
 const flush = () => new Promise((r) => setTimeout(r, 0));

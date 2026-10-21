@@ -9,7 +9,9 @@ import {
   reloadWorkspace,
 } from "@outl/shared/api/commands";
 import type { PageView } from "@outl/shared/api/types";
+import { installForegroundRefresh } from "@outl/shared/capture";
 import { flattenAll } from "@outl/shared/outline";
+import { CrashReportsNotice } from "@outl/shared/polish";
 
 import {
   appState,
@@ -274,13 +276,32 @@ export function AppShell() {
     // an unread one cannot replay on the next plain launch.
     const pending = await takePendingDeepLink();
     const pendingFile = await takePendingOpenFile();
-    if (pending) {
-      void handleDeepLink(pending);
-    } else if (pendingFile) {
-      void handleOpenFile(pendingFile);
-    } else {
-      void loadToday();
-    }
+    // The drain below waits on this before refreshing, so a capture
+    // landing first cannot reach `refreshActivePage`'s no-page branch
+    // and load today over the requested target.
+    const initialNav: Promise<unknown> = pending
+      ? handleDeepLink(pending)
+      : pendingFile
+        ? handleOpenFile(pendingFile)
+        : loadToday();
+
+    // Land anything `outl capture` left in the inbox (RFC 0363): on
+    // mount, and on every return to the foreground. That is what makes a
+    // macOS Service, a Shortcut or a hotkey daemon a real capture path on
+    // the desktop — none of them can boot a workspace, so they write a
+    // file and this drains it.
+    //
+    // The refresh is skipped while the user is in a block, for the reason
+    // `onPeerChange` defers: re-applying a view re-materializes the
+    // outline under the cursor. The capture is already in the op log
+    // either way, and the next refresh shows it.
+    installForegroundRefresh({
+      pull: async () => {
+        await initialNav.catch(() => undefined);
+        if (appState.editingBlockId === null) await refreshActivePage();
+      },
+      notify: setError,
+    });
 
     const handlers = buildHandlers({ applyView, setError });
     setHandlers(handlers);
@@ -389,6 +410,11 @@ export function AppShell() {
       <RemindersPanel applyView={applyView} setError={setError} />
       <TimelinePanel setError={setError} applyView={applyView} />
       <PluginEffectLayer />
+      {/* Shell level, not above the outline: it is a statement about the
+       *  app, so it must not re-run its dismissed check on every page
+       *  navigation, and it does not belong in the stack of banners that
+       *  report *this page's* health (RFC 0377 section 6). */}
+      <CrashReportsNotice />
       {/* Mounted last so the notification toast sits above every chrome
        *  element (ChromeToggleBar, overlays) in the stacking order. */}
       <ErrorToast />

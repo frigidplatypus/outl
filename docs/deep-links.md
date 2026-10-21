@@ -91,3 +91,29 @@ Wiring:
 **Validation needs a device build.**
 The Rust side is `cargo check`-clean, but scheme registration + OS routing only exercise on a real device / simulator build (`cargo tauri ios dev`), same constraint as `BGTaskScheduler` / `NSMetadataQuery`.
 Don't mark the mobile half "verified" from a host `cargo check` alone.
+
+### Android registration
+
+Android is the third place the scheme is spelled, and it is neither config nor a plist: it is an `intent-filter` on `MainActivity` in `gen/android/app/src/main/AndroidManifest.xml`.
+
+```xml
+<intent-filter>
+  <action android:name="android.intent.action.VIEW" />
+  <category android:name="android.intent.category.DEFAULT" />
+  <category android:name="android.intent.category.BROWSABLE" />
+  <data android:scheme="outl" />
+</intent-filter>
+```
+
+Two things follow from it:
+
+- **The capture widget and the quick settings tile depend on it.**
+  Both write nothing; they fire `outl://capture` through `startActivity`, so without the filter they open nothing at all.
+  That is also why they could ship before the inbox existed (RFC 0363 step 1).
+- **`BROWSABLE` means a web page can reach it.**
+  A tapped `outl://page/<slug>` link resolves through the same `parse_deep_link`, and an unknown slug **creates** the page (`open_or_create_by_name`), so a link can add an attacker-named page to the graph.
+  The category is kept for parity with iOS, where Safari reaches a registered custom scheme the same way, rather than because the widget or tile need it — they are in-process.
+  If that exposure is ever unwanted, drop `BROWSABLE` first: the widget and tile keep working.
+
+`android:scheme="outl"` has no host or path restriction, so every target in [The contract](#the-contract) resolves, `outl://capture` included.
+Android does not guarantee scheme uniqueness — another installed app can claim `outl://` and show a chooser — but the URL carries no secret and no content, so the worst case is the capture sheet not opening.

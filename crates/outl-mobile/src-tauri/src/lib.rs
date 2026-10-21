@@ -31,13 +31,19 @@
 //! workspace lands, Tauri emits a `workspace-ready` event the frontend
 //! can listen for to refresh proactively.
 
-// Android-only: primes the JVM-backed globals iroh's TLS verifier + DNS reader
-// need, via a JNI entry point `MainActivity.onCreate` calls before boot.
+// Android-only: primes the JVM-backed global iroh's TLS verifier needs, via a
+// JNI entry point `MainActivity.onCreate` calls before boot. The DNS reader's
+// global (`ndk_context`) is tao's and must NOT be primed here — see
+// `android_globals`, which is not `cfg(android)` precisely so it runs in CI.
+#[cfg(test)]
+mod android_globals;
 #[cfg(target_os = "android")]
 mod android_jni;
 mod bg_sync;
 #[cfg(test)]
 mod capability_parity;
+#[cfg(target_os = "android")]
+mod capture_jni;
 mod commands;
 // iOS-only: LAN peer discovery through the system Bonjour daemon. iOS cannot
 // join a multicast group without an Apple-granted entitlement, so the
@@ -62,19 +68,21 @@ use tracing::info;
 
 use crate::commands::{
     add_block, attach_asset, copy_block_markdown, copy_block_ref, copy_markdown, create_block,
-    cut_block, date_title, delete_block, delete_page, edit_block, get_theme, get_theme_config,
-    import_asset_file, indent_block, instantiate_template_at, list_all_pages, list_outline,
-    list_templates_cmd, list_themes, move_block_after, move_block_down, move_block_up, next_day,
-    open_asset, open_external_file, open_journal_for, open_page_by_slug, open_ref,
-    open_today_journal, outdent_block, outl_emoji_search, outl_peer_list, outl_peer_pair_host,
-    outl_peer_pair_join, outl_peer_remove, outl_peer_status, outl_sync_now, page_backlinks,
-    paste_block_after, paste_markdown_at, paste_plain_at, plugin_config_set,
-    plugin_install_official, plugin_list, plugin_registry_list, plugin_run, plugin_secret_remove,
-    plugin_secret_set, plugin_set_enabled, plugin_settings_describe, plugin_sync_hooks,
-    plugin_toolbar, plugin_transform, plugin_transformers, plugin_uninstall, previous_day,
-    read_asset_data_url, redo_page, reload_workspace, resolve_page_labels, resolve_ref,
-    search_blocks, search_pages, search_persons, set_backlinks_order, set_block_collapsed,
-    split_block, today_slug_cmd, toggle_pin, toggle_quote, toggle_todo, undo_page, workspace_stats,
+    cut_block, date_title, delete_block, delete_page, edit_block, get_editor_diagrams,
+    get_telemetry_enabled, get_theme, get_theme_config, import_asset_file, indent_block,
+    instantiate_template_at, list_all_pages, list_outline, list_templates_cmd, list_themes,
+    move_block_after, move_block_down, move_block_up, next_day, open_asset, open_external_file,
+    open_journal_for, open_page_by_slug, open_ref, open_today_journal, outdent_block,
+    outl_emoji_search, outl_peer_list, outl_peer_pair_host, outl_peer_pair_join, outl_peer_remove,
+    outl_peer_status, outl_sync_now, page_backlinks, paste_block_after, paste_markdown_at,
+    paste_plain_at, plugin_config_set, plugin_install_official, plugin_list, plugin_registry_list,
+    plugin_run, plugin_secret_remove, plugin_secret_set, plugin_set_enabled,
+    plugin_settings_describe, plugin_sync_hooks, plugin_toolbar, plugin_transform,
+    plugin_transformers, plugin_uninstall, previous_day, read_asset_data_url, redo_page,
+    reload_workspace, resolve_page_labels, resolve_ref, search_blocks, search_pages,
+    search_persons, set_backlinks_order, set_block_collapsed, set_editor_diagrams,
+    set_telemetry_enabled, split_block, today_slug_cmd, toggle_pin, toggle_quote, toggle_todo,
+    undo_page, workspace_stats,
 };
 // Registered on mobile for the first time by the shared command catalog
 // (`outl_tauri_shared::wrappers`): the bodies always existed, only the
@@ -150,9 +158,42 @@ fn dispatch_deep_link(app: &tauri::AppHandle, raw: &str) {
     }
 }
 
+/// Repeat Rust's `SIG_IGN` for `SIGPIPE` so a library cannot restore the
+/// default and kill the process on the next write to a closed pipe.
+#[cfg(unix)]
+fn ignore_sigpipe() {
+    // SAFETY: `signal` is async-signal-safe. `SIG_IGN` is a valid disposition
+    // and does not run user code. `SIG_ERR` is the only failure, and leaving
+    // the runtime's existing `SIG_IGN` in place is the outcome we already wanted.
+    unsafe {
+        let _ = libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
+}
+
+#[cfg(not(unix))]
+fn ignore_sigpipe() {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Install a `tracing` subscriber FIRST so the iroh P2P transport's
+    // Same reason as the desktop: a library that restores SIGPIPE's default
+    // disposition kills the process on the next write to a closed pipe.
+    // `lossy_stderr` is what keeps the write itself from panicking.
+    ignore_sigpipe();
+
+    // Crash reporting (RFC 0377) goes up next, before the subscriber and
+    // before the crypto provider, because the crashes worth the most are the
+    // ones during boot — the Android app that closed on open is what motivated
+    // this, and a reporter installed after the failing call reports nothing.
+    //
+    // `init` returns `None` unless all four conditions hold. A build without
+    // `--features sentry` links no SDK, so this is a no-op in every build but
+    // the release pipeline's.
+    //
+    // Named binding, never `let _ =`: the guard flushes pending events when
+    // dropped, and `let _ =` would drop it on this line.
+    let _telemetry = outl_telemetry::init("mobile", outl_config::telemetry_enabled());
+
+    // Install a `tracing` subscriber before anything that logs, so the iroh P2P transport's
     // `info!`/`warn!`/`debug!` lines reach the device console (on iOS, stderr
     // surfaces in idevicesyslog / Xcode). Without this the transport runs
     // blind. `RUST_LOG` overrides the default.
@@ -171,7 +212,8 @@ pub fn run() {
                 tracing_subscriber::EnvFilter::new("info,outl_sync_iroh=debug,iroh=info")
             }),
         )
-        .with_writer(std::io::stderr)
+        .with_writer(outl_telemetry::lossy_stderr)
+        .log_internal_errors(false)
         .finish();
     let _ = tracing::subscriber::set_global_default(subscriber);
 
@@ -392,6 +434,10 @@ pub fn run() {
             merged_edits,
             drain_capture_inbox,
             undo_merged_edit,
+            // Privacy (crash reporting). The phone has no `outl` binary,
+            // so this pair is the only opt-out a mobile user has.
+            get_telemetry_enabled,
+            set_telemetry_enabled,
             // Theme
             list_themes,
             get_theme,
@@ -470,6 +516,9 @@ pub fn run() {
             // Legacy
             list_outline,
             add_block,
+            // editor.diagrams (Pele on, or highlighted source)
+            get_editor_diagrams,
+            set_editor_diagrams,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

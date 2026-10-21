@@ -5,16 +5,31 @@ Solid.js + Tailwind frontend, Rust backend that **must stay thin** — every wor
 
 ## Capture from outside the app (RFC 0363)
 
-The widget, the "Add to today" App Intent and the share extension never touch the workspace: they write `<ULID>.json` files to `captures/` in the App Group (`OutlKit/Capture/CaptureInbox.swift`).
-`drain_capture_inbox` (`outl-tauri-shared/src/capture_inbox.rs` over `outl_actions::capture`) is the **only** path from that inbox into the workspace; root invariant 7 holds because every capture becomes ops there.
+Six entry points on two platforms, and none of them touches the workspace.
+Each writes one `<ULID>.json` into an inbox, and `drain_capture_inbox` (`outl-tauri-shared/src/capture_inbox.rs` over `outl_actions::capture`) is the **only** path from there into the workspace — root invariant 7 holds because every capture becomes ops at that one place.
+
+| Platform | Entry points | Who writes the file |
+|---|---|---|
+| iOS | widget, "Add to today" App Intent, share extension | `OutlKit/Capture/CaptureInbox.swift`, into the App Group container |
+| Android | share target, home screen widget, quick settings tile | `outl_actions::capture::write_capture` through JNI, into `filesDir/captures` |
+
+**The platforms differ on purpose, in exactly one place: who owns the file format.**
+An iOS widget and share extension are separate processes under a memory ceiling this library would not fit, so a small Swift writer owns it there, and the Rust reader's field names are spelled out on both sides.
+Android's components are this app, in this process, with the library already loaded — so Kotlin holds neither the format nor the "a share is one line" rule (`shared_line`), only the folder and the strings.
+`src-tauri/src/capture_jni.rs` is that boundary.
+
+The widget and the tile write nothing at all: they open `outl://capture`, which is why they can ship before an inbox exists (RFC 0363 step 1).
+On Android that needs the `outl` scheme in `AndroidManifest.xml` — without it they open nothing.
+
 Targets, signing and what needs a Mac: `IOS-EXTENSIONS.md`.
+Android components and why they need no "a capture arrived" notification: [`docs/android-platform.md`](../../docs/android-platform.md) → Capture from outside the app.
 
 ## `Journal.tsx` is being broken up
 
 1,802 lines in one component, still 3x the `file-size-guard.sh` ceiling.
 The chrome came out first (`JournalChrome.tsx`), then the delete prompts (`JournalDeleteDialogs.tsx`) and the toolbar dispatch (`Journal.toolbar-dispatch.ts`); [issue 265](https://github.com/outlmd/outl/issues/265) phases 1-3 took the block ops, the selection state machine and the platform listeners out.
 Day navigation and wake-to-today live in `Journal.day-nav.ts`, quick capture in `Journal.capture.ts` (`outl://capture` opens its sheet through `openCapture` in `Journal.listeners.ts`), and the empty states and zoom bar in `JournalEmpty.tsx` and `JournalZoomBar.tsx`.
-The foreground pull and the capture inbox drain live in `Journal.inbox.ts`.
+The foreground pull and the capture inbox drain come from `@outl/shared/capture` (`installForegroundRefresh`), which the desktop uses too.
 The two workspace-open paths came out last, into `Journal.boot.ts`, together with every ticker in `Journal.polls.ts` — they went together because both open paths hold a user-visible gate (`loaded` gates the skeleton, `syncing` gates both refresh affordances), and a gate set on one path and cleared on another is how a stall becomes permanent.
 The remaining seams are in that issue, and the props rule an extraction must not break is in `outl-frontend-shared/CLAUDE.md`.
 
@@ -33,7 +48,7 @@ outl-mobile (this crate)
    │   ├── workspace_picker.rs     (set_workspace — folder choice + persistence; native picker deferred)
    │   ├── iroh_sync.rs            (wire_iroh_transport — boot the P2P transport, register the bg-sync handle)
    │   ├── bg_sync.rs              (one forced-sync core + per-platform exports: iOS C ABI, Android JNI)
-   │   ├── android_jni.rs          (Android-only: primes rustls-platform-verifier + ndk_context before iroh's first QUIC connect)
+   │   ├── android_jni.rs          (Android-only: primes rustls-platform-verifier before iroh's first QUIC connect; NOT ndk_context — that one is tao's, see below)
    │   ├── ios_bonjour.rs          (iOS-only: LAN peer discovery bridge to OutlBonjour.swift, over the outl_sync_iroh::lan seam)
    │   ├── plugin_service.rs       (PluginService + dedicated plugin thread — Boa Context is !Send, so it can't live in AppState)
    │   └── commands/               (Tauri command surface — one `outl_tauri_shared::*_commands!` invocation per module; see outl-tauri-shared/CLAUDE.md → "One command surface, not two")
@@ -51,7 +66,9 @@ outl-mobile (this crate)
    ├── gen/apple/.../main.mm       (NSMetadataQuery + NSFileCoordinator iCloud watcher)
    ├── gen/apple/.../OutlBackgroundRefresh.swift  (BGTaskScheduler windows + the beginBackgroundTask flush)
    ├── gen/apple/.../OutlBonjour.swift            (NetService advertise + NetServiceBrowser resolve, the iOS mDNS path)
-   ├── gen/android/.../MainActivity.kt            (NativeSetup.install + OutlBackgroundSync.install, before Tauri boots)
+   ├── gen/android/.../MainActivity.kt            (load check, then NativeSetup.install + OutlBackgroundSync.install, before Tauri boots)
+   ├── gen/android/.../OutlNativeLibrary.kt       (the one "did the .so load?" answer; logs ABI + page size)
+   ├── gen/android/.../NativeLoadErrorActivity.kt (plain error screen instead of a crash when the .so will not load)
    ├── gen/android/.../NativeSync.kt              (external fun bindings for the bg_sync JNI symbols)
    ├── gen/android/.../OutlBackgroundSync.kt      (ProcessLifecycleOwner observer + the two WorkManager schedules)
    ├── gen/android/.../SyncWorker.kt              (drives one forced pass, then finishes)
@@ -134,6 +151,10 @@ The haptics stay on that side on purpose — a buzz is feedback for a *decision*
   Presentational only — neither knows what a tap means.
 - **`BlockTextarea.tsx`** — `EditableTextarea`.
   Its own file because the rules in it are about iOS text input, not about outlines: `beforeinput` rather than `keydown` (WKWebView emits no reliable per-character key events) and `parkCaret` twice around every programmatic `value =`.
+  **The third rule is that nothing writes `ta.value` while an IME composes** ([#399](https://github.com/outlmd/outl/issues/399)).
+  WebKit reports `selectionStart` at the start of the marked run, so pair completion read `[[` plus the pinyin as an unclosed ref and appended a second `]]`.
+  Writing a different string then commits that run as plain text, which is how `nihao` typed inside `[[]]` became `[[]]nihao]]niha]]nih]]ni]]n]]`.
+  `BlockTextarea.test.tsx` pins all three handlers, including the one that needs no guard, and the handlers carry the reasoning and what the guard costs.
 
 **A prop this component accepts must reach the recursive call, and `BlockRow.recursion.test.ts` is what makes that fail.**
 Two were declared and never forwarded, and both were invisible: optional props, so omitting them compiles.
@@ -218,6 +239,18 @@ Both platforms enter through `outl-sync-iroh`'s `bind::attach_mdns`, and *how* t
 The seam is `outl_sync_iroh::lan` — plain Rust, because that crate is `#![forbid(unsafe_code)]`, so the FFI lives here in `ios_bonjour.rs`.
 
 Full reasoning, the two wire constants both paths must agree on, and the permission traps: [`docs/ios-platform.md`](../../docs/ios-platform.md#lan-peer-discovery-bonjour-and-why-not-multicast) and [`docs/android-platform.md`](../../docs/android-platform.md#mdns-peer-discovery-the-permission-is-not-the-whole-story).
+
+## Android JNI bootstrap: prime the verifier, never `ndk_context`
+
+`android_jni.rs` primes `rustls-platform-verifier`'s JVM handle from `MainActivity.onCreate`, before `super.onCreate` boots Tauri and therefore before iroh's first QUIC connection.
+That global is ours because nothing else primes it.
+
+**`ndk_context` is not ours**, though the system-DNS reader goes through it.
+`tao`'s `ndk_glue::onCreate` seeds it inside `Rust_onCreate`, and `ndk_context::initialize_android_context` asserts it is called exactly once — so seeding it here first did not prevent tao's call, it made tao's call abort the process.
+Every Android launch died in `panic_cannot_unwind`, on every device, on a clean install, hidden behind the 16 KB page-size bug sitting in front of it.
+`outl-mobile` must not name `ndk-context` in its own `Cargo.toml` again; it stays in the graph transitively, for tao to write and `iroh-dns` to read.
+
+The stack trace, the reasoning and the rule it generalises to: [`docs/android-platform.md` → `ndk_context` belongs to `tao`](../../docs/android-platform.md#ndk_context-belongs-to-tao-and-seeding-it-here-aborted-every-launch).
 
 ## Background sync (iOS + Android)
 
@@ -348,8 +381,16 @@ The gesture stays as the shortcut.
 
 Two rules govern what may go in it:
 
-- **Per-device UI state only, in `localStorage`.** Nothing here goes through the op log — two devices disagreeing about their own toolbar layout is not a conflict to reconcile (root `CLAUDE.md` invariant 7). The sheet calls no Tauri command at all today, and a preference that *is* workspace data belongs in `outl.toml`, not here.
-- **The setting's logic lives in `@outl/shared`, not in the sheet.** The toolbar lock is `@outl/shared/toolbar`'s `lock.ts`; this file only renders the row and calls it. A preference implemented inside the sheet is a preference the other bar can't honour.
+- **Per-device UI state, not workspace data, unless the process itself has to read it.** Nothing here goes through the op log: two devices disagreeing about their own toolbar layout is not a conflict to reconcile (root `CLAUDE.md` invariant 7). The toolbar lock stays in `localStorage`. `editor.diagrams` is per-device too but lives in `~/.config/outl/config.toml`, so the desktop on this machine sees the same choice; the sheet reads and writes that key through `get_editor_diagrams` / `set_editor_diagrams`. A preference that *is* workspace data belongs in `outl.toml`, not here.
+- **The setting's logic lives in `@outl/shared` or in a shared command, not in the sheet.** The toolbar lock is `@outl/shared/toolbar`'s `lock.ts`, the diagram switch is `@outl/shared/diagram`'s `diagramsMode`; this file only renders the row and calls them. A preference implemented inside the sheet is a preference the other bar can't honour.
+
+**Crash reports goes further than either, because it is consent rather than a preference** (RFC 0377).
+`localStorage` cannot hold it: `outl-telemetry` reads `[telemetry] enabled` out of the global config at **process start**, before a workspace or a webview exists.
+It is a property of the person, which is why it belongs in a config file that follows them to the next device.
+And the phone has to offer it at all: reporting is on by default and there is no `outl` binary on iOS, so this row is a mobile user's only opt-out (`Capability::CrashReportingOptOut`).
+The writer is `outl_tauri_shared::commands::telemetry::set_telemetry_enabled`, the wrappers are `@outl/shared/api/telemetry`, and the words are `CRASH_REPORTS_SETTING` in `@outl/shared/onboarding` — identical to the desktop's, because the same claim goes to Apple and Google.
+The switch moves only on the command's reply, like `RemindersSheet`'s; a read or write that fails says so in the row instead of falling back to the default, since the default is *on* and a guess would tell someone who opted out that they had not.
+This row is the opt-out, not the disclosure: the strip that tells an unasking user at all is `<CrashReportsNotice />` from `@outl/shared/polish`, mounted by `App.tsx` **inside the onboarded branch** so it never stacks on the first-run flow, and lifted clear of `BottomBar` by `--outl-notice-offset` in this client's `styles.css` (RFC 0377 section 6).
 
 **The sheet is mounted for the app's lifetime, not per open** — `<Show>` gates its markup, and `Journal` renders it unconditionally. So state it reads out of a store goes in a `createEffect` guarded on `props.open`, the way `TemplateSheet` and `RemindersSheet` already do. A plain `createSignal(readSomething())` in the body reads once, at app start, and then quietly shows a stale value forever.
 
@@ -483,11 +524,12 @@ Paint a fill with `bg-(--color-outl-accent)` and its text with `text-(--color-ou
 
 ## Logging (device console)
 
-`run()` in `src-tauri/src/lib.rs` installs a `tracing_subscriber` fmt subscriber writing to **stderr** as its very first step (before rustls / Tauri setup).
+`run()` in `src-tauri/src/lib.rs` ignores `SIGPIPE`, then calls `outl_telemetry::init`, then installs a `tracing_subscriber` fmt subscriber.
+The subscriber writes through `outl_telemetry::lossy_stderr` with `log_internal_errors(false)`, for the same reason as the desktop: a closed stderr must not become `failed printing to stderr`.
 The `EnvFilter` defaults to `info,outl_sync_iroh=debug,iroh=info` and honors `RUST_LOG`.
 On iOS, stderr surfaces in `idevicesyslog` / Xcode.
 So the iroh P2P transport's `info!`/`warn!`/`debug!` lines (endpoint bound + node id, each connect attempt's target + outcome, "delta sync received N ops") are visible while debugging device↔device sync.
-Init uses `.try_init()` so a double-init can't panic.
+Init uses `set_global_default`, not `.try_init()`: `try_init` also claims the `log` slot, which `tauri-plugin-log` needs.
 See [`outl-sync-iroh/CLAUDE.md`](../outl-sync-iroh/CLAUDE.md) for what the transport logs.
 
 ## iCloud layout (opt-in destination)

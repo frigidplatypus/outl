@@ -33,12 +33,76 @@ name: Release
 #      re-running that job can never attach it. The only recovery is a new
 #      beta; `build_android`'s upload step says so rather than letting
 #      `gh` answer with a bare 422.
+#   3. A job whose `if` omits `always()` / `!cancelled()` still carries the
+#      implicit "every ancestor succeeded", and that reads the whole
+#      ancestor tree, not the direct `needs`. On a GA run the `tag` job is
+#      skipped by design (the tag is already on origin), `create_release`
+#      survives on its own `always()`, and every build job under it was
+#      skipped anyway — through a `create_release` that had succeeded.
+#      v0.12.0 produced a draft release with zero assets that way, while
+#      the beta.227 run twenty seconds earlier built all 26. So the build
+#      jobs carry `!cancelled()` too, the same guard `publish_release` and
+#      `update_tap` already needed for the same reason.
+#
+# ------------------------------------------------------------------
+# Crash-reporting secrets (RFC 0377).
+#
+#   OUTL_SENTRY_DSN_CLI       repository secret. DSN of the `outl-cli`
+#                             Sentry project
+#   OUTL_SENTRY_DSN_DESKTOP   repository secret. DSN baked into the desktop
+#                             binary. Events land in the `outl` project
+#                             (issue ids OUTL-*) with release
+#                             `desktop@<version>`. Symbol upload uses that
+#                             project, not a separate `outl-desktop`.
+#   OUTL_SENTRY_DSN_MOBILE    repository secret. DSN of the `outl-mobile`
+#                             Sentry project (also read by `mobile.yml`'s
+#                             `ios-release`)
+#   SENTRY_AUTH_TOKEN         secret of the `release` environment, not a
+#                             repository secret. Scope `project:releases`.
+#                             The symbol-upload jobs (`build`,
+#                             `build_desktop`, `build_desktop_linux`,
+#                             `build_desktop_windows`, `build_android`)
+#                             select that environment on `main` and on `v*`
+#                             tags, which is the environment's deployment
+#                             branch policy. Any other ref leaves the token
+#                             empty, and the upload step warns and continues.
+#
+# The DSNs stay repository secrets: a DSN is write-only and is not a
+# signing credential. The token has no other home, so those jobs do take
+# `environment: release` on the refs the policy allows. That also makes
+# the other secrets in that environment addressable:
+# `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`, and the App Store Connect key.
+# No step added here reads them. `publish_crates` and `publish_npm`
+# already did, and they already selected this environment. Selecting
+# the environment on every ref would reject a dry run from another
+# branch before it compiled, because the policy is `main` and `v*` only.
+#
+# **A build without these secrets keeps working, and that is a
+# requirement.** `outl-telemetry` reads the DSN through `option_env!` at
+# compile time: unset means the constant is `None` and the reporter is a
+# no-op. So a fork, a pull request from outside the repo, and this repo
+# before the secrets exist all produce a working binary that reports
+# nothing. No step gates on a secret being present, and none may start
+# to — an `if` that fails on an empty DSN is what would break them.
+# ------------------------------------------------------------------
 
 on:
   push:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      # Runs every build and every check against the branch it is
+      # dispatched on, and touches nothing outside this run: no tag, no
+      # draft release, no asset upload, no tap bump, no npm or crates.io
+      # publish. A change to this file, or to a step only this workflow
+      # runs (the strip gates, the bundlers), is otherwise first exercised
+      # by the beta it cuts on main. Push events carry no inputs, so they
+      # read this as false and behave exactly as before.
+      dry_run:
+        description: "Build and verify every artifact, publish nothing"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -60,6 +124,7 @@ jobs:
       tag: ${{ steps.compute.outputs.tag }}
       prerelease: ${{ steps.compute.outputs.prerelease }}
       create_tag: ${{ steps.compute.outputs.create_tag }}
+      dry_run: ${{ steps.compute.outputs.dry_run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -80,6 +145,11 @@ jobs:
             CREATE_TAG="true"
           fi
 
+          DRY_RUN='${{ inputs.dry_run == true }}'
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            CREATE_TAG="false"
+          fi
+
           # Anything containing -alpha / -beta / -rc is a prerelease.
           if [[ "${VERSION}" == *-alpha* || "${VERSION}" == *-beta* || "${VERSION}" == *-rc* ]]; then
             PRERELEASE="true"
@@ -92,7 +162,8 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
           echo "create_tag=${CREATE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "::notice::Building ${TAG} (prerelease=${PRERELEASE})"
+          echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Building ${TAG} (prerelease=${PRERELEASE}, dry_run=${DRY_RUN})"
 
   tag:
     name: Create tag
@@ -121,7 +192,11 @@ jobs:
     name: Create draft release
     needs: [prepare, tag]
     # `tag` is skipped for tag-triggered runs; don't let that fail us.
-    if: always() && needs.prepare.result == 'success' && (needs.tag.result == 'success' || needs.tag.result == 'skipped')
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.dry_run != 'true' &&
+      (needs.tag.result == 'success' || needs.tag.result == 'skipped')
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       # Check out the commit, not the tag we just pushed. The runner
@@ -169,8 +244,13 @@ jobs:
   build:
     name: build ${{ matrix.target }}
     needs: [prepare, create_release]
-    if: needs.create_release.result == 'success'
+    if: >-
+      !cancelled() &&
+      (needs.create_release.result == 'success' ||
+       (needs.prepare.outputs.dry_run == 'true' && needs.create_release.result == 'skipped'))
     runs-on: ${{ matrix.os }}
+    # See the secrets block at the top: the token is in this environment.
+    environment: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'release' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -182,10 +262,21 @@ jobs:
           # macOS releases, so `ventura` covers 13 and everything
           # above it — including macOS versions that have no runner
           # yet. Windows has no bottle (Homebrew doesn't run there).
+          #
+          # `split_debuginfo` overrides `[profile.release]`'s `packed` per
+          # platform, because `sentry-cli debug-files upload` does not accept
+          # the same container everywhere. Its types are dSYM, PDB, ELF,
+          # Breakpad, WASM and friends — a Linux `.dwp` is in none of them, so
+          # `packed` there would leave the ELF holding skeleton sections and
+          # ship the real DWARF to a file nothing reads. `off` keeps the DWARF
+          # inside the ELF, which is sentry-cli's canonical Linux input and is
+          # also what the `strip` step then removes. Apple keeps `packed` (the
+          # .dSYM survives the strip), MSVC's PDB is separate either way.
           - os: blacksmith-6vcpu-macos-15
             target: aarch64-apple-darwin
             artifact: outl-macos-arm64
             bottle_tag: arm64_ventura
+            split_debuginfo: packed
           # Cross-compile to Intel macOS from the Apple Silicon
           # runner. We previously used `macos-13` here, but the Intel
           # macOS pool got depleted and jobs sat queued for ~14h
@@ -195,13 +286,16 @@ jobs:
             target: x86_64-apple-darwin
             artifact: outl-macos-x64
             bottle_tag: ventura
+            split_debuginfo: packed
           - os: blacksmith-8vcpu-ubuntu-2404
             target: x86_64-unknown-linux-gnu
             artifact: outl-linux-x64
             bottle_tag: x86_64_linux
+            split_debuginfo: "off"
           - os: blacksmith-4vcpu-windows-2025
             target: x86_64-pc-windows-msvc
             artifact: outl-windows-x64
+            split_debuginfo: packed
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -240,7 +334,126 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.target }}-release-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} --bin outl
+        env:
+          # RFC 0377 condition 2: the DSN is baked in at compile time through
+          # `option_env!`, so it belongs to `cargo build`'s environment and
+          # not to the binary's. Empty is a supported outcome — see the
+          # secrets block at the top of this file.
+          OUTL_SENTRY_DSN: ${{ secrets.OUTL_SENTRY_DSN_CLI }}
+          CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: ${{ matrix.split_debuginfo }}
+        # `-p outl-cli` names whose feature `sentry` is. `--bin outl` already
+        # selects that package, so cargo resolves the feature without it
+        # (checked), but then the feature's owner is an inference from a
+        # binary name — and a `sentry` feature added to a second crate later
+        # would change what this line means without changing the line.
+        #
+        # `--features sentry` is condition 1, and it is the only place in the
+        # repo that turns the reporter on. The feature is off by default so
+        # that `cargo build --release` by anyone who cloned this repo links no
+        # SDK at all; `cfg(debug_assertions)` could not express that, being
+        # false in their release build too.
+        run: >-
+          cargo build --release
+          --target ${{ matrix.target }}
+          -p outl-cli --bin outl
+          --features sentry
+
+      # Before the strip below, which is the whole reason this runs here and
+      # not at the end: it is the last moment the symbols still exist.
+      #
+      # Best-effort on purpose. Sentry being unreachable must not hold a
+      # release, but a silent skip would hand us unreadable crash reports with
+      # no explanation months later, so every failure path says so out loud.
+      - name: Upload debug symbols to Sentry
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: outl
+          SENTRY_PROJECT: outl-cli
+        run: |
+          set -uo pipefail
+          if [[ -z "${SENTRY_AUTH_TOKEN}" ]]; then
+            note="SENTRY_AUTH_TOKEN is unset, so no debug symbols were uploaded for ${{ matrix.artifact }}. A panic from this build will arrive in Sentry as bare addresses."
+            echo "::warning::${note}"
+            # A warning and not a failure on purpose: the Sentry
+            # projects and this secret are set up by hand, so until
+            # that happens every release would fail on a feature that
+            # is not configured yet. It reaches the summary page so
+            # the state is visible without reading a step log.
+            echo "- symbols: ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
+          shopt -s nullglob
+          REL="target/${{ matrix.target }}/release"
+          # `deps/` as well as the top level: cargo leaves `release/outl.dSYM`
+          # as a *symlink* to `release/deps/outl-<hash>.dSYM`, and a directory
+          # walk that does not follow links would skip the 293 MB that
+          # actually holds the DWARF. Passing both costs nothing — sentry-cli
+          # keys on the debug id, so the same file submitted twice is one
+          # upload.
+          CANDIDATES=(
+            "${REL}/outl" "${REL}/outl.exe" "${REL}/outl.pdb"
+            "${REL}"/*.dSYM "${REL}"/deps/*.dSYM
+          )
+          FOUND=()
+          for f in "${CANDIDATES[@]}"; do
+            [[ -e "$f" ]] && FOUND+=("$f")
+          done
+          if [[ ${#FOUND[@]} -eq 0 ]]; then
+            note="no debug files under ${REL} for ${{ matrix.artifact }}; nothing uploaded"
+            # Reaching here means the token IS set, so Sentry is
+            # configured and this is not an outage: it is our own
+            # build no longer putting debug files where this step
+            # looks (a changed `split-debuginfo`, a Tauri staging
+            # path, an AGP task). Deterministic, ours, and permanent
+            # for the version being cut — so on a version tag it
+            # fails the job rather than shipping a release whose
+            # crashes can never symbolicate. "Sentry must not hold a
+            # release" is an argument about Sentry being down, which
+            # is the branch below, not this one.
+            if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+              echo "::error::${note}"
+              echo "- symbols: FAILED, ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              exit 1
+            fi
+            echo "::warning::${note}"
+            echo "- symbols: ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
+          echo "uploading: ${FOUND[*]}"
+          # npx, not `getsentry/action-release`: that action runs in a Docker
+          # container and so cannot run on the macOS and Windows legs of this
+          # matrix. The npm package is the same CLI, pinned, on all three.
+          if ! npx --yes @sentry/cli@3.8.0 debug-files upload "${FOUND[@]}"; then
+            note="sentry-cli failed to upload debug symbols for ${{ matrix.artifact }}; the release continues, but crashes from this build will not symbolicate"
+            echo "::warning::${note}"
+            # Stays a warning, and this is the branch the "a release
+            # must not wait on Sentry" argument actually covers.
+            echo "- symbols: ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          fi
+
+      # `[profile.release]` no longer strips (RFC 0377 §5), so this is now the
+      # only thing standing between a user and a binary several MB fatter than
+      # it needs to be. The "Verify" step below reads the finished archive
+      # rather than trusting that this ran.
+      - name: Strip the published binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          REL="target/${{ matrix.target }}/release"
+          case "${{ runner.os }}" in
+            macOS)
+              # `-x` takes the local symbols and the debug map while leaving
+              # the externals a backtrace still needs locally.
+              strip -x "${REL}/outl"
+              ;;
+            Linux)
+              strip "${REL}/outl"
+              ;;
+            Windows)
+              echo "::notice::MSVC keeps debug info in a separate outl.pdb, which is never packaged — nothing to strip in outl.exe."
+              ;;
+          esac
 
       - name: Stage artifact (Unix)
         if: runner.os != 'Windows'
@@ -286,7 +499,43 @@ jobs:
           $hash = (Get-FileHash ${{ matrix.artifact }}.zip -Algorithm SHA256).Hash.ToLower()
           "$hash  ${{ matrix.artifact }}.zip" | Out-File -Encoding ascii ${{ matrix.artifact }}.zip.sha256
 
+      # Reads the archive a user downloads, not the binary we think we
+      # stripped. The strip used to be one line in `[profile.release]` and
+      # applied to every build; it is now a pipeline step, and a pipeline step
+      # covers whatever happened to run before it. Reorder these steps, add a
+      # leg to the matrix, or drop the strip, and this is the only thing that
+      # notices — same reason the Android job reads the finished APK instead
+      # of trusting its two alignment steps.
+      - name: Verify the staged artifact carries no debug info
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # Same filter the upload step uses, and for the same reason:
+          # `nullglob` drops a pattern that matches nothing, but these two are
+          # literal names, so an absent one would survive and be passed to a
+          # script whose whole contract is to fail on a path it cannot read.
+          # Each platform stages one of the two.
+          CANDIDATES=(
+            ${{ matrix.artifact }}.tar.gz
+            ${{ matrix.artifact }}.zip
+            outl-beta-*.bottle.tar.gz
+          )
+          ARTIFACTS=()
+          for f in "${CANDIDATES[@]}"; do
+            [[ -f "$f" ]] && ARTIFACTS+=("$f")
+          done
+          if [[ ${#ARTIFACTS[@]} -eq 0 ]]; then
+            echo "::error::no staged archive to verify for ${{ matrix.artifact }}"
+            exit 1
+          fi
+          # Git Bash on the Windows runner has `python`, not always `python3`.
+          PY=python3
+          command -v python3 >/dev/null 2>&1 || PY=python
+          "${PY}" scripts/check-artifact-stripped.py "${ARTIFACTS[@]}"
+
       - name: Upload assets to draft release
+        if: needs.prepare.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -320,8 +569,13 @@ jobs:
   build_desktop:
     name: build desktop macOS (universal)
     needs: [prepare, create_release]
-    if: needs.create_release.result == 'success'
+    if: >-
+      !cancelled() &&
+      (needs.create_release.result == 'success' ||
+       (needs.prepare.outputs.dry_run == 'true' && needs.create_release.result == 'skipped'))
     runs-on: blacksmith-6vcpu-macos-15
+    # See the secrets block at the top: the token is in this environment.
+    environment: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'release' || '' }}
     # Single universal dmg instead of a matrix split. Tauri 2's
     # `--target universal-apple-darwin` builds both aarch64 and
     # x86_64 binaries on the arm64 runner and `lipo`-merges them
@@ -388,8 +642,63 @@ jobs:
         # `--bundles dmg` skips the .app-only export the macOS path
         # would otherwise also produce — we ship the dmg as the
         # cask source.
+        #
+        # `RUSTFLAGS=-C strip=symbols` instead of a strip step, because
+        # `tauri build` compiles and seals the dmg in one command: there is no
+        # moment afterwards at which the binary inside it can still be
+        # stripped. Stripping at link time is the only seam, and it costs
+        # nothing here — with `split-debuginfo = "packed"` rustc runs dsymutil
+        # *before* applying the strip, so `target/<arch>/release/outl.dSYM`
+        # survives for the upload below (measured: 463 KB → 340 KB binary,
+        # dSYM intact).
+        #
+        # Setting `RUSTFLAGS` REPLACES any `[target.*] rustflags` from
+        # `.cargo/config.toml` rather than merging, which that file warns
+        # about. Safe here: the only entries there are the two
+        # `*-linux-android` targets, and this job builds neither.
         working-directory: crates/outl-desktop
-        run: bun run tauri build --target universal-apple-darwin --bundles dmg
+        env:
+          OUTL_SENTRY_DSN: ${{ secrets.OUTL_SENTRY_DSN_DESKTOP }}
+          RUSTFLAGS: "-C strip=symbols"
+        run: bun run tauri build --target universal-apple-darwin --bundles dmg --features sentry
+
+      # The .dSYM is per-architecture: Tauri builds aarch64 and x86_64
+      # separately and `lipo`-merges them, so the universal directory holds
+      # the merged binary and no debug companion of its own.
+      - name: Upload debug symbols to Sentry
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: outl
+          SENTRY_PROJECT: outl
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          # `deps/` too, because `release/outl.dSYM` is a symlink into it and
+          # a link-averse directory walk would skip the real bundle. See the
+          # same note on the CLI job's upload step.
+          FOUND=(
+            target/aarch64-apple-darwin/release/*.dSYM
+            target/aarch64-apple-darwin/release/deps/*.dSYM
+            target/x86_64-apple-darwin/release/*.dSYM
+            target/x86_64-apple-darwin/release/deps/*.dSYM
+          )
+          if [[ ${#FOUND[@]} -eq 0 ]]; then
+            note="no .dSYM under target/{aarch64,x86_64}-apple-darwin/release — check that [profile.release] still sets split-debuginfo = \"packed\"; nothing uploaded"
+            # The token may or may not be set. Either way a version tag with
+            # no debug file ships a release whose crashes cannot symbolicate,
+            # and that is our build, not Sentry being down.
+            if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+              echo "::error::${note}"
+              echo "- symbols: FAILED, ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              exit 1
+            fi
+            echo "::warning::${note}"
+            echo "- symbols: ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
+          bash scripts/upload-sentry-debug-files.sh "desktop@${VERSION}" "the macOS desktop build" "${FOUND[@]}"
 
       - name: Stage dmg + sha256
         shell: bash
@@ -416,7 +725,29 @@ jobs:
           cp "${SRC}" "${DST}"
           shasum -a 256 "${DST}" > "${DST}.sha256"
 
+      # Mount what we are about to publish and read the binary out of it. The
+      # link-time strip above is invisible from the outside, and the dmg is
+      # the only place its effect can be confirmed.
+      - name: Verify the dmg carries no debug info
+        shell: bash
+        run: |
+          set -euo pipefail
+          MNT="${RUNNER_TEMP}/dmg-verify"
+          rm -rf "${MNT}"
+          mkdir -p "${MNT}"
+          hdiutil attach outl-desktop-macos.dmg -nobrowse -readonly -mountpoint "${MNT}"
+          # Detach even when the check fails, or the runner keeps the volume.
+          trap 'hdiutil detach "${MNT}" -quiet || true' EXIT
+          APP=$(find "${MNT}" -maxdepth 1 -name '*.app' | head -1)
+          if [[ -z "${APP}" ]]; then
+            echo "::error::no .app inside outl-desktop-macos.dmg (volume holds:)"
+            ls -la "${MNT}"
+            exit 1
+          fi
+          python3 scripts/check-artifact-stripped.py "${APP}"
+
       - name: Upload dmg to draft release
+        if: needs.prepare.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -430,12 +761,17 @@ jobs:
   build_desktop_linux:
     name: build desktop Linux (x86_64)
     needs: [prepare, create_release]
-    if: needs.create_release.result == 'success'
+    if: >-
+      !cancelled() &&
+      (needs.create_release.result == 'success' ||
+       (needs.prepare.outputs.dry_run == 'true' && needs.create_release.result == 'skipped'))
     # Pinned to 22.04 on purpose: AppImage/.deb/.rpm link against the
     # runner's glibc + webkit2gtk, so building on the oldest supported
     # image gives the widest downstream compatibility. `ubuntu-latest`
     # (24.04) would raise the glibc floor and break older distros.
     runs-on: blacksmith-8vcpu-ubuntu-2204
+    # See the secrets block at the top: the token is in this environment.
+    environment: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'release' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -465,6 +801,33 @@ jobs:
             libsoup-3.0-dev \
             patchelf
 
+      # The AppImage's launcher is not ours, and it is not stripped either.
+      # Tauri copies `AppRun-x86_64` from its tool cache into the AppDir
+      # (linuxdeploy's gtk plugin then renames it `AppRun.wrapped`), and
+      # downloads it from tauri-apps/binary-releases only when the cache has
+      # none. That prebuilt binary carries DWARF and a `.symtab`. Once
+      # linuxdeploy has sealed the squashfs it cannot be changed, so the
+      # cache is the one place to strip it: seed it with a stripped copy of
+      # the same file. If Tauri ever renames or moves it, the seed is simply
+      # not used and the strip gate below goes red on `AppRun.wrapped`,
+      # which is the signal to update this step.
+      - name: Seed Tauri's AppImage launcher, stripped
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOLS="${XDG_CACHE_HOME:-${HOME}/.cache}/tauri"
+          mkdir -p "${TOOLS}"
+          # apprun-old is a mutable release asset, so pin the bytes we strip
+          # and ship. Bump the hash only after checking the new upload.
+          APPRUN_SHA256=f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-connrefused \
+            -o "${TOOLS}/AppRun-x86_64" \
+            https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64
+          echo "${APPRUN_SHA256}  ${TOOLS}/AppRun-x86_64" | sha256sum -c -
+          strip "${TOOLS}/AppRun-x86_64"
+          chmod +x "${TOOLS}/AppRun-x86_64"
+          python3 scripts/check-artifact-stripped.py "${TOOLS}/AppRun-x86_64"
+
       - name: Patch workspace version to ${{ needs.prepare.outputs.version }}
         shell: bash
         # Same sed pass as the other build jobs: rewrite every literal
@@ -489,11 +852,119 @@ jobs:
       - name: Install frontend dependencies
         run: bun install
 
-      - name: Build Linux bundles
-        # `tauri.conf.json` has `"targets": "all"`, so on Linux this
-        # produces AppImage + .deb + .rpm in target/release/bundle/.
+      - name: Build the Linux desktop binary
+        # Compile only. Bundling happens after the symbol upload and the
+        # strip, so the file sentry-cli reads still holds DWARF and the
+        # AppImage / deb / rpm do not.
+        #
+        # `split-debuginfo = packed` (the workspace profile) writes a `.dwp`.
+        # sentry-cli accepts an ELF, a dSYM, a PDB, Breakpad and WASM — not a
+        # `.dwp` — so this job overrides the profile to `off` and uploads
+        # `target/release/outl-desktop` itself. No `strip=symbols` at link
+        # time: that would delete the DWARF before the upload step can see it.
+        # `[profile.release]` keeps `debug = "line-tables-only"`, which is the
+        # file names and line numbers a stack needs, without full variable
+        # locations.
+        #
+        # Setting `RUSTFLAGS` would replace `.cargo/config.toml`'s rustflags
+        # rather than merge. This step sets none. The only entries in that
+        # file are the two `*-linux-android` targets, and this job builds
+        # neither.
         working-directory: crates/outl-desktop
-        run: bun run tauri build
+        env:
+          OUTL_SENTRY_DSN: ${{ secrets.OUTL_SENTRY_DSN_DESKTOP }}
+          CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: "off"
+        run: bun run tauri build --no-bundle --features sentry
+
+      # Before the strip. This is the last moment the ELF still holds DWARF.
+      # The binary is the debug file: sentry-cli reads an ELF, and a `.dwp`
+      # is not a type it accepts. `strip` afterwards keeps the GNU build-id,
+      # which is what Sentry matches the uploaded file against.
+      - name: Upload debug symbols to Sentry
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: outl
+          SENTRY_PROJECT: outl
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -uo pipefail
+          BIN="target/release/outl-desktop"
+          if [[ ! -f "${BIN}" ]]; then
+            note="no ${BIN} to upload — the Linux desktop build did not produce the binary the symbol step reads"
+            if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+              echo "::error::${note}"
+              echo "- symbols: FAILED, ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              exit 1
+            fi
+            echo "::warning::${note}"
+            echo "- symbols: ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
+          if ! readelf -S "${BIN}" | grep -q '\.debug_info'; then
+            note="${BIN} has no .debug_info section. This job sets CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=off so the DWARF stays in the ELF; without it a Linux crash cannot symbolicate."
+            if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+              echo "::error::${note}"
+              echo "- symbols: FAILED, ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              exit 1
+            fi
+            echo "::warning::${note}"
+            echo "- symbols: ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
+          bash scripts/upload-sentry-debug-files.sh "desktop@${VERSION}" "the Linux desktop build" "${BIN}"
+
+      - name: Strip the desktop binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          strip target/release/outl-desktop
+
+      - name: Bundle Linux deb and AppImage
+        # The binary is already stripped. `tauri bundle` packages it; it does
+        # not compile. AppImage + deb here, rpm below — the rpm needs a
+        # different version string.
+        working-directory: crates/outl-desktop
+        env:
+          # Same override as the compile step. `tauri bundle` should not
+          # rebuild; if it does, the binary it packages must still be the
+          # ELF layout the upload step read.
+          CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: "off"
+        run: bun run tauri bundle --bundles deb,appimage --features sentry
+
+      # RPM reserves `-` in Version for the name-version-release separator,
+      # and `@tauri-apps/cli` 2.12 started enforcing it: every beta since
+      # the bun lockfile refresh died here on
+      #
+      #   > invalid version "0.12.0-beta.238": contains invalid character
+      #
+      # RPM's own `0.12.0~beta.238` is not semver, and Tauri refuses any
+      # config `version` that is not. So a pre-release is spelled the way
+      # Fedora's packaging guidelines spelled it before `~` existed: the base
+      # version, and the pre-release in a Release that starts with `0.`
+      # (`outl-0.12.0-0.beta.238`). That sorts before the GA's default
+      # Release `1`, so `dnf` treats the GA as the upgrade it is.
+      #
+      # `tauri bundle` packages the binary `tauri build` already produced
+      # rather than compiling again, so the rpm carries the same stripped
+      # `outl-desktop`, and that binary still reports `0.12.0-beta.N`. A GA
+      # version has no `-` and is bundled with the config as is.
+      - name: Build Linux rpm
+        working-directory: crates/outl-desktop
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: "off"
+        run: |
+          set -euo pipefail
+          CONFIG=()
+          if [[ "${VERSION}" == *-* ]]; then
+            PRE="${VERSION#*-}"
+            RPM_CONFIG="{\"version\": \"${VERSION%%-*}\", \"bundle\": {\"linux\": {\"rpm\": {\"release\": \"0.${PRE//-/.}\"}}}}"
+            echo "rpm config: ${RPM_CONFIG}"
+            CONFIG=( --config "${RPM_CONFIG}" )
+          fi
+          bun run tauri bundle --bundles rpm --features sentry "${CONFIG[@]}"
 
       - name: Stage bundles + sha256
         shell: bash
@@ -522,7 +993,38 @@ jobs:
             shasum -a 256 "${dst}" > "${dst}.sha256"
           done
 
+      # Two extractions, because each bundler copies the binary itself rather
+      # than sharing one. The AppImage unpacks itself (`--appimage-extract`
+      # needs no FUSE, which the runner has no kernel module for) and
+      # `dpkg-deb` is core on Ubuntu. The rpm is extracted below with
+      # `bsdtar` from `libarchive-tools`, which the step installs.
+      - name: Verify the Linux bundles carry no debug info
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK="${RUNNER_TEMP}/bundle-verify"
+          rm -rf "${WORK}"
+          mkdir -p "${WORK}/appimage" "${WORK}/deb" "${WORK}/rpm"
+
+          chmod +x outl-desktop-linux-x86_64.AppImage
+          ( cd "${WORK}/appimage" \
+            && "${GITHUB_WORKSPACE}/outl-desktop-linux-x86_64.AppImage" --appimage-extract >/dev/null )
+
+          dpkg-deb -x outl-desktop-linux-x86_64.deb "${WORK}/deb"
+
+          # The rpm is packaged by a separate `tauri bundle` call, so read
+          # its payload too instead of trusting it matches the deb. bsdtar,
+          # not rpm2cpio: rpm2cpio exits 1 without a word when the copied
+          # payload doesn't match the header's archive size, which is the
+          # case for the rpm Tauri writes.
+          sudo apt-get install -y --no-install-recommends libarchive-tools
+          bsdtar -xf outl-desktop-linux-x86_64.rpm -C "${WORK}/rpm"
+          test -s "${WORK}/rpm/usr/bin/outl-desktop"
+
+          python3 scripts/check-artifact-stripped.py "${WORK}/appimage" "${WORK}/deb" "${WORK}/rpm"
+
       - name: Upload bundles to draft release
+        if: needs.prepare.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -540,8 +1042,13 @@ jobs:
   build_desktop_windows:
     name: build desktop Windows (x86_64)
     needs: [prepare, create_release]
-    if: needs.create_release.result == 'success'
+    if: >-
+      !cancelled() &&
+      (needs.create_release.result == 'success' ||
+       (needs.prepare.outputs.dry_run == 'true' && needs.create_release.result == 'skipped'))
     runs-on: blacksmith-4vcpu-windows-2025
+    # See the secrets block at the top: the token is in this environment.
+    environment: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'release' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -598,7 +1105,39 @@ jobs:
         #
         # NSIS is also the installer Tauri recommends on Windows — it
         # carries the WebView2 bootstrapper, msi does not.
-        run: bun run tauri build --bundles nsis
+        #
+        # No `RUSTFLAGS` strip here, unlike the other two desktop jobs: MSVC
+        # writes debug info to a separate `.pdb` that the installer never
+        # packages, so the `.exe` is already lean and the strip would only
+        # cost us the symbol names. The verify step below is what confirms
+        # that rather than asserting it.
+        env:
+          OUTL_SENTRY_DSN: ${{ secrets.OUTL_SENTRY_DSN_DESKTOP }}
+        run: bun run tauri build --bundles nsis --features sentry
+
+      - name: Upload debug symbols to Sentry
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: outl
+          SENTRY_PROJECT: outl
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          FOUND=( target/release/*.pdb target/release/*.exe )
+          if [[ ${#FOUND[@]} -eq 0 ]]; then
+            note="no .pdb or .exe under target/release; nothing uploaded"
+            if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+              echo "::error::${note}"
+              echo "- symbols: FAILED, ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              exit 1
+            fi
+            echo "::warning::${note}"
+            echo "- symbols: ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
+          bash scripts/upload-sentry-debug-files.sh "desktop@${VERSION}" "the Windows desktop build" "${FOUND[@]}"
 
       - name: Stage installer + sha256
         shell: pwsh
@@ -623,7 +1162,26 @@ jobs:
           $hash = (Get-FileHash $dst -Algorithm SHA256).Hash.ToLower()
           "$hash  $dst" | Out-File -Encoding ascii "$dst.sha256"
 
+      # **Declared gap: this reads the packaged binary, not the installer.**
+      # The NSIS container would need 7-Zip's NSIS handler to open, and
+      # failing a release on a quirk of that handler buys nothing here: the
+      # question on Windows is only whether MSVC's debug info stayed in the
+      # separate `.pdb`, and `outl.exe` is where that is visible. The CLI
+      # job's Windows leg does read its published `.zip`, so the sibling path
+      # is covered end to end.
+      - name: Verify the packaged binary carries no debug info
+        shell: bash
+        run: |
+          set -euo pipefail
+          PY=python3
+          command -v python3 >/dev/null 2>&1 || PY=python
+          # `outl-desktop.exe`, the Cargo binary name: Tauri's "Built
+          # application at" line names it, and `productName` (`outl`) is
+          # only what the installer calls it.
+          "${PY}" scripts/check-artifact-stripped.py target/release/outl-desktop.exe
+
       - name: Upload installer to draft release
+        if: needs.prepare.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -638,8 +1196,13 @@ jobs:
   build_android:
     name: build Android (arm64 APK)
     needs: [prepare, create_release]
-    if: needs.create_release.result == 'success'
+    if: >-
+      !cancelled() &&
+      (needs.create_release.result == 'success' ||
+       (needs.prepare.outputs.dry_run == 'true' && needs.create_release.result == 'skipped'))
     runs-on: blacksmith-8vcpu-ubuntu-2404
+    # See the secrets block at the top: the token is in this environment.
+    environment: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'release' || '' }}
     # Optimized (release-build) APK, debug-signed, attached to the GitHub
     # Release (no Google Play). Like iOS, the build is RELEASE (optimized);
     # only the *signature* is a throwaway debug key — a real upload
@@ -761,14 +1324,92 @@ jobs:
         working-directory: crates/outl-mobile
         # RELEASE build (Rust optimized + stripped, R8/proguard) — NOT
         # `--debug`, whose unoptimized `.so` + kept debug symbols balloon
-        # the APK past 1 GB. `--apk` skips the .aab. `--config` injects the
-        # marketing versionName (base version, sans `-beta.N`; the Release
-        # tag carries the full beta string). versionCode is Tauri's default
-        # derivation — fine for direct download; a monotonic scheme is only
-        # needed for Play (issue #171).
+        # the APK past 1 GB. `--apk` skips the .aab.
+        #
+        # `--config` injects the FULL version, `-beta.N` included, so the
+        # APK's versionName says which build it is. It used to inject the
+        # base version, so every beta of 0.13.0 reported `0.13.0` and a
+        # crash report (issue #401) named a range of builds instead of one.
+        # versionCode is `github.run_number`, the same counter that names
+        # `beta.N`; Tauri's own derivation ignores the prerelease and gave
+        # all of them 13000. Starting below that 13000 is harmless because
+        # an update here already needs an uninstall (throwaway debug key
+        # per release, issue #171). Full reasoning:
+        # `docs/android-platform.md` → Release.
+        #
+        # No `RUSTFLAGS` here, deliberately. `.cargo/config.toml` carries the
+        # `max-page-size=16384` link flag for the Android targets, an exported
+        # `RUSTFLAGS` REPLACES that rather than merging, and a 4 KB-aligned
+        # `.so` is the beta.226 crash-on-open. The strip is AGP's job anyway
+        # (see the next two steps).
+        env:
+          OUTL_SENTRY_DSN: ${{ secrets.OUTL_SENTRY_DSN_MOBILE }}
         run: |
-          cargo tauri android build --target aarch64 --apk \
-            --config "{\"version\": \"${{ needs.prepare.outputs.base }}\"}"
+          cargo tauri android build --target aarch64 --apk --features sentry \
+            --config "{\"version\": \"${{ needs.prepare.outputs.version }}\", \"bundle\": {\"android\": {\"versionCode\": ${{ github.run_number }}}}}"
+
+      # The unstripped library, before AGP's copy of it reaches the APK.
+      #
+      # Tauri writes the built `.so` into `gen/android/app/src/main/jniLibs/`
+      # (which is why `gen/android/.gitignore` ignores
+      # `/src/main/jniLibs/**/*.so`), Gradle merges from there, and the
+      # release buildType strips on the way in — so the source copy keeps its
+      # symbols after the build and is what Sentry needs. `target/` is passed
+      # too, since that is where cargo wrote it and either path alone is one
+      # assumption about Tauri's internals.
+      - name: Upload debug symbols to Sentry
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: outl
+          SENTRY_PROJECT: outl-mobile
+        run: |
+          set -uo pipefail
+          if [[ -z "${SENTRY_AUTH_TOKEN}" ]]; then
+            note="SENTRY_AUTH_TOKEN is unset, so no debug symbols were uploaded for the Android build. A panic from this build will arrive in Sentry as bare addresses."
+            echo "::warning::${note}"
+            # A warning and not a failure on purpose: the Sentry
+            # projects and this secret are set up by hand, so until
+            # that happens every release would fail on a feature that
+            # is not configured yet. It reaches the summary page so
+            # the state is visible without reading a step log.
+            echo "- symbols: ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
+          shopt -s nullglob
+          FOUND=(
+            crates/outl-mobile/src-tauri/gen/android/app/src/main/jniLibs/*/*.so
+            target/aarch64-linux-android/release/*.so
+          )
+          if [[ ${#FOUND[@]} -eq 0 ]]; then
+            note="no unstripped .so found under gen/android/app/src/main/jniLibs or target/aarch64-linux-android/release — Tauri may have changed where it stages the library; nothing uploaded"
+            # Reaching here means the token IS set, so Sentry is
+            # configured and this is not an outage: it is our own
+            # build no longer putting debug files where this step
+            # looks (a changed `split-debuginfo`, a Tauri staging
+            # path, an AGP task). Deterministic, ours, and permanent
+            # for the version being cut — so on a version tag it
+            # fails the job rather than shipping a release whose
+            # crashes can never symbolicate. "Sentry must not hold a
+            # release" is an argument about Sentry being down, which
+            # is the branch below, not this one.
+            if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+              echo "::error::${note}"
+              echo "- symbols: FAILED, ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              exit 1
+            fi
+            echo "::warning::${note}"
+            echo "- symbols: ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
+          echo "uploading: ${FOUND[*]}"
+          if ! npx --yes @sentry/cli@3.8.0 debug-files upload "${FOUND[@]}"; then
+            note="sentry-cli failed to upload debug symbols for the Android build; the release continues, but crashes from this build will not symbolicate"
+            echo "::warning::${note}"
+            # Stays a warning, and this is the branch the "a release
+            # must not wait on Sentry" argument actually covers.
+            echo "- symbols: ${note}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          fi
 
       - name: Sign + stage APK
         shell: bash
@@ -784,7 +1425,12 @@ jobs:
             exit 1
           fi
           BT=$(ls -d "${ANDROID_SDK_ROOT}"/build-tools/* | sort -V | tail -n1)
-          "${BT}/zipalign" -f -p 4 "${SRC}" "${RUNNER_TEMP}/aligned.apk"
+          # `-P 16`, not `-p 4`. An uncompressed `.so` is mapped straight
+          # out of the APK, so its offset has to land on a page boundary of
+          # the device reading it, and 16 KB is a page size Android devices
+          # already run. Needs build-tools 35+, which is
+          # what the newest-installed pick above resolves to.
+          "${BT}/zipalign" -f -P 16 4 "${SRC}" "${RUNNER_TEMP}/aligned.apk"
           "${BT}/apksigner" sign \
             --ks "${RUNNER_TEMP}/debug.keystore" \
             --ks-pass pass:android --key-pass pass:android \
@@ -794,7 +1440,41 @@ jobs:
           "${BT}/apksigner" verify outl-android-arm64.apk
           shasum -a 256 outl-android-arm64.apk > outl-android-arm64.apk.sha256
 
+      - name: Check the APK loads where pages are 16 KB
+        shell: bash
+        # v0.12.0-beta.226 shipped an APK that crashed on open for anyone on a
+        # 16 KB-page device: the Rust `.so` had 4 KB-aligned LOAD segments, so
+        # `dlopen` refused it and `MainActivity.onCreate` died on its first
+        # `System.loadLibrary`. Nothing went red, because the build and the
+        # signature were both fine.
+        #
+        # The two steps that decide this are the linker flag in
+        # `.cargo/config.toml` and the `zipalign` above, and each fails
+        # silently. The finished APK is where both are visible at once, and it
+        # also covers a library we do not build arriving through a dependency.
+        run: python3 crates/outl-mobile/scripts/android-apk-page-alignment.py outl-android-arm64.apk
+
+      # There is no `llvm-strip` step for Android because AGP already does it:
+      # `gen/android/app/build.gradle.kts` keeps debug symbols for the debug
+      # variant only (through `androidComponents`, not a `packaging` block
+      # inside the build type, which Kotlin applies to every variant), so
+      # Gradle's strip task runs on every `.so` on its way into the release
+      # APK. It strips with the NDK that file's `ndkVersion` names, which has
+      # to be the `NDK_VERSION` installed above: AGP falls back to its own
+      # default NDK otherwise, finds none, and packages the library
+      # unstripped with only a warning that `--quiet` Gradle never prints.
+      #
+      # Which makes the finished APK the only place that can confirm it. With
+      # `[profile.release]` no longer stripping, the library Gradle is handed
+      # now carries full debug info, and a `keepDebugSymbols` line added to
+      # the wrong buildType — or an AGP default that changes — would ship it.
+      # Nothing else in this job would notice.
+      - name: Check the APK ships no debug info
+        shell: bash
+        run: python3 scripts/check-artifact-stripped.py outl-android-arm64.apk
+
       - name: Upload APK to draft release
+        if: needs.prepare.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         # Two decisions meet here and close the recovery path, so the step
@@ -829,7 +1509,10 @@ jobs:
     # every push to main: those also get a tag, but `github.ref` is then
     # `refs/heads/main`. When skipped, `publish_release` still runs: it
     # carries `!cancelled()` and doesn't check this job's result.
-    if: needs.create_release.result == 'success' && startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      !cancelled() &&
+      needs.create_release.result == 'success' &&
+      startsWith(github.ref, 'refs/tags/v')
     # Best-effort, like `build_android`: listed in `publish_release.needs`
     # so the images land while the release is still a draft, but absent
     # from its conditions, so a broken shot never blocks a release.
@@ -851,6 +1534,7 @@ jobs:
     # is already uploaded before we flip the draft to published.
     if: >-
       !cancelled() &&
+      needs.prepare.outputs.dry_run != 'true' &&
       needs.build.result == 'success' &&
       needs.build_desktop.result == 'success' &&
       needs.build_desktop_linux.result == 'success' &&
@@ -992,30 +1676,64 @@ jobs:
     #   tag vX.Y.Z -> X.Y.Z                       (GA)
     # Both publish under the `latest` dist-tag, so `npm i @outl/plugin-sdk`
     # always resolves the newest build cut from main.
-    if: needs.prepare.result == 'success'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    # `NPM_TOKEN` lives in the `release` environment.
+    #
+    # Auth is npm trusted publishing (OIDC), not a stored token. npm caps a
+    # write token at 90 days. The `NPM_TOKEN` in the `release` environment
+    # was stored on 2026-07-16 and every publish from 2026-10-14 on answered
+    # E404 on the PUT, which is how npm says "this credential can't write
+    # here". A fresh repo-level `NPM_TOKEN` didn't help either: an
+    # environment secret shadows a repo secret of the same name. With
+    # OIDC each run gets a short-lived token minted for this exact workflow,
+    # so there is nothing to rotate, and npm attaches provenance on its own.
+    #
+    # The trust is configured on npmjs.com (package → Settings → Trusted
+    # publishing) and must match exactly: owner `outlmd`, repo `outl`,
+    # workflow `release.yml`, environment `release`, publish allowed.
+    #
+    # Two constraints follow from it:
+    # - GitHub-hosted runner. npm doesn't accept OIDC from self-hosted
+    #   runners yet, and Blacksmith runners are self-hosted to GitHub. The
+    #   job is a two-second `npm publish`, so the runner choice costs nothing.
+    # - npm >= 11.5.1 (Node 24 ships it). Older npm ignores OIDC and fails
+    #   with ENEEDAUTH.
+    if: needs.prepare.result == 'success' && needs.prepare.outputs.dry_run != 'true'
+    runs-on: ubuntu-24.04
+    # Keeps the environment's protection rules on the publish; the trusted
+    # publisher entry on npmjs.com names this environment.
     environment: release
+    permissions:
+      contents: read
+      id-token: write # mints the OIDC token npm exchanges for a publish token
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The build commit itself — not the tag, which the parallel `tag`
           # job may not have pushed yet on a main-push run.
           ref: ${{ github.sha }}
+          persist-credentials: false
 
+      # No `registry-url`: that input writes an `.npmrc` expecting
+      # NODE_AUTH_TOKEN, and there is no token anymore. The default registry
+      # is already registry.npmjs.org.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
-          # Writes the `.npmrc` that reads NODE_AUTH_TOKEN below.
-          registry-url: https://registry.npmjs.org
+          node-version: 24
+          package-manager-cache: false # never restore a cache into a publish
 
       - name: Publish (idempotent)
         working-directory: plugin-sdk
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
+          # Fail loud on an npm that predates OIDC instead of the bare
+          # ENEEDAUTH it would print otherwise.
+          NPM_VERSION=$(npm --version)
+          echo "npm ${NPM_VERSION}"
+          if [ "$(printf '%s\n' 11.5.1 "${NPM_VERSION}" | sort -V | head -n1)" != 11.5.1 ]; then
+            echo "::error::npm ${NPM_VERSION} can't use trusted publishing; need >= 11.5.1"
+            exit 1
+          fi
           # A re-run — or a retried beta run_number — may target a version
           # already on npm. Republishing the same version is a hard error,
           # so skip when it's already there (also the clean no-op path when
@@ -1062,7 +1780,7 @@ jobs:
     # Only the embedder closure publishes (`outl-ws` -> `outl-actions` ->
     # {`outl-core`, `outl-md`, `outl-exec`}); every other crate carries
     # `publish = false` in its manifest.
-    if: needs.prepare.result == 'success'
+    if: needs.prepare.result == 'success' && needs.prepare.outputs.dry_run != 'true'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     # `CARGO_REGISTRY_TOKEN` lives in the `release` environment.
     environment: release

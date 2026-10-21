@@ -412,10 +412,13 @@ How the desktop hosts plugins — the effect layer, the toolbar and view surface
 
 ## Logging
 
-`run()` in `src-tauri/src/lib.rs` installs a `tracing_subscriber` fmt subscriber writing to **stderr** as its first step (before rustls / Tauri setup).
+`run()` in `src-tauri/src/lib.rs` ignores `SIGPIPE`, then calls `outl_telemetry::init`, then installs a `tracing_subscriber` fmt subscriber.
+The subscriber writes through `outl_telemetry::lossy_stderr` with `log_internal_errors(false)`.
+A closed stderr — a desktop launched with no terminal, whose pipe has gone away — must not panic.
+`eprintln!` turns `EPIPE` into `failed printing to stderr`, and the fmt layer's own error report is an `eprintln!`.
 The `EnvFilter` defaults to `info,outl_sync_iroh=debug,iroh=info` and honors `RUST_LOG`.
 Running `cargo tauri dev` from a terminal then shows the iroh P2P transport's `info!`/`warn!`/`debug!` lines (endpoint bound + node id, each connect attempt's target + outcome, "delta sync received N ops") so device↔device sync is debuggable.
-Init uses `.try_init()` so a double-init can't panic.
+Init uses `set_global_default`, not `.try_init()`: `try_init` also claims the `log` slot, which `tauri-plugin-log` needs.
 See [`outl-sync-iroh/CLAUDE.md`](../outl-sync-iroh/CLAUDE.md) for what the transport logs.
 
 ## Settings
@@ -432,7 +435,8 @@ The frontend still receives this flat JSON DTO from `crates/outl-desktop/src-tau
   "theme_mode": "auto",       // "light" | "dark" | "auto"
   "font_size": 15,
   "sync_transport": "iroh",  // "iroh" (P2P, default) | "file" (iCloud/fs)
-  "backlinks_order": "newest"  // "newest" (default) | "oldest" — read-only, see below
+  "backlinks_order": "newest",  // "newest" (default) | "oldest" — read-only, see below
+  "diagrams": "pele"  // "pele" (default) | "off". Mermaid fences. Mobile writes the same key.
 }
 ```
 
@@ -443,6 +447,21 @@ The Sync transport select in `SettingsModal` writes `sync_transport`.
 Live preview goes through the shared `installTheme`; Save installs the persisted reply, while Cancel or backdrop click reinstalls the configuration captured on open.
 `settings.rs::restore_unmodeled_sections` lists only fields the modal does not own.
 A new unmodeled config field omitted there will get silently dropped on the next modal save.
+
+### Privacy: the crash-reporting toggle writes outside Save
+
+`SettingsModal`'s **Privacy** section (RFC 0377) is the one row that does not live in `draft()`.
+`[telemetry] enabled` is not in the flat `Settings`, and `restore_unmodeled_sections` puts the section back from disk on every save.
+So routing it through Save would make the toggle inert, and dropping the restore would flip a user's opt-out back on with every unrelated save, because the default is `true`.
+It reads `getTelemetryEnabled()` on every open and writes `setTelemetryEnabled()` on change, the same split the backlinks direction button has.
+On open rather than `onMount`, because `AppShell` mounts this component for the app's lifetime and another process can write the flag while the window runs (`outl telemetry off` in a terminal).
+The switch moves only on the command's reply: an optimistic flip that fails to save leaves a checkbox reading "off" over a reporter that is still on.
+The words are `CRASH_REPORTS_SETTING` in `@outl/shared/onboarding`, never written here — mobile shows the identical sentences and the same claim goes to Apple.
+
+**This section is where a user *looks*; it is not where they are *told*.**
+Reporting is on by default, so nothing routes anybody through Settings and a disclosure that lives only here reaches only the curious.
+The proactive half is `<CrashReportsNotice />` from `@outl/shared/polish`, mounted by `AppShell` beside `<ErrorToast />` — shell level rather than above the outline, because it is a statement about the app and not about the page, and mounting it per page would re-run its dismissed check on every navigation.
+It never takes focus and never gates the reporter (RFC 0377 section 6).
 
 The actor id (one per device) lives next to it as `actor` — a plain ULID.
 Switching workspaces does not rotate it.
@@ -529,6 +548,14 @@ The cold-start buffer exists for the same reason the deep-link one does (issue #
 `AppShell`'s `onMount` drains both buffers and lets the deep link win when somehow both are set — but drains the other either way, so an unread target cannot replay on the next plain launch.
 
 **Testing on macOS needs a bundled, installed app**, same caveat as deep links: LaunchServices only reads `CFBundleDocumentTypes` from the built bundle, so `cargo tauri dev` never appears in "Open With".
+
+## Capture from outside the app (RFC 0363)
+
+The desktop registers `drain_capture_inbox` and `AppShell` installs `installForegroundRefresh` from `@outl/shared/capture`, so a line `outl capture` left in `<root>/.outl/captures/` lands on mount and on every return to the foreground.
+
+That is the whole desktop story: outl registers **no** Service, menu bar item or global hotkey that writes a capture, so the gesture is whatever the user wires `outl capture` into — a macOS Service or Shortcut, Raycast, a hotkey daemon. The `CaptureOutsideTheApp` row says `Partial` for exactly that reason, and the nudge names the command rather than apologising.
+
+**The refresh is skipped while the user is in a block**, for the reason `onPeerChange` defers a peer reload: re-applying a view re-materializes the outline under the cursor. The capture is in the op log either way and the next refresh shows it ([`UX.md` → Never block a keystroke](../../UX.md#2-never-block-a-keystroke)).
 
 ## Deep links (`outl://`)
 

@@ -106,6 +106,25 @@ mod why {
         "Reminder banners can't carry buttons here — open the reminders list (Ctrl+R in the \
          TUI, Cmd/Ctrl+Shift+R on desktop) to snooze or tick off what came due.";
 
+    /// `outl capture` is a terminal command, so the TUI user already
+    /// has every route a desktop has — and the TUI drains the inbox
+    /// once, at boot, because nothing in it watches the folder. So a
+    /// capture made while the TUI is up waits for the next launch,
+    /// where a GUI client lands it within a second of coming back.
+    pub const TUI_CAPTURE_LANDS_AT_LAUNCH: &str =
+        "A line captured with `outl capture` lands the next time you start outl here — the \
+         desktop and phone apps pick one up while they're running.";
+
+    /// The desktop drains the inbox, so every capture lands; what it
+    /// does not have is a gesture of its own. There is no outl menu bar
+    /// item, Service or global hotkey that writes a capture, so the
+    /// entry point is `outl capture` and whatever the user wires it
+    /// into. Named as the gap it is rather than claimed as parity with
+    /// a widget and a share sheet.
+    pub const DESKTOP_CAPTURE_HAS_NO_SYSTEM_GESTURE: &str =
+        "Capturing from outside the app runs `outl capture \"your line\"` — wire it to a \
+         Shortcut, a macOS Service or a hotkey and it lands here on the next window focus.";
+
     /// Neither the TUI nor the desktop renders a keyboard accessory
     /// bar: both are driven by a physical keyboard, where every
     /// toolbar action is a fixed chord from `defaults.rs`. A chord
@@ -128,6 +147,11 @@ mod why {
         "There's no task list here yet. Add a `query` code block with `status: open` to any page \
          and it lists every open task in the workspace.";
 
+    /// The TUI paints the fence bytes. Diagrams are a GUI surface.
+    pub const TUI_KEEPS_MERMAID_SOURCE: &str =
+        "The terminal keeps a mermaid fence as source. Open the page in the desktop or mobile \
+         app to see the diagram.";
+
     pub const NO_SOFT_KEYBOARD_BAR: &str =
         "There's no on-screen toolbar to pin here — these actions have fixed keyboard \
          shortcuts, so they never move.";
@@ -148,6 +172,36 @@ mod why {
     pub const NO_MOBILE_SHARE_TARGET: &str =
         "Opening a file into outl from another app isn't wired up on mobile yet — send it to a \
          computer and open it there, or paste the text into a block.";
+
+    /// The TUI has no settings screen of any kind, so there is no
+    /// surface for a toggle to live on — and the command that does the
+    /// same job runs in the terminal the TUI was started from, which
+    /// the user already has open.
+    ///
+    /// `Missing`, not `NotApplicable`: reporting is on by default, so
+    /// the opt-out is something this user genuinely needs rather than
+    /// something the input device makes meaningless. The reach is one
+    /// command away, and the nudge names it.
+    pub const NO_TELEMETRY_TOGGLE_IN_THE_TUI: &str =
+        "Crash reporting is switched from the terminal here — run `outl telemetry off` to stop \
+         sending reports, or `outl telemetry status` to see where it stands.";
+
+    /// The TUI and the CLI both report and neither says so unprompted.
+    ///
+    /// Not a gap in the *information*: `docs/privacy.md` carries the
+    /// full field list and `outl telemetry status` answers honestly.
+    /// It is a gap in **when** the user meets it, which is the half
+    /// RFC 0377 section 6 says the legitimate-interest footing needs.
+    ///
+    /// Left open rather than closed quietly, because the obvious fix
+    /// is not obviously right: a terminal's first-run output is a
+    /// contract with whatever is reading the pipe, and printing into
+    /// somebody's script is its own defect. That is a product call,
+    /// recorded in RFC 0377's declared gaps.
+    pub const NO_PROACTIVE_NOTICE_IN_THE_TERMINAL: &str =
+        "Crash reporting is on, and the terminal does not announce it the way the apps do — run \
+         `outl telemetry status` to see where it stands, or read the full list of what a report \
+         carries at outl.app/privacy.";
 
     pub const DESKTOP_HOSTS_ONLY: &str =
         "The desktop can host a pairing (show the QR / ticket) but has no camera to scan one — \
@@ -330,12 +384,38 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
             desktop: Partial(why::DESKTOP_CAPTURE_IS_TWO_STEPS),
             mobile: Full,
         },
+        // Mobile: the iOS widget, the "Add to today" App Intent and the
+        // iOS share extension (`gen/apple/OutlWidget`, `OutlShare`),
+        // plus Android's share target, home screen widget and quick
+        // settings tile (`gen/android/…/OutlShareActivity.kt`,
+        // `OutlCaptureWidget.kt`, `OutlCaptureTile.kt`). Every one goes
+        // through `drain_capture_inbox`.
+        //
+        // `Full` is about what the capability is on mobile, not about
+        // one store build: the iOS extensions are unhooked from release
+        // builds until their provisioning profiles exist
+        // (`crates/outl-mobile/IOS-EXTENSIONS.md`), which is release
+        // plumbing recorded there, and the Android APK ships all three.
+        Capability::CaptureOutsideTheApp => ClientSupport {
+            tui: Partial(why::TUI_CAPTURE_LANDS_AT_LAUNCH),
+            desktop: Partial(why::DESKTOP_CAPTURE_HAS_NO_SYSTEM_GESTURE),
+            mobile: Full,
+        },
         // Mobile: the bottom bar's Tasks tab (`TasksSheet.tsx`) over
         // `list_open_tasks`. The command is registered on the desktop
         // too; the gap there is the surface, not the data.
         Capability::TaskList => ClientSupport {
             tui: Missing(why::NO_TASK_LIST),
             desktop: Missing(why::NO_TASK_LIST),
+            mobile: Full,
+        },
+        // Desktop `CodeFenceView` and mobile `BlockBody` both render a
+        // mermaid fence through `<DiagramFence />` (Pele) unless
+        // `[editor] diagrams` is `off` or a plugin transformer owns
+        // the language. The TUI has no equivalent surface.
+        Capability::DiagramRendering => ClientSupport {
+            tui: Missing(why::TUI_KEEPS_MERMAID_SOURCE),
+            desktop: Full,
             mobile: Full,
         },
         Capability::ToolbarOrderLock => ClientSupport {
@@ -357,6 +437,30 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
             tui: NotApplicable(why::NO_TUI_FILE_HANDOFF),
             desktop: Full,
             mobile: Missing(why::NO_MOBILE_SHARE_TARGET),
+        },
+        // Desktop `SettingsModal.tsx` and mobile `SettingsSheet.tsx`
+        // both carry a Privacy section holding the toggle and the
+        // shared `CRASH_REPORTS_SETTING` copy from
+        // `@outl/shared/onboarding` — GUI wording lives there, not in
+        // `outl_telemetry`, which owns the terminal strings. One owner
+        // per medium (RFC 0377 §6). The TUI has no settings screen for
+        // a toggle to live in; see
+        // `why::NO_TELEMETRY_TOGGLE_IN_THE_TUI`.
+        Capability::CrashReportingOptOut => ClientSupport {
+            tui: Missing(why::NO_TELEMETRY_TOGGLE_IN_THE_TUI),
+            desktop: Full,
+            mobile: Full,
+        },
+        // The other half of the same promise, and a separate row
+        // because a client can have either one without the other.
+        // Both GUIs mount the shared `CRASH_REPORTS_NOTICE` strip at
+        // their shell, dismissible and once. The terminal reports and
+        // says nothing until asked; `outl telemetry status` is a pull,
+        // and a pull is not a disclosure.
+        Capability::CrashReportingDisclosure => ClientSupport {
+            tui: Missing(why::NO_PROACTIVE_NOTICE_IN_THE_TERMINAL),
+            desktop: Full,
+            mobile: Full,
         },
     }
 }
@@ -403,7 +507,7 @@ mod tests {
                 let _ = s.get(client);
             }
         }
-        assert_eq!(Capability::ALL.len(), 14, "Capability::ALL changed size");
+        assert_eq!(Capability::ALL.len(), 18, "Capability::ALL changed size");
     }
 
     #[test]

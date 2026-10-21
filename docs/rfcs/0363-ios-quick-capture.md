@@ -1,4 +1,4 @@
-# RFC 0363: Capture from outside the iOS app lands through an inbox the app drains
+# RFC 0363: Capture from outside the app lands through an inbox the app drains
 
 | | |
 |---|---|
@@ -8,7 +8,7 @@
 | **Date** | 2026-10-12 |
 | **Reference doc** | none yet; `UX.md` "Getting around on a phone" covers the in-app capture this extends |
 | **Invariant** | root `CLAUDE.md` invariant 7 (state that must converge goes through the op log) |
-| **Guarded by** | `outl_actions::capture` tests (the four below plus `a_malformed_capture_is_kept_and_counted`, `the_block_id_is_the_capture_ulid`), `outl-tauri-shared/tests/capture_inbox_command.rs`, OutlKit `CaptureInboxTests` |
+| **Guarded by** | `outl_actions::capture` tests (the four below plus `a_malformed_capture_is_kept_and_counted`, `the_block_id_is_the_capture_ulid`, `a_share_becomes_one_line` and the `write_capture` round-trip set), `outl-tauri-shared/tests/capture_inbox_command.rs`, OutlKit `CaptureInboxTests` |
 
 ## Why
 
@@ -25,7 +25,10 @@ So the hard part is not the widget, it is who turns the captured text into an op
 Extensions never touch the workspace.
 They append one record per capture to an inbox in the App Group container, and the app drains it.
 
-- **Inbox.** `captures/` in the App Group container, one file per capture, named by a ULID so the names sort in capture order and two writers never collide. The file holds the text, the capture time and the source (`widget`, `intent`, `share`). Writing is create-temp, fsync, rename, so the app either sees a whole capture or none of it.
+- **Inbox.** `captures/` in the App Group container, one file per capture, named by a ULID so the names sort in capture order and two writers never collide.
+  The file holds the text, the capture time and the source (`intent` or `share` from iOS; `share` from Android, `cli` from `outl capture` — see the amendment below).
+  The reader takes `source` as a plain string and never matches on it, so a writer on a newer build can add a value without the file being refused.
+  Writing is create-temp, fsync, rename, so the app either sees a whole capture or none of it.
 - **Drain.** The app drains on launch, on every return to the foreground, and on a Darwin notification the extension posts after its rename, so a capture made while the app is open lands without a reload. Draining goes through `outl_actions` like any typed block: it opens or creates the journal for the capture's own day and appends one block per file, in name order. The file is deleted only after the op is durable in the op log.
 - **Idempotency.** The block id is derived from the capture's ULID, so a drain that crashes between the op and the delete replays to the same block instead of a second copy.
 - **Owner.** One function, `drain_capture_inbox`, in the mobile backend. The extensions share a small Swift writer and nothing else.
@@ -80,6 +83,31 @@ Signing and device behaviour cannot be checked without Xcode and the Apple accou
 
 The step-by-step list is `crates/outl-mobile/IOS-EXTENSIONS.md`.
 
+## Amendment (2026-10-16): Android and the desktop
+
+Accepted as above and extended, in the same issue, because both turned out to be the same hand-off with a different writer.
+
+**Android** gets the three shapes this RFC lists — a share target, a home screen widget and a quick settings tile — against the same inbox, at `filesDir/captures` (exported as `OUTL_CAPTURE_INBOX`, exactly as the iOS shell does it). Two differences, both forced by the platform rather than chosen:
+
+- **The format has one owner there, in Rust.** Android has no extension model: the share target is an activity in *this* app's process with the library loaded, so it writes through `Java_app_outl_mobile_1app_OutlCapture_write` → `write_capture`. The Swift writer exists only because an iOS extension cannot load the library. So "a share becomes one line" also moved into Rust (`shared_line`) with `SharedLine.swift` as its mirror, rather than gaining a third copy in Kotlin.
+- **No arrival notification, and that is not an omission.** iOS needs a Darwin notification because an iOS extension can write while the app is on screen. On Android a share sheet belongs to the app the user is *in*, and the widget and tile open the app rather than writing, so coming back is the only moment a capture can be new — `MainActivity.onResume` nudges the webview instead.
+
+**The desktop and the TUI** get the inbox too, as `<root>/.outl/captures/`, written by `outl capture`. That is a second inbox location, and the two answer different questions: a mobile shell cannot resolve which workspace is open, so it exports a device-local folder; a process that *can* resolve one aims at that workspace and nothing has to guess.
+
+Three things that needed answering and are worth not re-deriving:
+
+- **Why an inbox at all, when `outl daily append` already writes the block.** Not sandboxing — a terminal can open a workspace. It is that `append` boots the workspace (seconds on a large graph, for one line) and, when a GUI client already holds the device's write actor, falls back to an ephemeral one and leaves a fresh `ops-<ulid>.jsonl` per call. That is the litter root `CLAUDE.md` invariant 11 measures. `capture` pays neither.
+- **The workspace inbox is inside the workspace, so the `file` transport can copy a capture to another device before the first one drained it.** Both then drain it and both emit `Create` for the same node id, because the block id is the capture's ULID. `do_op(Create)` is idempotent, so they converge on one block — the same property the crash replay above already leans on, reached by a second route.
+- **The TUI drains at launch.** `outl capture` is a terminal command, so the terminal client is the one most likely to be open when it runs; not draining would make the command's promise false exactly there. It is a launch-time drain only, because nothing in the TUI watches the folder — recorded as `Partial` on the TUI row of `CaptureOutsideTheApp`.
+
+Per-client coverage is `Capability::CaptureOutsideTheApp` in `outl_shortcuts::capability_support`, rendered into `docs/client-parity.md` (root `CLAUDE.md` invariant 12).
+
+### What this amendment makes worse
+
+The two inboxes are two places a capture can wait, and `drain_capture_inbox` drains both, so "where is my line" has two answers on Android (the only platform with both). `outl capture --list` reads only the workspace one.
+
+A desktop capture also has no gesture of its own: outl registers no Service, menu bar item or global hotkey that writes one, so the user wires `outl capture` themselves. The row says so rather than claiming parity with a widget.
+
 ## Scope
 
-Not covered here: Android (a widget, a share target and a quick settings tile have the same shape and should reuse this inbox), capture to a page other than today, and attachments in the share extension. Each needs its own issue.
+Not covered here: capture to a page other than today, attachments in the share extension, and a macOS Service or Share Extension shipped by outl itself (today's desktop answer is `outl capture` plus whatever the user wires it to). Each needs its own issue.

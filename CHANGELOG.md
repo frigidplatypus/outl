@@ -7,6 +7,144 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Fixed
 
+- **A page name written in Chinese, Japanese, Korean, Cyrillic or any other script got no page of its own.**
+  `[[你好]]` and `[[世界]]` opened the same page, `#中文` and `#笔记` landed on it too, and `[[Rust 笔记]]` opened `[[Rust]]`.
+  `slugify` kept ASCII letters and digits plus a fixed table of folded Latin letters, turned everything else into `-`, and fell back to `untitled` when nothing survived.
+  A page's NodeId derives from its slug, so this was never a filename clash.
+  Every such name was one node, which merged the content and the backlinks of all of them, and two devices each creating a different Chinese page wrote into that same node.
+  Latin letters the table has no entry for (`ł`, `ř`, `ş`, `ộ`) were dropped the same way, so distinct Polish, Czech, Turkish or Vietnamese names could collide too.
+  A letter or digit with no ASCII fold now keeps its own spelling, lowercased, so `[[你好]]` projects to `pages/你好.md`.
+  Emoji are not letters and still collapse, so `ship 🚀` is still `ship`.
+  The name is normalised to NFC first, because the slug decides the NodeId, and macOS hands back NFD while a Korean IME composes Hangul out of jamo.
+  Without that, one name spelled two ways would mint two pages that look identical on screen.
+  The normalisation runs in both directions: `reconcile`'s `slug_from_md_path` NFC-normalises the filename stem it derives a page id from, which was safe to skip while every slug was `[a-z0-9-]` and is load-bearing now, since a stem that comes back decomposed would mint a second page root for a page that already exists and nothing merges two spellings of one name.
+  `ẞ` (capital sharp s) folds to `s` for the same reason: the table held only its lowercase form, so the slug of a slug differed from the slug.
+  Lowercasing goes through uppercase, because a case-insensitive filesystem (APFS and NTFS, both by default) compares names by uppercasing them, and 21 groups of characters are each already lowercase, stay distinct under a plain `to_lowercase`, and share one uppercase form.
+  `µs latency` and `μs latency` (micro sign against Greek mu) were two pages, two ids, and one `.md` to hold both, so one silently overwrote the other. Same for `s`/`ſ`, `ς`/`σ`, the Turkish dotless `ı`, the Greek symbol variants and the Old Cyrillic letters.
+  Both properties are pinned over all 1,114,112 codepoints rather than over the cases anyone thought of, since `ẞ` is not a shape a hand-written test reaches.
+  Two names that differ only by an accent the fold table has no entry for are still two pages: `CAFÉ` and `cafe` are one, `ΛΟΓΟΣ` and `λόγος` are not. That is the table's Latin scope, not a case problem.
+  Keeping the characters made the 255-**byte** slug cap reachable, by a sentence a user would plausibly type: 255 bytes is 255 ASCII characters but only 85 CJK ones, and `open_or_create_by_ref` promises never to bubble `invalid …` back to a tap.
+  A slug over the cap is now cut on a character boundary with a digest of the whole slug appended, because truncating alone would put two long names on one node, which is this same bug in miniature.
+  The cut leaves room for the filename the slug becomes, which is not the slug: every write renames `.<slug>.outl.tmp` over its target, ten bytes longer. A slug filling the whole 255-byte component would commit a page to the op log that no device can ever project, which is worse than the refusal it replaced.
+  `outl plugin init` with such a name is still refused, and says what it needs: that slug becomes a reverse-DNS label in the plugin id, which accepts only `[a-z0-9-]`, and the refusal used to come for free from the name slugifying to `untitled`.
+  A page that has already merged into `untitled` still opens under the name it was given, through the resolution ladder's title match.
+  The content written into it cannot be split automatically: the merged blocks never recorded which of the names they were meant for.
+  [Issue #405](https://github.com/outlmd/outl/issues/405).
+- **An Android crash report did not say which build it came from.**
+  The APK's `versionName` was the base version, so every beta of 0.13.0 reported `0.13.0`, and `versionCode` was Tauri's semver derivation, which ignores the prerelease and gave all of them `13000`.
+  The reasoning was that the Release tag carries the beta string, which it does, except the tag stays on GitHub while the APK goes to a phone.
+  [Issue #401](https://github.com/outlmd/outl/issues/401) arrived as a `SIGABRT` from `Version='0.13.0'`, a range of builds that straddled the `ndk_context` fix the reporter needed.
+  Identifying it meant matching the tombstone's symbol address against the `.so` inside each published APK until one lined up (beta.256).
+  The APK now carries the full version, `-beta.N` included, and `versionCode` is the run number that names the beta, so beta.261 ships `versionCode=261`.
+  This only brings the manifest in line with Sentry, whose release already came from `CARGO_PKG_VERSION` and already had the beta.
+- **Typing with a Chinese, Japanese or Korean keyboard inside `[[…]]` corrupted the block on iOS.**
+  Five pinyin keystrokes in an empty page ref left `[[]]nihao]]niha]]nih]]ni]]n]]` in the block, one `]]` per keystroke, with the pinyin stranded behind as plain text.
+  The same keyboard outside a ref was fine, which is what made this look like a ref bug instead of an input one.
+  Those keyboards type into *marked* text, and WebKit reports the caret at the **start** of that run while the `input` event fires.
+  The two characters left of it were therefore the `[[` typed before the keyboard was switched and the two on the right were the pinyin, which reads exactly like an unclosed ref, so pair completion appended a second `]]`.
+  Assigning that new value then committed the marked run as plain text, the keyboard restarted a composition at the parked caret, and the next keystroke did it again.
+  Pair completion now sits out any composition, including the event that ends one, and `((…))` is covered by the same guard.
+  Skipping it costs nothing, because the pair is already closed on the keystroke itself, which is why the desktop has never run it.
+- **The Android app closed on open on every device, and the 16 KB page-size fix was hiding it.**
+  `liboutl_mobile_lib.so` loaded correctly and the process aborted a moment later inside `Rust_onCreate`, so the symptom read exactly like the 16 KB bug fixed in 0.12.0-beta.227: an icon that flashes and closes.
+  It was a second defect standing behind the first, unrelated to it, present since the Android app first ran, and reproducible on a 4 KB-page emulator.
+  `ndk_context::initialize_android_context` must be called exactly once and enforces that with an assert.
+  `android_jni.rs` called it from `MainActivity.onCreate` to prime iroh's system-DNS reader, and `tao` calls it again from `Rust_onCreate` with the same application context, so the assert tripped, the panic unwound into an `extern "C"` frame, and `panic_cannot_unwind` aborted the process.
+  `tao` owns that global now, and this crate primes only the `rustls-platform-verifier` handle that nothing else primes.
+  The DNS reader still finds its context: `tao` seeds it inside `super.onCreate`, well before the transport opens a connection.
+  A device that refused the `.so` never reached this code, which is why the earlier fix looked like it had worked.
+
+## [0.13.0]
+
+### Added
+
+- **Block properties on the CLI and over MCP.**
+  `outl block prop set|get|list|delete` and the matching `outl_block_prop_*` tools read and write a block's `key:: value` lines through `outl_actions::set_property`.
+  `delete`, and `set` with an empty value, remove the key, so the rendered page does not keep a bare `key::` line.
+  A value with a newline, a carriage return, or a null byte is rejected, so it cannot split that line.
+- **outl reports crashes, on by default, and your notes are never part of it.**
+  A client that breaks on a device we do not own breaks silently: there is no server and no log, and the only signal was a user who cared enough to open an issue.
+  The Android app that closed on open on 16 KB devices is the shape of it.
+  When outl crashes it now sends the crash to Sentry, which is how a crash on a device we do not have gets fixed, and by sending it you are helping improve the product.
+  A report carries the client name, version, OS, CPU architecture, the file name and line where the panic happened and the panic message after a scrubber has removed paths, page identifiers and anything `std` quoted back at us.
+  It never carries page titles, block text, file paths, hostname, username, environment variables, your IP address, or any identifier that persists, so two reports cannot be tied to the same person.
+  Note data is private and is not sent.
+  Only panics are reported, not handled errors, performance data or usage events, and there is still no analytics.
+  Builds you compile yourself contain no Sentry key and report nothing, and no client reports from inside CI.
+  If the config file holding your choice cannot be read, nothing is sent: that file is the only record of your answer, and the default is the opposite of what someone who turned it off asked for.
+  The first time the desktop or mobile app opens after this, a strip at the bottom says so and names where to switch it off, and it stays dismissed once you dismiss it.
+  The terminal does not announce it that way, which is recorded as a gap rather than fixed: printing into somebody's pipeline is its own defect, so `outl telemetry status` and the published policy are the terminal's disclosure for now.
+  To turn it off, use Settings, Privacy on desktop and mobile, or `outl telemetry off` in the terminal (`status` and `on` are there too, and `OUTL_TELEMETRY=0` silences one run).
+  `docs/privacy.md` used to say there would be no crash reporting and, later, that it would be opt-in; it now describes what ships, which is opt-out.
+  The App Store declarations move with it: App Privacy declares Crash Data and Other Diagnostic Data, neither linked to you, purpose App Functionality, `PrivacyInfo.xcprivacy` carries the same two, and the Play Data Safety form is in the Android release checklist.
+  Crashes in Kotlin or Objective-C code are not covered, only Rust ([RFC 0377](docs/rfcs/0377-crash-reporting.md)).
+
+### Changed
+
+- **The workspace builds with Rust 1.99.**
+  `rust-toolchain.toml` pins 1.99.1, and the workspace `rust-version` is 1.99.
+  wasmtime 49 needs rustc 1.96, so the sandbox moves to wasmtime 49.0.3 in the same change.
+  That is the release after 49.0.2: same major, with the later security fixes.
+
+### Fixed
+
+- **A read no longer mints a write actor.**
+  `outl workspace info` beside a running `outl serve` took the per-actor write lock, lost it, and left a fresh `ops-<ulid>.jsonl` on every poll.
+  Each of those actors is an entry in every sync handshake and every snapshot cutoff, and nothing reclaims the identity.
+  A read now opens through `outl_ws::open_read`: no write lock, no new actor, and an append is refused.
+  `outl doctor` reports the actor-log count and warns once this device's write locks pass a threshold.
+  The files already on disk stay.
+  Rewriting an actor id would change the HLC tiebreak.
+  See [RFC 0298](docs/rfcs/0298-read-opens-do-not-mint-actors.md).
+
+- **Deleting a page property no longer leaves a bare `key::` line in the `.md`.**
+  `outl page prop set hb foo=` stored an empty string, and `render` wrote that back as `foo::`.
+  `prop get` then returned `""` while the file had no line, so a reparse or a peer rebuilding from the `.md` dropped the key.
+  A blank value on `outl page prop set` (MCP `outl_page_prop_set`, batch `page_prop_set`) now removes the key, the same way `outl page prop delete` does: `Op::SetProp` with no value.
+  `prop get` afterwards returns `PROP_NOT_FOUND`.
+  The projection still skips an empty or whitespace-only value, so an older log that already holds `Text("")` stops appearing on disk.
+  `outl doctor` reports that leftover line as a stale projection, and `--repair` rewrites the page without it.
+
+- **The Android app says why when it cannot start, instead of closing on open.**
+  When a device refuses the app's native library — the 16 KB page-size failure above, or an ABI the APK does not carry — the load error surfaced inside Tauri's own startup and killed the app with nothing on screen.
+  The app now checks the library first and, if it did not load, shows a screen saying so, with the device's ABI and page size and a link to the issue tracker, and logs the same facts to logcat under `outl`.
+  Nothing after the check touches the library: the share target, the background sync worker and the activity itself all stop short of it.
+
+- **`@outl/plugin-sdk` publishes to npm again.**
+  npm was stuck at `0.12.0-beta.217`: every release since 2026-10-14 failed the publish job with `E404` on the `PUT`.
+  The npm token in the `release` environment had reached npm's 90-day cap for write tokens, and a newer repo-level token never reached the job, because an environment secret shadows a repo secret with the same name.
+  The job now publishes through npm trusted publishing (OIDC) on a GitHub-hosted runner, so there is no token to expire, and every version carries a provenance attestation.
+
+- **The Android app no longer crashes on open on a phone with 16 KB memory pages.**
+  Some Android devices page at 16 KB rather than 4 KB — the Pixel 8 and 9 families as a developer option, newer hardware by default — and there `dlopen` refuses a library whose LOAD segments are aligned to 4 KB.
+  The refusal lands on the first `System.loadLibrary`, in `MainActivity.onCreate`, so the app died before running a line of its own — on a device where nothing else was wrong.
+  Our Rust `.so` was the only one in the APK built that way; the two vendored `.aar` libraries beside it were already 16 KB aligned.
+  Neither the NDK nor rustc passes `max-page-size` for a cargo build, so the APK was correct everywhere pages are 4 KB and unusable everywhere they are not.
+  The flag now lives in `.cargo/config.toml` for both 64-bit Android targets, `zipalign` page-aligns to 16 KB instead of 4, and the release job reads the finished APK back and fails if either stops holding.
+
+- **A capture no longer loses its text when the app is killed mid-drain.**
+  Landing a capture is two separately-fsynced ops: create the block, then write its text.
+  Nothing batched them, so a process killed between the two — iOS jetsam, a `SIGKILL`, power loss — came back with the block in the tree and empty.
+  The guard that makes a drain idempotent read "the block is there" as "the capture landed", returned success, and the drain deleted the file.
+  The line then existed nowhere, and the app said `added 1 capture to your journal`.
+  A capture whose block is **empty** now has its text re-applied before the file is deleted.
+  Empty, not merely different: the same capture file reaches a second device over a `file` transport, so re-applying whenever the text diverges would let that second drain overwrite an edit the user made after the capture landed.
+
+- **A shared selection is one block again, and cannot forge page structure.**
+  "A capture is one line" was enforced where captures are written and assumed where they are read.
+  Two paths got past it.
+  `shared_line` collapsed newlines in the text but only trimmed the URL, and Android's share target puts the shared `EXTRA_TEXT` in that slot whenever a subject is present — so sharing a multi-line selection from a browser composed a line with newlines still in it.
+  And any writer outside the Rust crate (an iOS Shortcut handing the App Intent a paragraph, a capture file synced in from a peer) was landed verbatim.
+  That is not cosmetic: the renderer turns a newline into an indented continuation line, and the parser reads those back as tree structure and `key:: value` properties.
+  One multi-line capture became several blocks plus a `title::` nobody typed, and the capture's own block was moved to the trash as an orphan on the next reconcile.
+  Normalisation now happens where the bytes are **read**, so a file written by an older build or another device gets it too.
+
+- **Captures that cannot be read are reported instead of vanishing.**
+  An unreadable or malformed capture file is left in the inbox by design, but nothing said so: the desktop and phone said nothing unless something landed, and the TUI returned silently in exactly the case where *every* file in the inbox was broken.
+  The only trace was a log line nobody reads.
+  All three clients now name the count, the TUI names the folder, and `outl capture --list` points at the folder rather than at `outl doctor`, which has no inbox check.
+  A capture file over 1 MiB — which no single line is — is refused the same way instead of being read on every return to the foreground, forever.
+
 - **Tapping "+" on the phone leaves you typing, instead of staring at an empty bullet.**
   A new block appeared and its textarea really was focused — the accessibility tree said so — and no keyboard came up, so the one gesture the app exists for ended in a dead end.
   WKWebView raises the software keyboard only for a `.focus()` that happens inside the tap's own user-gesture window, and creating a block is two awaits deep: commit whatever draft is open, then `create_block` over IPC.
@@ -73,6 +211,18 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 - **Mobile command palette, and one look across desktop and phone.**
   Type `>` in the phone's Search or Pages sheet to list actions (today, capture, tasks, reminders, calendar, sync, devices, plugins, settings, fold); a plain query shows matching actions under the pages, as the desktop palette does.
   Block text and its edit box share one line height on both clients, so rows keep one rhythm and no longer jump when you start editing on the phone; task boxes use the theme's task colours on the phone too; the phone's debug footer (block and op counts) is gone, as it never was on desktop.
+- **Android: capture without opening the app.**
+  Share text or a link to outl from any app, tap a home screen widget, or pull down a quick settings tile.
+  Same hand-off iOS uses: a share lands as one `<ULID>.json` in the inbox and the app drains it into the journal for the day it was captured; the widget and the tile write nothing at all, they open `outl://capture`.
+  That scheme now has an intent filter on Android, which it did not before, so `outl://` links from anywhere open the app.
+  One difference from iOS, and the platform forced it: Android components run in the app's own process with the Rust library loaded, so the share target writes through `outl_actions::capture` rather than a second copy of the file format. Kotlin holds the folder and the strings, nothing else.
+  It also needs no "a capture arrived" notification, because a share sheet belongs to the app you are in, so outl is never on screen when the write happens ([docs/android-platform.md](docs/android-platform.md), [#363](https://github.com/outlmd/outl/issues/363)).
+
+- **`outl capture` puts a line in the journal from a terminal, without opening the workspace.**
+  `outl capture "ring the dentist"`, or `-` to read it from stdin. It lands in the journal for the day you captured it the next time a client is open: the desktop drains on launch and on window focus, the TUI at launch. `outl capture --list` shows what is still waiting.
+  This is what gives a desktop a capture gesture at all, since none of a macOS Service, a Shortcut, Raycast or a hotkey daemon can hold a workspace open. outl registers no such gesture itself, so you wire the command to whichever you use.
+  `outl daily append` is still the command when you want the block written and syncing before the process exits. Capture buys two things instead: no workspace boot, which is seconds on a large graph for one line, and no op minted under a second actor when a GUI client already holds this device's write actor ([docs/cli.md → Capture](docs/cli.md#capture), [RFC 0363](docs/rfcs/0363-ios-quick-capture.md)).
+
 - **iOS: capture without opening the app.**
   A home and lock screen widget opens the capture sheet, an "Add to today" App Intent works from Shortcuts, Siri and the Action Button, and a share extension saves text or a link.
   Extensions never touch the workspace: they drop a `<ULID>.json` into the App Group inbox and the app drains it into today's journal on launch and on a Darwin notification ([RFC 0363](docs/rfcs/0363-ios-quick-capture.md), [#363](https://github.com/outlmd/outl/issues/363)).

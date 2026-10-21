@@ -185,6 +185,14 @@ See `outl-core/CLAUDE.md` → "Actor id is device-local, and the workspace canno
   And it recognises `.outl/import-in-progress.json`, the marker a real import holds for its duration, so an import that died at page 40k of 66k is resumable with a plain re-run instead of `--force`.
   See `crates/outl-import/CLAUDE.md`; `cmd/import/mod.rs` here is pure glue (args, workspace bootstrap, report printing).
 - `outl theme list|show <preset>` — TUI theme inspection.
+- `outl telemetry status|on|off` — the terminal opt-out for crash reporting.
+  Reads/writes one boolean (`[telemetry] enabled`) in the **user-level** `~/.config/outl/config.toml`, so the dispatch takes no `resolve_path` — there is no workspace in it.
+  It exists because reporting is on by default (RFC 0377) and the TUI has no settings screen, which is why `outl_shortcuts::capability_support` declares `CrashReportingOptOut` as `Missing` there and names these verbs in the nudge.
+  **`status` goes through `outl_config::load_result()`, never `load()`.**
+  `load()` discards the read verdict, so a `config.toml` holding `enabled = false` behind a syntax error would print a flat `crash reports: on` — misreporting the state of an opt-out, which is worse than failing because the user stops looking.
+  It prints the qualified state, surfaces `Loaded::notice()` and exits non-zero instead.
+  `on`/`off` propagate `SaveError::Unreadable` rather than engulfing it: a user who typed `off` and got exit 0 would believe reporting had stopped.
+  Nothing here initialises or inspects the reporter — the four conditions an event has to clear live in `outl-telemetry`; this owns condition 3 only.
 - `outl plugin init|list|install|run|enable|disable|remove` — manage the workspace's JS plugins (under `<workspace>/.outl/plugins/`), wrapping `outl-plugins`.
   `init <NAME> [--id <ID>] [--dir <PATH>]` scaffolds a buildable plugin project (manifest + `package.json` + `tsconfig` + `src/index.ts` + README); it touches no workspace.
   Templates live in `cmd/plugin_init.rs`.
@@ -218,7 +226,7 @@ Each handler returns a `serde_json::Value` so the same code path serves both the
   `cmd/history.rs` renders both — glue only, `outl_actions::timeline` owns what an event is.
   Two things the renderer must not lose: `--limit` caps the listing and never the count (a capped list that reports its own length as the total reads as the whole history), and a `deleted` row always prints the text the deletion took, since that is what someone opens a history to find.
   **No MCP tool, and not one call away from having one.** Both are `run_page(path, …) -> i32` / `run_block(path, …) -> i32`: they open the workspace themselves and print, where MCP dispatch wants `fn(ctx: &WsCtx, …) -> Result<Value, ApiError>` like every other handler in this crate. Wiring them up means extracting the `Value` half first, then registering in `mcp/tools::list` + `run_tool`.
-- `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree|history` (`append-tree` takes `--tree=<JSON|->`)
+- `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree|history|prop` (`append-tree` takes `--tree=<JSON|->`; `prop` is `set|get|list|delete`, documented with the other property commands in [`docs/cli.md`](../../docs/cli.md#tags--properties))
 - `outl daily today|get|append|range`
 - `outl asset add <file> [--page=<slug>] [--daily]` — import a file into `<workspace>/assets/` (content-addressed) and append its markdown link as a new block (daily by default, or a page).
   Glue only: copy + hash + link live in `outl_actions::import_asset`; the block append routes through `outl-actions` like every other mutation.
@@ -233,7 +241,7 @@ Each handler returns a `serde_json::Value` so the same code path serves both the
   **No `trash empty`** — the only destroying operation here, so it belongs with `outl compact` (#110), and retention is a stated policy in [`docs/cli.md`](../../docs/cli.md#trash) rather than an inferred one.
 - `outl backlinks page|block|embed`
 - `outl tag list|pages`
-- `outl prop set|get|list`
+- `outl prop set|get|list|delete` (`delete`, and a blank `set key=`, are `set_property(..., None)` through `commit_with`)
 - `outl template list|apply|resolve|run` — template pages.
   `list` finds every page with a non-empty `template::` property.
   `apply` instantiates a structural template under a target block.
@@ -358,6 +366,7 @@ src/
 │   ├── reconcile.rs       # outl reconcile
 │   ├── recover.rs         # outl recover — op-log-side text recovery
 │   ├── theme.rs           # outl theme
+│   ├── telemetry.rs       # outl telemetry — crash-reporting opt-out (no workspace)
 │   ├── import/            # outl import — glue over the outl-import crate
 │   │   ├── mod.rs         #   adapters, --dry-run, auto-detect, progress line, report printing
 │   │   └── guard.rs       #   re-import safety: op-log occupancy + the in-progress marker
@@ -368,6 +377,8 @@ src/
 │   ├── page.rs            # outl page …
 │   ├── plugin.rs          # outl plugin …
 │   ├── block.rs           # outl block …
+│   ├── block_print.rs     # human printers for `outl block`
+│   ├── block_prop.rs      # outl block prop …
 │   ├── daily.rs           # outl daily …
 │   ├── search.rs          # outl search
 │   ├── query.rs           # outl query
@@ -383,6 +394,7 @@ src/
     ├── tools/
     │   ├── mod.rs         #   shared helpers (tool_def, require_str, …)
     │   ├── registry.rs    #   tools/list schema list
+    │   ├── block_prop_schema.rs # block-prop tool schemas
     │   ├── dispatch.rs    #   tools/call router → cmd/* handlers
     │   └── payload.rs     #   LLM-facing result projection (see MCP section)
     ├── resources.rs       # outl:// URI handlers + templates
@@ -415,6 +427,8 @@ If it deliberately skips a step — a bulk import that announces once at the end
 - Machine-shaped handlers always return `Result<Value, ApiError>`.
 - Mutating commands take the workspace lock through `ws::open`.
   Two `outl` processes can't race against `outl serve` or each other.
+- Read-only commands open through `ws::open_read`.
+  They take no per-actor write lock and mint no actor.
 - `anyhow::Result` on lifecycle commands (`init`, `serve`, `doctor`) is kept — those produce human errors and never JSON.
 
 ## What this crate does NOT do

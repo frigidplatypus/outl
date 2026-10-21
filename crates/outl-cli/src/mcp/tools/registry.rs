@@ -10,7 +10,7 @@ use super::tool_def;
 
 /// Every MCP tool we expose, with its JSON Schema input.
 pub fn list() -> Vec<Value> {
-    vec![
+    let mut tools = vec![
         // Page
         tool_def(
             "outl_page_get",
@@ -402,7 +402,7 @@ pub fn list() -> Vec<Value> {
         // Page properties
         tool_def(
             "outl_page_prop_set",
-            "Set a page-level `key:: value` property.",
+            "Set a page-level `key:: value` property. An empty or whitespace-only value removes the key.",
             json!({
                 "type": "object",
                 "properties": {
@@ -432,6 +432,18 @@ pub fn list() -> Vec<Value> {
                 "type": "object",
                 "properties": { "page": { "type": "string" } },
                 "required": ["page"]
+            }),
+        ),
+        tool_def(
+            "outl_page_prop_delete",
+            "Remove a page property. Writes SetProp with no value, so the key leaves the tree and the .md.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "page": { "type": "string" },
+                    "key": { "type": "string" }
+                },
+                "required": ["page", "key"]
             }),
         ),
         // Export
@@ -468,7 +480,7 @@ pub fn list() -> Vec<Value> {
         // Batch
         tool_def(
             "outl_batch",
-            "Apply write ops in one session (stops on first error, reports `failed_at` + `applied`). Use for multi-step authoring so each op skips a round-trip. `op` is one of: page_create, page_update, page_delete, page_rename, block_append, block_append_tree, block_insert, block_update, block_move, block_delete, block_toggle_todo, daily_append, page_prop_set; each op's `args` mirror the matching `outl_<op>` tool.",
+            "Apply write ops in one session (stops on first error, reports `failed_at` + `applied`). Use for multi-step authoring so each op skips a round-trip. `op` is one of: page_create, page_update, page_delete, page_rename, block_append, block_append_tree, block_insert, block_update, block_move, block_delete, block_toggle_todo, daily_append, page_prop_set, page_prop_delete; each op's `args` mirror the matching `outl_<op>` tool.",
             json!({
                 "type": "object",
                 "properties": {
@@ -543,7 +555,9 @@ pub fn list() -> Vec<Value> {
                 "required": ["name", "page", "block"]
             }),
         ),
-    ]
+    ];
+    tools.extend(super::block_prop_schema::defs());
+    tools
 }
 
 #[cfg(test)]

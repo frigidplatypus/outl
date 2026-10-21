@@ -128,7 +128,7 @@ Affected blocks come back in `affected_refs` so the caller can decide whether to
 Pass `--content -` to read the JSON from stdin.
 The returned `content` array mirrors the input and carries the freshly minted block ids, so the caller can keep referencing them in follow-ups.
 
-`page create --slugify` treats the positional argument as a human name and derives the slug from it through the shared `outl_md::slugify` rule (lowercase, fold Latin accents, non-alphanumeric → `-`, collapse + trim).
+`page create --slugify` treats the positional argument as a human name and derives the slug from it through the shared `outl_md::slugify` rule (NFC, lowercase, fold Latin accents, keep any other letter or digit so `[[你好]]` is `pages/你好.md`, everything else → `-`, collapse + trim, cap at `MAX_SLUG_BYTES` with a digest suffix).
 It is opt-in and idempotent on an already-clean slug, so the default path — and the `outl_page_create` MCP tool — stay literal, keeping hierarchical slugs like `ai-agent/learning` verbatim.
 The flag exists so external clients (the Raycast extension's "New Page") can ask the user for a name only and let the one owner of the rule generate the slug, instead of re-implementing slugify.
 
@@ -168,6 +168,38 @@ Prefer this over chained `outl block append` calls when authoring structured con
 
 `<date>` accepts ISO (`2026-05-31`) and natural (`"April 22nd, 2026"`, `"yesterday"`, `"tomorrow"`).
 Range is inclusive on both sides and emits one entry per day in the interval — days that have no materialised journal come back as `{ exists: false }` placeholders so the caller can spot gaps.
+
+### Capture
+
+| CLI                                   | MCP tool |
+|---------------------------------------|----------|
+| `outl capture <text>` (`-` = stdin)   | —        |
+| `outl capture --list`                 | —        |
+
+Drops one line into the workspace's capture inbox (`<root>/.outl/captures/`) **without opening the workspace**.
+It becomes a block at the end of the journal for the day it was captured the next time a client is open — the desktop and phone apps drain on launch and on every return to the foreground, the TUI drains at launch.
+RFC 0363 owns the design; [`clients.md` → Capturing from outside the app](clients.md#capturing-from-outside-the-app) is the user-facing half.
+
+This is the entry point for every scriptable capture gesture: a macOS Service or Shortcut, Raycast, Alfred, a hotkey daemon, a shell alias.
+
+```bash
+outl capture "ring the dentist"
+pbpaste | outl capture -          # whatever's on the clipboard, as one block
+outl capture --list               # what's still waiting
+```
+
+**`outl capture` vs `outl daily append`** — they are not the same command with different spellings:
+
+| | `outl capture` | `outl daily append` |
+|---|---|---|
+| Writes | one small file | ops, straight into the op log |
+| Workspace boot | none | yes — seconds on a large graph |
+| Synced when the command exits | no | yes |
+| With a GUI client running | lands under *its* actor | falls back to an ephemeral actor, leaving a fresh `ops-<ulid>.jsonl` per call |
+| Text shape | collapsed to one line | kept as given |
+
+Reach for `append` when you want the line durable and syncing before the process exits, and for `capture` when the cost of a boot per line is the thing you are avoiding.
+No MCP tool: an MCP server has the workspace open already, so `outl_daily_append` is strictly better there.
 
 ### Asset
 
@@ -260,8 +292,22 @@ No client has a trash surface yet — it is CLI and MCP only, recorded as `Capab
 | `outl page prop set <page> <key>=<value>`        | `outl_page_prop_set` |
 | `outl page prop get <page> <key>`                | `outl_page_prop_get` |
 | `outl page prop list <page> [--json]`            | `outl_page_prop_list`|
+| `outl page prop delete <page> <key>`             | `outl_page_prop_delete`|
+| `outl block prop set <id> <key>=<value>`         | `outl_block_prop_set` |
+| `outl block prop get <id> <key>`                 | `outl_block_prop_get` |
+| `outl block prop list <id> [--json]`             | `outl_block_prop_list`|
+| `outl block prop delete <id> <key>`              | `outl_block_prop_delete` |
 
-Properties stay in the `key:: value` lines at the top of the page; the CLI never invents a new place to put metadata (see [docs/markdown-format.md](markdown-format.md)).
+Page properties stay in the `key:: value` lines at the top of the page; the CLI never invents a new place to put metadata (see [docs/markdown-format.md](markdown-format.md)).
+`delete` removes the key: it appends `Op::SetProp` with no value, which is what the tree already treats as removal.
+`set` with an empty or whitespace-only value does the same removal, so `prop get` returns `PROP_NOT_FOUND` and the `.md` has no `key::` line.
+The projection also skips an empty value an older log still holds, so a bare `key::` is not written back.
+A block property is the same `key:: value` line indented under that block.
+`<id>` is the block id `block append` and `block get` return.
+`outl block prop delete`, and `set` with an empty value (`key=`), remove the key, so the rendered page does not keep a bare `key::` line.
+`set` rejects a value that contains a newline, a carriage return, or a null byte (`INVALID_ARG`) and leaves the page untouched.
+A `::` inside the value is kept (`url:: https://a::b` reads back as `https://a::b`).
+`list` returns every property on the block, alphabetical by key.
 
 ### Export
 
@@ -313,7 +359,7 @@ Input shape:
 }
 ```
 
-Supported `op` names: `page_create`, `page_update`, `page_delete`, `page_rename`, `block_append`, `block_append_tree`, `block_insert`, `block_update`, `block_move`, `block_delete`, `block_toggle_todo`, `daily_append`, `page_prop_set`.
+Supported `op` names: `page_create`, `page_update`, `page_delete`, `page_rename`, `block_append`, `block_append_tree`, `block_insert`, `block_update`, `block_move`, `block_delete`, `block_toggle_todo`, `daily_append`, `page_prop_set`, `page_prop_delete`.
 Each op's `args` mirror the matching standalone tool.
 
 **Semantics: stop-on-first-error.** When an op fails, earlier ops stay in the op log (they're already CRDT ops; we don't roll them back) and the response carries `failed_at`, `failed_op`, and `error` so the caller can decide what to do with the suffix that never ran.
@@ -333,10 +379,12 @@ CLI exit code is `1` in that case; MCP returns the payload via the normal envelo
 | `outl peer pair\|qr\|list\|remove\|status\|revoke-all` | —                 |
 | `outl plugin init\|search\|list\|install\|run\|config\|secret\|enable\|disable\|remove` | — |
 | `outl sync`                                  | —                       |
+| `outl telemetry status\|on\|off`             | —                       |
 | `outl workspace info [--json]`               | `outl_workspace_info`   |
 | `outl import roam\|logseq\|obsidian\|auto <src> <dst> [--dry-run] [--json] [--preserve-timestamps] [--no-assets] [--force]` | — |
 
 `init`, `serve`, `reconcile`, `recover`, `compact`, `import`, `mcp serve`, `peer`, `plugin`, and `sync` are CLI-only on purpose — they're either interactive, long-running, or bootstrap commands that don't fit a tool-call shape.
+`telemetry` is CLI-only for a different reason: it is a person's consent, and MCP is a program's surface rather than a person's.
 
 
 Importing a graph has its own page: [**Importing a graph**](import.md) — sources and dialect translations, what `--force` does and why re-importing is opt-in, the resumable-without-`--force` rule, and the reconciliation table that accounts for every block the source held.
@@ -411,6 +459,8 @@ It re-reads `.outl/peers.json` and rebuilds the transport when that file changes
 
 **Which flag to run permanently.**
 The watcher emits ops, so it takes the exclusive per-actor write lock, and any process that loses the race for the device actor gets a fresh ephemeral actor and its own `ops-<ulid>.jsonl`.
+A command that only reads (`outl workspace info`, `outl search`, `outl query`, and the other read subcommands) does not take that lock and does not mint.
+A command that appends still does.
 That is cheap for an occasional overlap and expensive for a daemon: `outl serve` running forever holds the device actor, so every later GUI or TUI launch mints one more op-log file.
 
 The sync half has no such cost — the transport writes peer ops to `ops-<peer>.jsonl` and uses your actor id only for the vector clock it offers.
@@ -570,6 +620,39 @@ On that workspace the naive rule matched 99.9% of `Move` ops and the sound predi
 
 Measured: **62,209 of 217,811 ops dropped (28.6%)**, `ops/` 262MB → 195MB, materialized tree, properties and collapsed flags **byte-identical**, `outl doctor` reporting `integrity OK`.
 
+### `outl telemetry`
+
+Show or change whether this device sends crash reports.
+
+Reporting is **on by default** ([RFC 0377](rfcs/0377-crash-reporting.md)), so this command is the whole opt-out for anyone working from the TUI or the terminal.
+The desktop and mobile apps carry the same switch in their Settings, writing the same flag.
+
+```
+outl telemetry status   # is this device sending crash reports?
+outl telemetry on       # start sending them
+outl telemetry off      # stop sending them
+```
+
+**What a report carries:** the error message, where in outl's own source it happened (`file:line`), which client it was, its version, your OS and your CPU architecture.
+
+**What it never carries:** page titles, block text, file paths, your workspace location, your hostname, your username, or an account — there isn't one.
+Nothing in a report joins two of them into one person.
+The full account of what is sent, where it goes and how long it is kept lives in [privacy.md](privacy.md).
+
+The flag is `[telemetry] enabled` in `~/.config/outl/config.toml` — device-local, not per-workspace.
+It is read at process start, before a workspace exists, which is exactly when a boot crash happens.
+Consent is a property of the person rather than of the hardware, so a replicated `~/.config` carrying it to the next machine is the behaviour we want here, unlike the device actor.
+
+Two things the command refuses to do quietly:
+
+- **`status` never answers from a default.**
+  A `config.toml` it cannot parse is named, and the command exits non-zero, because printing the on-by-default as though you had chosen it is the worst thing a switch like this can say.
+- **`on` / `off` refuse to write over a config that did not parse.**
+  They write the whole struct, so saving there would replace your theme, `vim_mode`, timezone and `[sync] transport` with defaults.
+  Fix the file the error names, then run the verb again.
+
+There is deliberately no generic `outl config set <key> <value>`: that needs a schema story for every key in `Config`, which is a much larger change than the one boolean this command owns.
+
 ### `outl page history` / `outl block history`
 
 What the op log says happened, newest first.
@@ -657,11 +740,13 @@ Shipping today:
 - `outl page get|create|update|delete|list|rename|render` (`create` accepts `--content` to seed the outline in one call)
 - `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree`
 - `outl daily today|get|append|range`
+- `outl capture <text>|-|--list` — a line into the capture inbox, no workspace boot (RFC 0363)
 - `outl search "<query>" [--in=blocks|pages|all]`
 - `outl query [--tag] [--not-tag] [--priority] [--not-priority] [--since=Nd] [--not-since] [--kind] [--not-kind] [--prop k[=v]] [--not-prop k[=v]]`
 - `outl backlinks page|block|embed`
 - `outl tag list|pages`
-- `outl page prop set|get|list`
+- `outl page prop set|get|list|delete`
+- `outl block prop set|get|list|delete`
 - `outl export hugo|md|json`
 - `outl template list|apply|resolve|run`
 - `outl batch` — stream `{ops: [...]}` from stdin (or `--ops=…`)
@@ -671,6 +756,5 @@ Shipping today:
 Still ahead:
 
 - Richer `outl query --raw='…'` DSL (today returns `INVALID_ARG`).
-- Per-page block-level property surface beyond the well-known keys the `prop list` probe enumerates.
 
 The order of landing matched the order of unlocking real workflows (scripts → LLM agents in Claude Code → Claude Desktop → blog publishing pipeline).

@@ -50,25 +50,60 @@ fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Names of every `*_commands!` macro the catalog defines.
+/// Every `*_commands!` macro the catalog defines, across **all** of
+/// `src/wrappers/`.
+///
+/// Not `catalog.rs` alone. That file sits at its size ceiling, so a
+/// module that lands when it is full gets its own file beside it
+/// (`wrappers/capture.rs`), and a reader that only knows `catalog.rs`
+/// cannot see it — which is how `drain_capture_inbox` ended up
+/// registered on mobile and absent on the desktop with no row saying
+/// so, the exact shape this test exists to catch, one level down.
 fn catalog_macros() -> BTreeSet<String> {
-    let path = manifest_dir().join("src/wrappers/catalog.rs");
-    let src = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-    let found: BTreeSet<String> = src
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("macro_rules! "))
-        .filter_map(|rest| rest.strip_suffix(" {"))
-        .filter(|name| name.ends_with("_commands"))
-        .map(str::to_string)
+    let found: BTreeSet<String> = wrapper_sources()
+        .iter()
+        .flat_map(|(_, src)| {
+            src.lines()
+                .filter_map(|line| line.trim().strip_prefix("macro_rules! "))
+                .filter_map(|rest| rest.strip_suffix(" {"))
+                .filter(|name| name.ends_with("_commands"))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
         .collect();
     assert!(
-        !found.is_empty(),
-        "no `*_commands!` macros found in {} — the parser is reading the \
-         wrong shape and this test proves nothing",
-        path.display()
+        found.len() > 5,
+        "only {} `*_commands!` macros found under src/wrappers/ — the parser \
+         is reading the wrong shape and this test proves nothing",
+        found.len()
     );
     found
+}
+
+/// `(path, contents)` for every `src/wrappers/*.rs` except `mod.rs`,
+/// which holds the generator rather than a command module.
+fn wrapper_sources() -> Vec<(PathBuf, String)> {
+    let dir = manifest_dir().join("src/wrappers");
+    let mut out = Vec::new();
+    let entries =
+        std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
+    for entry in entries {
+        let path = entry.expect("readable dir entry").path();
+        if path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        if path.file_stem().is_some_and(|s| s == "mod") {
+            continue;
+        }
+        let src = std::fs::read_to_string(&path).expect("readable wrapper module");
+        out.push((path, src));
+    }
+    assert!(
+        !out.is_empty(),
+        "no wrapper modules under {}",
+        dir.display()
+    );
+    out
 }
 
 /// Macros a client invokes anywhere under its `commands/` directory.
@@ -228,9 +263,14 @@ fn every_generated_command_is_registered_with_tauri() {
 
 /// Command names the catalog's `*_commands!` macros generate.
 fn generated_command_names() -> BTreeSet<String> {
-    let path = manifest_dir().join("src/wrappers/catalog.rs");
-    let src = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    wrapper_sources()
+        .iter()
+        .flat_map(|(_, src)| command_names_in(src))
+        .collect()
+}
+
+/// Command names one wrapper module's `*_commands!` bodies declare.
+fn command_names_in(src: &str) -> BTreeSet<String> {
     src.lines()
         .filter_map(|line| {
             let line = line.trim();

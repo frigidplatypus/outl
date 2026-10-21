@@ -18,6 +18,7 @@
 
 pub(crate) mod asset;
 pub(crate) mod block;
+pub(crate) mod capture;
 pub(crate) mod exec;
 pub(crate) mod history;
 pub(crate) mod open_with;
@@ -28,6 +29,7 @@ pub(crate) mod plugin;
 pub(crate) mod property;
 pub(crate) mod reminders;
 pub(crate) mod shortcuts;
+pub(crate) mod telemetry;
 pub(crate) mod template;
 pub(crate) mod theme;
 pub(crate) mod timeline;
@@ -35,6 +37,7 @@ pub(crate) mod workspace;
 
 pub(crate) use asset::*;
 pub(crate) use block::*;
+pub(crate) use capture::*;
 pub(crate) use exec::*;
 pub(crate) use history::*;
 pub(crate) use open_with::*;
@@ -45,6 +48,7 @@ pub(crate) use plugin::*;
 pub(crate) use property::*;
 pub(crate) use reminders::*;
 pub(crate) use shortcuts::*;
+pub(crate) use telemetry::*;
 pub(crate) use template::*;
 pub(crate) use theme::*;
 pub(crate) use timeline::*;

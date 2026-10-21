@@ -5,6 +5,7 @@
 @import "@outl/shared/trust/styles";
 @import "@outl/shared/polish/styles";
 @import "@outl/shared/plugins/styles";
+@import "@outl/shared/diagram/styles";
 
 /* Scan the shared package too: the inline ref/tag/link classes live only
    in `MarkdownInline.tsx`, so without this Tailwind never emits them and
@@ -149,6 +150,7 @@
   --color-outl-ref-link-fg: #a78bfa;
   --color-outl-tag-link-fg: #f0abfc;
   --color-outl-md-link-fg: #7dd3fc;
+  --color-outl-bold-fg: #f4f1fa;
   --color-outl-code-fg: #d6ff47;
   --color-outl-todo-open-fg: #fbbf24;
   --color-outl-todo-done-fg: #d6ff47;
@@ -161,6 +163,12 @@
   --radius-capsule: 9999px;
   --shadow-capsule: 0 4px 16px color-mix(in srgb, var(--color-outl-fg) 10%, transparent);
   --blur-chrome: 24px;
+
+  /* The crash-reporting strip (`@outl/shared/polish`) is `fixed` to the
+     bottom, where this client already floats `BottomBar`. Lift it clear
+     of that capsule plus the home indicator; the shared stylesheet
+     defaults to a desktop window, whose bottom edge is empty. */
+  --outl-notice-offset: calc(max(env(safe-area-inset-bottom), 12px) + 60px);
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",

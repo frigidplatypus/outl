@@ -61,7 +61,7 @@ Every entry here routes through `Workspace::apply` — never build a `LogOp` fro
 | Open-or-create a page from a **human-typed name** (slugifies + keeps original as title, used when a `[[ref]]` / `#tag` / picker query may not be a valid slug) | `outl_actions::resolve::open_or_create_by_name` | `crates/outl-actions/src/resolve.rs` |
 | Open-or-create whatever a **user-typed ref target** points at (date → journal, else literal/slugified/title match → existing page, else create) — handles `@`-prefixed mentions by stripping the `@` and marking new pages as `type:: person`; the one decision tree so frontend regex and backend parser cannot drift on `[[2026-13-01]]` or `[[@avelino]]` | `outl_actions::resolve::open_or_create_by_ref` | `crates/outl-actions/src/resolve.rs` |
 | Search pages typed `type:: person`, fuzzy-ranked by query (powers the `@` mention autocomplete in every client) | `outl_actions::person::search_persons` | `crates/outl-actions/src/person.rs` |
-| Read / write a property on a page (or any node) | `outl_actions::page::read_text_prop` / `set_property` | `crates/outl-actions/src/page.rs` |
+| Read / write a property on a page (or any node). `None` removes the key (`Op::SetProp` with no value). `Text("")` stores an empty string; the markdown projection omits that line. CLI, MCP and batch `page prop set` map a blank value to `None` | `outl_actions::page::read_text_prop` / `set_property` | `crates/outl-actions/src/page.rs` |
 | Toggle the `pinned::` page property (already an `Op::SetProp`, converges via the op log per root `CLAUDE.md` invariant 7); refuses journal pages (`ActionError::CannotPinJournal`), returns the new pinned state | `outl_actions::page::toggle_pin` | `crates/outl-actions/src/page.rs` |
 | Import an **external** `.md` / `.txt` the OS handed a client ("Open With → outl") as a page under the `open-in/` namespace. Three pieces: `read_source` (extension + size + UTF-8 refusals, worded once), `resolve_target` (the internal `page-source::` lookup, never rendered into the `.md` that makes re-opening a file *navigate* instead of importing a duplicate, and keeps two same-named files apart), `import_into` (create + `paste_markdown` + the `[[ref]]` into today's journal, returning `ImportOutcome { page, journal }` so the caller projects both). The namespace is a **title**, so the slug stays one path component and `open-in` becomes a real parent page | `outl_actions::open_with::{read_source, resolve_target, import_into, OpenWithTarget, is_supported, OPEN_WITH_NAMESPACE, SOURCE_KEY, SUPPORTED_EXTENSIONS, MAX_IMPORT_BYTES}` | `crates/outl-actions/src/open_with.rs` |
 | Migrate pre-page-model blocks under today's journal (run on boot) | `outl_actions::page::migrate_legacy_into_today` | `crates/outl-actions/src/page.rs` |
@@ -250,9 +250,33 @@ User-facing spec: [`reminders.md`](reminders.md).
 | Local wall clock ↔ epoch ms, resolved through the configured timezone (never `chrono::Local` directly) | `outl_actions::local_naive_to_epoch_ms` / `epoch_ms_to_local_naive` | `crates/outl-actions/src/reminders/mod.rs` |
 | Read a block's converged snooze instant | `outl_core::tree::Tree::snoozed_until` / `snoozed_ids` | `crates/outl-core/src/tree/mod.rs` |
 | Every node carrying a given property key, without a tree walk (the transpose of `properties_of`; `O(total properties)`, materializes no block text) | `outl_core::tree::Tree::nodes_with_property` | `crates/outl-core/src/tree/mod.rs` |
-| Device-local delivery preferences (`enabled`, quiet hours as `(start, end)` minutes) | `outl_config::RemindersCfg` / `RemindersCfg::quiet_window` | `crates/outl-config/src/schema.rs` |
+| Device-local delivery preferences (`enabled`, quiet hours as `(start, end)` minutes) | `outl_config::RemindersCfg` / `RemindersCfg::quiet_window` | `crates/outl-config/src/schema/schedule.rs` |
 | Deliver what came due + update the device-local fired log (7-day TTL, `<root>/.outl/reminders-fired.json` — a dotfile so it never rides the sync surface). In `outl-actions` because **every** client delivers, the TUI included; behind the Tauri layer the TUI couldn't reach it | `outl_actions::take_due` (+ `load_fired_log` / `save_fired_log` / `fired_log_path` / `FIRED_TTL_DAYS`) | `crates/outl-actions/src/reminders/fired.rs` |
 | Format "in 3h" / "tomorrow 09:00" and bucket a list Today / Tomorrow / This week / Later / Done (shared by both GUI clients) | `@outl/shared` `formatNextFire` / `groupReminders` | `crates/outl-frontend-shared/src/api/commands.ts` |
+
+---
+
+## 7b. Capture from outside the app (RFC 0363)
+
+A line captured where outl is not on screen — an iOS widget, App Intent or share extension, an Android share target, widget or quick settings tile, `outl capture` and whatever a desktop user wires it into.
+
+**No writer touches the workspace.** Each capture is one `<ULID>.json` file in an inbox, and `drain_capture_dir` is the only path from there into the op log (root `CLAUDE.md` invariant 7).
+The block id **is** the capture's ULID, which is what makes a drain idempotent after a crash and what makes two devices draining the same synced file converge on one block.
+The format has exactly one second implementation, `OutlKit/Capture/CaptureInbox.swift`, because an iOS extension cannot load this library; Android reaches these functions through JNI, so Kotlin holds no copy.
+User-facing spec: [`clients.md` → Capturing from outside the app](clients.md#capturing-from-outside-the-app).
+
+| Intent | Use this | File |
+|---|---|---|
+| Write one capture (create-temp, fsync, rename, so a drain sees a whole capture or none) | `outl_actions::capture::write_capture` | `crates/outl-actions/src/capture.rs` |
+| Turn a share sheet's text + URL into the one line that goes in (newlines collapse; a capture is one block). THE single owner — mirrored only in `SharedLine.swift` | `outl_actions::capture::shared_line` | `crates/outl-actions/src/capture.rs` |
+| The inbox a mobile shell exported (iOS App Group container, Android `filesDir`) | `outl_actions::capture::inbox_from_env` / `CAPTURE_INBOX_ENV` | `crates/outl-actions/src/capture.rs` |
+| The workspace's own inbox, `<root>/.outl/captures` — what `outl capture` writes and every client with an open workspace drains | `outl_actions::capture::inbox_in_workspace` | `crates/outl-actions/src/capture.rs` |
+| Everything waiting in an inbox, in capture order (a temp file is skipped, an unreadable one is counted and left) | `outl_actions::capture::pending_captures` → `(Vec<PendingCapture>, usize)` | `crates/outl-actions/src/capture.rs` |
+| **Land every waiting capture and delete its file.** THE single owner of the drain *loop* — which captures are skipped, that a file goes only after its op, in what order. The per-capture step is a closure because the callers lock differently | `outl_actions::capture::drain_captures` → `DrainReport` (and `drain_capture_dir`, it against a `&mut Workspace`) | `crates/outl-actions/src/capture.rs` |
+| The journal day a capture belongs to — the day it was **made**, in the configured timezone (so a 23:58 capture drained at 00:10 lands on the right day) | `outl_actions::capture::capture_day` | `crates/outl-actions/src/capture.rs` |
+| Land one capture into a page (idempotent: a block already in the tree is left alone) | `outl_actions::capture::land_capture` / `capture_page` | `crates/outl-actions/src/capture.rs` |
+| The same drain behind a Tauri command, over both inboxes, with the page projected | `outl_tauri_shared::capture_inbox::drain_capture_inbox` (`drain_capture_inbox` command) | `crates/outl-tauri-shared/src/capture_inbox.rs` |
+| Drain on mount, on foreground, and when the native side says one arrived | `@outl/shared` `installForegroundRefresh` / `drainOnce` | `crates/outl-frontend-shared/src/capture/index.ts` |
 
 ---
 

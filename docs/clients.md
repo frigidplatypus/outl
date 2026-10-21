@@ -76,7 +76,8 @@ They arbitrate between processes on one machine and can never arbitrate between 
 
 ### What happens when the actor lock is contended
 
-The CLI and TUI mint a fresh ephemeral actor and write to a brand-new `ops-<ephemeral>.jsonl` (`outl_core::resolve_write_actor`).
+A CLI command that appends, and the TUI, mint a fresh ephemeral actor and write to a brand-new `ops-<ephemeral>.jsonl` (`outl_core::resolve_write_actor`).
+A CLI command that only reads opens through `outl_ws::open_read` and takes no per-actor lock, so contention does not mint an actor for it.
 **The GUI clients refuse the open instead**, and the difference is not an oversight.
 
 A GUI's `HlcGenerator` is built in `setup()`, before a workspace is picked, and every op it stamps carries that generator's actor for the life of the process.
@@ -373,6 +374,56 @@ Desktop and mobile share the drop-handling code (`installFileDrop` + `importAsse
 See [`outl-frontend-shared/CLAUDE.md`](../crates/outl-frontend-shared/CLAUDE.md#todays-surface) for the pure helpers underneath.
 The TUI has no OS drag events over SSH/tmux, so it treats a lone pasted file path as a drop instead (`outl-tui/CLAUDE.md` → "Drag-and-drop file upload").
 
+## Capturing from outside the app
+
+The cost of a thought is the time between having it and seeing it written down, and on a phone the whole app launch sits in the middle of that.
+So every client has a way to add a line to today's journal **without outl being on screen**.
+
+| Client | Gestures |
+|---|---|
+| iOS | Home Screen and Lock Screen widget, the "Add to today" Shortcut (Siri and the Action button use the same one), the share sheet |
+| Android | the share sheet, a home screen widget, a quick settings tile |
+| Desktop | `outl capture "your line"`, and whatever you wire it to — a macOS Service or Shortcut, Raycast, Alfred, a hotkey daemon |
+| TUI | `outl capture` from any terminal; it lands the next time you start outl here |
+
+**What the words mean.** A widget or a Shortcut says *"Saved, opens in outl"*, never "added".
+The line is on that device and not yet in the journal, not yet on your other devices.
+That is not hedging — it is the actual state, and RFC 0363 picked it over a reassuring lie.
+
+### Why it waits instead of being written straight away
+
+A widget, a share extension and a Shortcut each run in **their own process**, with their own sandbox and a memory ceiling far below what opening a workspace needs.
+None of them can hold the workspace open, and root [`CLAUDE.md`](../CLAUDE.md) invariant 7 forbids a second process appending to the op log behind the app's back.
+
+So each capture is one small file in an inbox, and the app turns it into a block:
+
+- **On launch, on every return to the foreground**, and — on iOS — within about a second when something writes while the app is already open.
+- Into the journal for the day the capture was **made**, not the day it was drained. A line captured at 23:58 and drained at 00:10 belongs to the 23:58 day, which means a drain can create a past day's journal page.
+- In capture order, and never twice: the block's id *is* the capture's id, so a drain interrupted between writing the op and deleting the file replays onto the same block.
+- Ordered against your own typing by **drain** time. A line captured on the lock screen while the app sat in the background appears below whatever you typed after it — the honest order of what the app saw.
+
+The block is an ordinary block from there on: it syncs, `Cmd+Z` undoes it, and it carries its capture time.
+
+**A capture is always one line.**
+Share a multi-line selection from a browser, or pipe a paragraph into `outl capture -`, and what lands is those lines joined by spaces, because a capture is one block.
+Newlines are collapsed when the capture is **read**, not only when it is written, so a file from an older build or copied in from another device gets the same treatment.
+
+**A capture that cannot be read is reported, not dropped.**
+A file the app fails to parse — or one over 1 MiB, which no single line is — stays in the inbox and is counted.
+The app says so when it drains, and `outl capture --list` names the folder it is sitting in.
+The alternative is a line that silently never appears, which is the failure this feature exists to prevent.
+
+**If you never open the app, the captures wait.** They are on that one device and they are not synced. `outl capture --list` shows what is still waiting in a workspace.
+
+### `outl capture` is not `outl daily append`
+
+`outl daily append --text=…` writes the block into the op log immediately, and is the better command when a second of workspace boot is free.
+`outl capture` writes a file and lets the app land it. Two things make that the right trade for a capture gesture: it pays no workspace boot, and it does not mint ops under a second actor when a GUI client is already holding the device's write actor.
+The full comparison is in [`cli.md` → Capture](cli.md#capture).
+
+Per-client coverage: `CaptureOutsideTheApp` in [`client-parity.md`](client-parity.md).
+Design, the rejected alternatives, and what this makes worse: [RFC 0363](rfcs/0363-ios-quick-capture.md).
+
 ## Opening a file from the OS ("Open With → outl")
 
 A file manager can hand outl a `.md` / `.markdown` / `.txt` / `.text` file that lives **outside** the workspace.
@@ -391,7 +442,7 @@ The content split follows the paste pipeline, not a second rule: a bulleted `.md
 **The imported page is linked from today's journal.**
 A `[[open-in/<name>]]` block lands in the journal for the day the import happened, so the page has a trail: outl is journal-first, and a page reachable only by search is a page you forget you have.
 It is a ref, not plain text, so the page itself lists that entry under its backlinks.
-The ref names whichever of title or slug actually resolves: a ref is matched by slugified name before an exact title, so a page whose title no longer derives its slug (the non-ASCII fallback above) is linked by slug, or the link would open the `open-in` index instead.
+The ref names whichever of title or slug actually resolves: a ref is matched by slugified name before an exact title, so a page whose title no longer derives its slug (a stem of only punctuation or emoji, which falls back to `open-in-untitled`) is linked by slug, or the link would open the `open-in` index instead.
 Re-opening a file imports nothing and therefore writes no second entry, however many times you open it.
 
 | Client | How a file reaches it |
