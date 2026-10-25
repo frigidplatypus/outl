@@ -381,3 +381,42 @@ describe("the hover affordance does not move the page", () => {
     expect(row(host).className).not.toContain("absolute");
   });
 });
+
+/**
+ * The hover affordance paints over the block's first line, so its width
+ * is not cosmetic: at "+ prop" it hid the last word of any line that
+ * reached the right edge, which on a wide window is most of them. The
+ * page header renders the same button in flow with a row to itself and
+ * keeps the noun. The meaning lives in the label and the tooltip either
+ * way, which is why the short spelling is allowed to be a bare glyph.
+ */
+describe("the add affordance is as wide as its placement allows", () => {
+  it("spells the noun where it sits in the flow", async () => {
+    knownPropertyKeys.mockResolvedValue([]);
+    const host = mount(() => (
+      <PropertyEditor
+        properties={[]}
+        onCommit={vi.fn()}
+        addAffordance="always"
+      />
+    ));
+    await flush();
+
+    expect(byLabel(host, "Add property").textContent?.trim()).toBe("+ prop");
+  });
+
+  it("shrinks to a glyph where it covers the block's text", async () => {
+    knownPropertyKeys.mockResolvedValue([]);
+    const host = mount(() => (
+      <PropertyEditor properties={[]} onCommit={vi.fn()} />
+    ));
+    await flush();
+
+    const add = byLabel(host, "Add property");
+    expect(add.textContent?.trim()).toBe("+");
+    // Dropping the word is only acceptable because these two carry it.
+    expect(add.getAttribute("aria-label")).toBe("Add property");
+    expect(add.getAttribute("title")).toContain("Add a property");
+  });
+});
+

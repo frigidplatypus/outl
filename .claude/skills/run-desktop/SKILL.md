@@ -38,6 +38,15 @@ matters: a clone carries the user's peer list, and an iroh transport
 would dial their real devices and sync a new actor's ops into the real
 graph. Clone first, cut the network second, launch third.
 
+**Deleting the workspace's `peers.json` is not enough on its own.**
+`migrate_global_peers_if_absent` runs on first touch and copies
+`~/.outl/peers.json` back in, so the lab log reads `peers migration:
+copied ...` on the first open and the file is there again. The
+`transport = "file"` line is what actually keeps it inert, which makes
+it the load-bearing half rather than the belt to the delete's braces.
+Check the log for that line and confirm no endpoint was bound before
+driving anything.
+
 Then:
 
 ```bash
@@ -77,6 +86,24 @@ observation through `screencapture`. Three traps, all paid for:
 
 `scripts/drive.py` in this skill's directory is the driver: `key`,
 `text`, `move`, `click`, `scroll`, `shot`, `focus`.
+
+**It needs pyobjc, which no python on this machine has.** Not the
+system one, not homebrew's. Import it through `uv` instead, and add
+`ApplicationServices` when the script also resizes a window:
+
+```bash
+uv run --with pyobjc-framework-Quartz \
+       --with pyobjc-framework-ApplicationServices \
+       python3 <your-script>.py
+```
+
+`screencapture -x -o -l <CGWindowID>` captures the window alone, with
+no desktop behind it and no drop shadow, which is what a screenshot for
+a PR wants. The id comes from `Quartz.CGWindowListCopyWindowInfo`, not
+from aerospace, though on this machine the two happen to agree.
+**Under a tiling WM the window keeps its tile size**, so an
+Accessibility `AXSize` write is reverted; run `aerospace layout
+floating` on it first, then set the size.
 
 ## Run the A/B fast, and run it more than once
 

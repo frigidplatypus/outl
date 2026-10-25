@@ -56,6 +56,14 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Fixed
 
+- **Two things the screenshots for [#417](https://github.com/outlmd/outl/pull/417) found, both in paint rather than in logic.**
+  The desktop's `+ prop` affordance is a bare `+` where it floats over a block's first line.
+  It is absolutely positioned at the right edge, so the word it spelled covered the last word of any line that reached there, which on a wide window is most of them.
+  Measured: 49.1pt of cover down to 19.6pt, and the `aria-label` and the tooltip carried the meaning the whole time.
+  The page header keeps `+ prop`, because there it sits in the flow with a row to itself.
+  On the phone, the swipe-to-delete panel is inset by a point instead of filling the row's height.
+  A row lands on a fractional y, and a background is rasterised per element, so the panel and the opaque row covering it rounded to different device pixels: a 1px line of red ran along the top and bottom of every row's right edge, at rest, on every block in the outline.
+  Painting the colour on the clipping parent instead looks like the tidier fix and measures worse, widening the same leak to the full row.
 - **A bottom sheet on the phone could grow past the top of the screen, taking its own drag handle with it** ([#364](https://github.com/outlmd/outl/issues/364)).
   A sheet is anchored to the bottom edge and its height is whatever its content needs, so content taller than the screen puts the first rows above the top edge with nothing to scroll them, and the handle up there too, so the sheet could not even be dragged shut.
   Reported from a device for the long-press menu, with a photo.

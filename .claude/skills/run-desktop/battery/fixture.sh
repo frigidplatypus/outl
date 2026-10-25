@@ -9,7 +9,15 @@ set -euo pipefail
 WS="${1:-/ws}"
 mkdir -p "$WS/journals" "$WS/pages"
 
-cat > "$WS/journals/2026-10-24.md" <<'MD'
+# The CONTENT is fixed; the day it lands on cannot be. The app opens
+# today's journal, so a hardcoded filename measures a page that exists
+# only until midnight. It shipped that way and the battery failed on the
+# next morning's first run, reporting "the outline never painted" for an
+# app that had painted an empty day correctly.
+TODAY="$(date +%F)"
+YESTERDAY="$(date -v-1d +%F 2>/dev/null || date -d 'yesterday' +%F)"
+
+cat > "$WS/journals/$TODAY.md" <<'MD'
 - a short block
 - a block carrying a property
   remind:: 9am
@@ -36,4 +44,4 @@ MD
   for i in $(seq -w 1 80); do
     echo "- block $i on a long page that needs scrolling"
   done
-} > "$WS/journals/2026-10-23.md"
+} > "$WS/journals/$YESTERDAY.md"

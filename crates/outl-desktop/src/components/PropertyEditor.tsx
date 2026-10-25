@@ -393,7 +393,8 @@ export function PropertyEditor(props: PropertyEditorProps): JSX.Element {
             title={`Add a ${noun()} (Cmd/Ctrl+Shift+P)`}
             onClick={openAdd}
           >
-            + prop
+            {/* Glyph over a block, noun in the header; why, in the test. */}
+            {props.addAffordance === "always" ? "+ prop" : "+"}
           </button>
         }
       >
