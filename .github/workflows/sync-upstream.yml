@@ -69,15 +69,33 @@ jobs:
           fi
 
       # Gate the push on the fixed-output hashes. After an upstream frontend
-      # change the frontend `outputHash` in flake.nix can go stale; if we pushed
-      # first, every consumer would get a broken flake until a human fixed the
-      # hash. The frontend FODs are cheap (a JS bundle) and architecture-
-      # independent, so building them here is representative of both runners and
-      # catches the fragile part long before the full Rust desktop build.
-      - name: Validate overlay builds before advancing main
+      # change the frontend `outputHash` in flake.nix goes stale. The FODs are
+      # cheap (a JS bundle) and architecture-independent, so building them here
+      # is representative of both runners and catches the fragile part long
+      # before the full Rust desktop build. On a mismatch, extract the `got:`
+      # hash from the error, patch flake.nix, commit, and retry — so the
+      # workflow self-heals instead of failing every 6 hours until a human
+      # bumps the hash.
+      - name: Validate and refresh overlay FOD hashes
         run: |
           set -euo pipefail
-          nix build .#outl-desktop-frontend .#outl-desktop-frontend-dev --print-build-logs
+          if nix build .#outl-desktop-frontend .#outl-desktop-frontend-dev --print-build-logs 2>&1; then
+            echo "FOD hashes current."
+          else
+            GOT=$(nix build .#outl-desktop-frontend --print-build-logs 2>&1 \
+              | grep -oP 'got:\s+\K\S+' | head -1)
+            if [ -z "$GOT" ]; then
+              echo "::error::FOD build failed for a non-hash reason; not auto-fixing."
+              exit 1
+            fi
+            OLD=$(grep -oP 'outputHash = "\K[^"]+' flake.nix | head -1)
+            echo "Refreshing FOD hash: $OLD -> $GOT"
+            sed -i "s/outputHash = \"$OLD\"/outputHash = \"$GOT\"/g" flake.nix
+            git add flake.nix
+            git commit -m "fix(nix): refresh frontend FOD hash to $GOT"
+            nix build .#outl-desktop-frontend .#outl-desktop-frontend-dev --print-build-logs
+            echo "FOD hash refreshed and verified."
+          fi
 
       - name: Push main
         id: push
