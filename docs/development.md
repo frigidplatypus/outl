@@ -783,6 +783,13 @@ A glibc-linked binary runs on the glibc it was built against or newer, never old
 `build_desktop_linux` was pinned for this from the start and said so; the CLI leg was built on 24.04 until [#411](https://github.com/outlmd/outl/issues/411), which made `outl-linux-x64.tar.gz` die with `version GLIBC_2.38 not found` on exactly the distros where someone downloads a tarball instead of using a package manager.
 Bumping either to 24.04 raises that floor for everyone; do it on purpose, or not at all.
 
+**The Windows ARM64 desktop leg is a cross-compile, and the target is installed with `rustup target add`.**
+`build_desktop_windows` runs on the x64 `windows-2025` image, which already has stable for `x86_64-pc-windows-msvc` plus the MSVC ARM64 linker.
+`dtolnay/rust-toolchain`'s `targets:` input runs `rustup toolchain install stable --target <triple>`, and on a toolchain the image already has, that does not install the extra target.
+The job then died in `tauri build` with the target not installed, so `outl-desktop-windows-aarch64-setup.exe` never landed on a release.
+`rustup target add` installs it on the toolchain `rust-toolchain.toml` selects.
+The CLI matrix on the same image already did, which is why `outl-windows-arm64.zip` shipped and the installer did not.
+
 **Check names must not contain the runner SKU.**
 Branch protection matches required checks by name, so `test (ubuntu-latest)` becoming `test (blacksmith-8vcpu-ubuntu-2404)` leaves `main` blocked on a check that will never report again.
 Matrix jobs therefore carry a stable `label` (`linux`, `macos`, `macOS arm64`, …) and the SKU lives only in `matrix.os`.
@@ -893,6 +900,13 @@ The first four are the [embedding contract](embedding.md); `outl-exec` ships onl
 Every other crate in the workspace carries `publish = false`; flipping one later is a one-line change (plus adding it to the job's publish loop).
 
 SemVer keeps consumers safe: a plain `outl-core = "0.11"` requirement never resolves a `-beta.N` prerelease, so crates.io consumers only see GA versions unless they opt in with a `"0.11.0-beta"`-style requirement.
+
+The crates depend on each other with an exact `=` requirement, written by [`scripts/pin_workspace_deps.py`](../scripts/pin_workspace_deps.py) after the version rewrite.
+A caret on `0.13.0-beta.N` also matches the stable `0.13.0`, and cargo picks the stable because a release sorts above its prereleases.
+`cargo publish` verifies against that resolution, so a beta would build against the stable already on crates.io and miss any API added since the tag.
+The publish loop stays in dependency order (`outl-core`, `outl-md`, `outl-exec`, `outl-actions`, `outl-ws`).
+The exact pin is what makes the next crate's verify select the version this job just published.
+cargo waits for that version to show up in the sparse index before starting the next crate.
 
 The job is idempotent (it checks crates.io before each publish, so re-runs resume instead of failing) and self-gating (`cargo publish` verifies each crate by building it).
 It authenticates with the `CARGO_REGISTRY_TOKEN` secret in the `release` environment.
