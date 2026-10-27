@@ -1,9 +1,12 @@
 # This file is maintained by `.github/workflows/release.yml`.
 # Every push to `main` runs the release workflow, which bumps the
 # `version` line (computed from `Cargo.toml` + the workflow run
-# number), the bottle `root_url`, and the six `sha256` lines below in
+# number), the bottle `root_url`, and the eight `sha256` lines below in
 # place. The `# anchor:` comments are how the workflow finds the right
-# lines — do not remove them.
+# lines — do not remove them. One `# anchor:` pair (download + bottle)
+# per platform the `build` matrix in that workflow ships; adding a
+# platform there without adding its anchors here leaves `brew install`
+# on the old binary with nothing going red.
 #
 # Values committed here are bootstrap placeholders: `version "0.0.0"`
 # and zeroed SHAs make `brew install outl-beta` fail loudly until the
@@ -11,7 +14,7 @@
 class OutlBeta < Formula
   desc "Local-first outliner with CRDT sync (beta channel — every push to main)"
   homepage "https://outl.app"
-  version "0.13.0-beta.260"
+  version "0.13.0-beta.273"
   license "MIT"
 
   # We ship pre-built binaries and compile nothing here, but a formula
@@ -27,27 +30,37 @@ class OutlBeta < Formula
   # older releases, so one `ventura` tag per arch covers every macOS
   # from 13 upwards — no runner on the newest macOS required.
   bottle do
-    root_url "https://github.com/outlmd/outl/releases/download/v0.13.0-beta.260" # anchor: bottle-root-url
-    sha256 cellar: :any_skip_relocation, arm64_ventura: "528d93da7a8a3162f2bbf1e69b9cf50529bed298fa5518b23b42c2638d5727e4" # anchor: bottle-macos-arm64
-    sha256 cellar: :any_skip_relocation, ventura:       "a0e77444c0939725f8e3cf16f7058df866929f1f699c804a39f709c031cb647e" # anchor: bottle-macos-x64
-    sha256 cellar: :any_skip_relocation, x86_64_linux:  "0955b6c4f0ca0dc66fcc32df42b050e89739677ac47f802a44600605ff92a125" # anchor: bottle-linux-x64
+    root_url "https://github.com/outlmd/outl/releases/download/v0.13.0-beta.273" # anchor: bottle-root-url
+    sha256 cellar: :any_skip_relocation, arm64_ventura: "4fb65deca1f6bed7186ca9f4c21c988e6fcb91aafdc4898bca66e2099590e47f" # anchor: bottle-macos-arm64
+    sha256 cellar: :any_skip_relocation, ventura:       "65675143d8b62b3378443e3078f9ac04c2e6bb9f8ce7c54db91cc9bb0a4b5568" # anchor: bottle-macos-x64
+    sha256 cellar: :any_skip_relocation, arm64_linux:   "395016e32f62f0cf277dea9ccd2cd17ff0745fcd2a4a35895077c6a5bc7737e3" # anchor: bottle-linux-arm64
+    sha256 cellar: :any_skip_relocation, x86_64_linux:  "c886fd8a3ec6ea38a51d0ddea3188839b144fbd6e9a3c8dde5b70c755bcf2fb8" # anchor: bottle-linux-x64
   end
 
   on_macos do
     on_arm do
       url "https://github.com/outlmd/outl/releases/download/v#{version}/outl-macos-arm64.tar.gz"
-      sha256 "8508e219c05919056018edd160891b99d0a00dbb47f954ba80cc5797f69a7cc1" # anchor: macos-arm64
+      sha256 "8af3c8cca2ad096827334ae1972ec86d076df743a7566b5c8e58e43e5845b880" # anchor: macos-arm64
     end
     on_intel do
       url "https://github.com/outlmd/outl/releases/download/v#{version}/outl-macos-x64.tar.gz"
-      sha256 "34cebed653b194ae082160f7f0e6338951a9aa8a33c1d7bf2dc9d655dab5084e" # anchor: macos-x64
+      sha256 "c11cdfc54b938108f5f4235c0b942b9ad03aa46b30d96d584ec3c3eb433914b6" # anchor: macos-x64
     end
   end
 
   on_linux do
     on_intel do
       url "https://github.com/outlmd/outl/releases/download/v#{version}/outl-linux-x64.tar.gz"
-      sha256 "6e29f4b7fb91532c4d4f4a656a447789d8875a1fadcd3d891c1a3e59f4788ebb" # anchor: linux-x64
+      sha256 "115d53d3760e2738fd64c4c95efffc12aaa70ea98c14b6ec1244a8a1aa80906e" # anchor: linux-x64
+    end
+    # ARM64 Linux is a Tier 1 Homebrew platform since 5.0.0, and the
+    # binary is built natively (`blacksmith-8vcpu-ubuntu-2204-arm`), not
+    # emulated. The zeroed digest is the bootstrap placeholder the first
+    # release after this change replaces — same as every other anchor
+    # here started out.
+    on_arm do
+      url "https://github.com/outlmd/outl/releases/download/v#{version}/outl-linux-arm64.tar.gz"
+      sha256 "d8557b1814c9795eb7b55fef0d96db3a0e2dc949086f888a874ad1b29474b312" # anchor: linux-arm64
     end
   end
 
