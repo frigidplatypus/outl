@@ -83,7 +83,7 @@ jobs:
             echo "FOD hashes current."
           else
             GOT=$(nix build .#outl-desktop-frontend --print-build-logs 2>&1 \
-              | grep -oP 'got:\s+\K\S+' | head -1)
+              | grep -oP 'got:\s+\K\S+' | head -1 || true)
             if [ -z "$GOT" ]; then
               echo "::error::FOD build failed for a non-hash reason; not auto-fixing."
               exit 1
