@@ -105,6 +105,21 @@ This section captures only the **architectural / TUI-specific behaviour** a cont
   `move_{up,down}_visual_range` drag the whole selection among its siblings — mirror of the single-block `Alt`+arrows in Normal (the plain arrows extend the range, so `Alt` is what separates reorder from grow).
   They loop `move_{up,down}_at_path` (`lo→hi` for up, `hi→lo` for down) and follow the selection one row; if the leading block can't move (already first/last sibling) the op aborts before the rest of the range scrambles against itself.
 
+### Undo / redo (`u` / `Ctrl+R`)
+
+`actions/history.rs` keeps two bounded `Vec<HistorySnapshot>` stacks, each snapshot a whole-page `ParsedPage` clone plus the `view_path` it came from.
+
+One contract, and it was the alternative:
+
+- **Ask whether the top snapshot applies here *before* touching either stack.**
+  `restore_snapshot` takes its snapshot by value and refuses one belonging to another view, so the pop that used to precede it destroyed the entry ([#430](https://github.com/outlmd/outl/issues/430)).
+  `redo` had the same shape, and gained a snapshot of a page nothing had undone.
+  Nothing clears these stacks on navigation, so repeated presses on the wrong page drained the user's history with a status line that said `skipped`.
+  `top_applies_here` is the single owner of that question; both callers ask it, and the pop is `expect`-safe behind it.
+  The regression net is `undo_on_another_page_keeps_the_snapshot`, `repeated_undo_on_another_page_never_drains_the_stack`, `redo_on_another_page_keeps_the_snapshot`, plus `undo_on_its_own_page_still_consumes_the_snapshot` so the guard cannot pass by blocking everything.
+
+**Not covered here**: a cross-page delete (the backlinks panel) never reaches these stacks at all, which is [#431](https://github.com/outlmd/outl/issues/431), and neither `undid` nor `redid` says *what* came back, which is [#438](https://github.com/outlmd/outl/issues/438).
+
 ### Properties (`g p`)
 
 `g p` opens the property editor for the selected block (`actions/properties.rs` + `view/properties.rs`, keys routed by `input/overlay.rs::handle_properties_key`).
@@ -152,6 +167,12 @@ TUI-specific contracts worth remembering:
   Cursor at the start empties the head and pushes the whole line down into the sibling — "open an empty block above".
   The Insert-mode commit path also drains `pending_reload` (peer-ops poller held it back during the edit).
 - **`Backspace` on an empty block deletes the block** and moves selection to the previous one — the only structural mutation that can happen from Insert.
+- **A `Char` arm that writes text asks `input::is_typed_text(key.modifiers)` first.**
+  crossterm reports `Ctrl+W` as `Char('w')` plus `CONTROL`, so an arm matching `Char(ch)` and inserting it turns the whole readline set (`Ctrl+A/E/W/U/K/B/F`) into literal letters in the block ([#429](https://github.com/outlmd/outl/issues/429)).
+  Six arms write text and all six ask: the Insert text arm plus the five overlay query handlers in `input/overlay.rs`.
+  The predicate is an **allowlist** (`SHIFT` only), so a modifier this crate has not seen yet reads as a chord rather than as text: guessing wrong that way drops a keystroke the user can see, guessing wrong the other way edits their notes.
+  It is deliberately placed *below* the modifier-specific arms (`Ctrl+T`, `Ctrl+Enter`), which still match first.
+  A rejected chord currently falls through to `_ => {}` and says nothing, which is [#436](https://github.com/outlmd/outl/issues/436), not this.
 - **Autocomplete triggers** are pure trigger-detection inside the buffer (`[[`, `#`, `((`, `/`); they own the keystream while their popup is open.
   See `actions/autocomplete.rs` for the trigger detector contract.
 - **Drag-and-drop file upload (`actions/paste.rs`).**
@@ -227,6 +248,33 @@ TUI-specific contracts worth remembering:
   Reflowing just carries the cursor onto its wrapped visual row: the char offset was already consumed turning it into a span, so there's nothing left to desync.
   The earlier "cursor rows pass width `0`" workaround was the actual #99 regression: the selected block stayed on one overflowing line and only wrapped once the cursor left it (`viewing mode won't wrap until I navigate away`).
   `text_width == 0` is still the "don't wrap" sentinel, but only headless renders pass it now.
+
+## Overlay list scrolling
+
+`view/overlays.rs`'s `scroll_to_keep_visible(selected, visible)` is the one owner of a list popup's vertical offset, and both the template picker and the reminders list call it.
+
+Two bugs it replaced, in one expression:
+
+- **`Paragraph::scroll` takes `(Vertical, Horizontal)`.** Both overlays passed `(0, selected - 5)`, so they scrolled **sideways**: rows slid out of the card while the selected row stayed below the bottom edge ([#445](https://github.com/outlmd/outl/issues/445)). `ratatui-widgets`' own doc flags the order as the exception to the crate's convention, which is how two call sites got it wrong and three others (the slash palette, plugin settings) got it right.
+- **The offset has to come from the viewport height.** `selected > 5` scrolled a 20-row popup that had room to spare, and under-scrolled a 3-row one. The offset is now the smallest that puts `selected` on the last visible row, zero while it already fits.
+
+`u16::try_from(...).unwrap_or(u16::MAX)` rather than `as u16`, so a list longer than 65,535 rows clamps instead of wrapping to the top.
+
+## Empty states
+
+Two screens rendered nothing where they had something to say ([#448](https://github.com/outlmd/outl/issues/448)).
+
+- **`view/outline.rs`'s `starter_hint`** draws one line under the lone bullet of a brand-new page.
+  Journal-first means the product's first screen is today's journal, and a fresh one is seeded with a single empty bullet (`actions/lifecycle/loading.rs`), so a new install opened on a box titled `Outline` holding `- ` and naming no key — while every overlay in this crate already had considered empty copy.
+  It is **one line, not a modal**: the desktop's two-step first run does not translate here, where the shell is itself a surface and `outl init` already prints.
+  Gated on exactly one blank block and suppressed in Insert, so it cannot shift a row under the caret.
+  It is not a `block_starts` entry — there is no block there to click.
+- **`view/backlinks.rs`'s `empty_section_notice`** distinguishes "no backlinks" from "not known yet".
+  The section returned nothing while the background index was still building, so on a large workspace that was indistinguishable from a page with zero backlinks for seconds.
+  `App::has_pending_backlink_index` already answered it and no view asked.
+  The `show_backlinks` toggle wins over both, so `B` off still means no section.
+
+Both decisions are pure and tested on their own, **plus** a render-path test each, because the pure tests pass whether or not the renderer calls them. [`UX.md` → Never block a keystroke](../../UX.md#2-never-block-a-keystroke) owns the general rule for the second one: work landing after the first paint shows its own placeholder in its own section.
 
 ## Reuse across UI surfaces (Tauri, mobile)
 
@@ -372,6 +420,18 @@ It does that because this crate mutates an in-memory AST and derives ops from th
 
 **New code here should call `commit_page` rather than extending `save_page_with`.**
 Adding a sixth step to the hand-written sequence deepens the divergence the issue exists to close, and the shared pipeline already has the ordering right.
+
+## Truecolor: absent means ANSI
+
+`runtime::preset::supports_truecolor(colorterm, term)` is pure over the two environment variables, and `fallback_for(truecolor)` picks what an **unconfigured** launch gets: the brand preset when 24-bit is available, `theme::default_dark()` when it is not ([#453](https://github.com/outlmd/outl/issues/453)).
+
+Three contracts:
+
+- **Level 4 only.** `--theme`, the per-workspace `[theme] preset` and the global config are explicit user choices and stay untouched. A user who asked for `dracula` on a 256-colour terminal gets `dracula`; second-guessing an explicit request is the bigger surprise, and `docs/theming.md` owns that precedence.
+- **Absence reads as "no".** A truecolor terminal that sets neither signal gets the ANSI preset, which renders correctly. The reverse default renders wrong, so the asymmetry is deliberate.
+- **This is not the `auto` mode question.** That one is pinned to dark because a terminal has no reliable way to read the OS appearance setting and probing (OSC 11, `COLORFGBG`) is unreliable under tmux. Truecolor has two widely-set signals, which is why it gets detected instead of declared.
+
+`COLORTERM` / `TERM` are read in `fallback_theme()` and nowhere else in the module, so the decision stays testable without touching the process environment.
 
 ## Theme mode: `auto` means dark here
 

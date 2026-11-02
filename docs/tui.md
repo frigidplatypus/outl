@@ -178,6 +178,7 @@ Esc commits (writes back to the `.md`), Enter commits + creates a new block.
 | `Shift+Enter` | Soft newline — only on terminals that speak the kitty keyboard protocol |
 | `Ctrl+Enter` / `Ctrl+T` | Cycle the block's task prefix — TODO → DOING → DONE → none (stays in Insert, caret follows the text; `Ctrl+T` works on terminals that collapse `Ctrl+Enter`) |
 | `Tab` / `Shift-Tab` | Indent / outdent (stays in Insert) |
+| other `Ctrl`/`Alt` chords | Ignored, never typed as text. `Ctrl+A/E/W/U/K/B/F` used to insert their bare letter into the block ([#429](https://github.com/outlmd/outl/issues/429)); readline editing inside a block is not implemented, so they do nothing today |
 | `Backspace` on empty | Delete block, move to previous |
 | `Left` at column 0 | Spill into the previous block (cursor at end) |
 | `Right` at end of block | Spill into the next block (cursor at start) |
@@ -491,7 +492,12 @@ When you open a `.md` that the outl parser had to recover from (a leading `# hea
 - **Undo bounded**: 200 most recent snapshots.
   Older edits drop off the front.
   Each snapshot remembers selection + cursor so undo lands you where you were.
+- **Undo is per page, and pressing it elsewhere costs nothing**: a snapshot can only be applied to the page it was taken on, so `u` on a different page says `no undo for this page` and leaves the history alone.
+  It used to discard the entry it could not apply, so a few presses after navigating away silently emptied the stack ([#430](https://github.com/outlmd/outl/issues/430)).
+  Go back to the page and the edits are still there.
 - **Empty pages keep a bullet**: deleting the last block silently re-adds an empty `- ` so your cursor always has somewhere to go.
+- **A brand-new page tells you where to start**: a page whose only block is empty shows `press i to write · ? for keys` under the bullet, and the line goes away as soon as there is anything on the page or you start typing ([#448](https://github.com/outlmd/outl/issues/448)).
+- **The backlinks section says when it is still indexing**: on a cold start the panel reads `Backlinks · indexing…` instead of rendering nothing, so a page that is still loading is distinguishable from one with no backlinks.
 - **Slugified filenames**: `[[Avelino]]` lives in `pages/avelino.md` with `title:: Avelino` set automatically on first open.
 
 ## Code-block execution
