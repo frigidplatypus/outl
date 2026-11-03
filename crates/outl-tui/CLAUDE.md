@@ -58,8 +58,14 @@ This section captures only the **architectural / TUI-specific behaviour** a cont
   Status flips to `yanked … (clipboard unavailable)` on headless / no-display environments — the in-app yank register still works.
 - **`yy` / `Y` / Visual `y` write to the OS clipboard.**
   Every yank writes clean canonical outl markdown to the OS clipboard via two paths in `actions/yank.rs`:
-  1. `arboard` — direct X11 / Wayland / macOS clipboard API (requires a display server).
+  1. `arboard` — direct X11 / macOS clipboard API (requires a display server).
+     Built without its `wayland-data-control` feature, so a Wayland session goes through XWayland.
   2. OSC 52 escape sequence (`\x1b]52;c;<base64>\x07`) — works over SSH, inside tmux, and in Chrome OS Crostini where `arboard` has no display server to talk to.
+  The `arboard` handle is one process-wide `static` (`CLIPBOARD` in `actions/yank.rs`), not a `Clipboard` per yank.
+  On X11 the handle *is* the selection owner, so dropping it right after `set_text` lost the text on sessions without a clipboard manager.
+  A failed `set_text` drops the cached handle so the next yank reconnects (dead display connection).
+  `run_with_theme_override` calls `release_os_clipboard` when the event loop ends, because a `static` is never dropped and `arboard` hands the selection to a clipboard manager only in `Drop`.
+  A panic or a fatal signal skips it; the panic hook must not take that lock, since the panic may have happened while it was held.
   The status line reads `yanked N block(s) → clipboard` on success and `yanked N block(s) (clipboard unavailable)` when both paths fail.
   The yank register is always populated regardless.
 - **`p` / `P` are OS clipboard paste, not yank-register paste.**
@@ -118,7 +124,15 @@ One contract, and it was the alternative:
   `top_applies_here` is the single owner of that question; both callers ask it, and the pop is `expect`-safe behind it.
   The regression net is `undo_on_another_page_keeps_the_snapshot`, `repeated_undo_on_another_page_never_drains_the_stack`, `redo_on_another_page_keeps_the_snapshot`, plus `undo_on_its_own_page_still_consumes_the_snapshot` so the guard cannot pass by blocking everything.
 
-**Not covered here**: a cross-page delete (the backlinks panel) never reaches these stacks at all, which is [#431](https://github.com/outlmd/outl/issues/431), and neither `undid` nor `redid` says *what* came back, which is [#438](https://github.com/outlmd/outl/issues/438).
+- **A cross-page op snapshots the page it changes, not the page on screen.**
+  `snapshot_page_for_undo(path, page)` is the sibling of `snapshot_for_undo`, and `apply_to_backlink_source` calls it once for all seven structural ops reachable from the backlinks panel; `toggle_todo_backlink` calls it on its own path.
+  The snapshot carries the *source* page's path, so `top_applies_here` only lets it be restored once the user opens that page — pressing `u` while still on the referencing page reports `no undo for this page` and keeps it.
+  This is why the guard above had to land first ([#431](https://github.com/outlmd/outl/issues/431) depends on [#430](https://github.com/outlmd/outl/issues/430)).
+  `toggle_todo_backlink` used to document the opposite ("undo in this view shouldn't silently flip TODOs in a different file"), which was correct while a popped snapshot was applied blind.
+  That is root `CLAUDE.md` invariant 10 item 4: the exemption outlived its premise.
+  `selected` / `cursor_col` are zeroed, because they index a page the user was not looking at.
+
+**Still not covered**: `commit_insert` on an `EditTarget::SourcePage` records nothing and is the last instance of the old reasoning. Neither `undid` nor `redid` says *what* came back, which is [#438](https://github.com/outlmd/outl/issues/438).
 
 ### Properties (`g p`)
 
@@ -275,6 +289,37 @@ Two screens rendered nothing where they had something to say ([#448](https://git
   The `show_backlinks` toggle wins over both, so `B` off still means no section.
 
 Both decisions are pure and tested on their own, **plus** a render-path test each, because the pure tests pass whether or not the renderer calls them. [`UX.md` → Never block a keystroke](../../UX.md#2-never-block-a-keystroke) owns the general rule for the second one: work landing after the first paint shows its own placeholder in its own section.
+
+### Toasts size to their message
+
+`view/toasts.rs` cards are bottom-right, newest on top, and **grow vertically** up to `MAX_BODY_LINES` (4) body rows.
+
+Three contracts:
+
+- **The card height is derived, not constant.** The stack walk tracks the bottom edge and subtracts each card's own height, because a fixed `TOAST_HEIGHT` is what made a long message unrenderable in the first place ([#435](https://github.com/outlmd/outl/issues/435)).
+  A one-row card inside 50 cells cut `reconcile failed: {e}` at the border with no ellipsis, so the path or errno — the only part worth reading — was the part dropped.
+- **`wrap_message` is word-based with a hard-break fallback**, since the errors this channel carries are mostly paths with no spaces to break on.
+  It is pure and tested on its own, and a render-path test (`a_long_error_reaches_the_screen_instead_of_stopping_at_the_border`) pins that `render_toasts` actually calls it: the pure tests pass either way, so dropping the call would otherwise go unnoticed.
+  That test asserts on the message's **tail**, because a 50-cell card already showed the first ~45 columns.
+- **`overlays::truncate` is not reused for the elided row.** It answers "is this longer than `max`"; the question here is "was anything dropped", and a row landing exactly on `width` still has to carry the `…` or a clipped error reads as a complete one.
+
+The icon sits on the first row and continuations indent to the text column, so a wrapped error reads as one message rather than four.
+
+## Workspace search reads the index
+
+`refresh_search` (`actions/overlay.rs`) filters `App::index`, which `spawn_index_rebuild` builds once over the whole workspace on a worker thread.
+
+It used to walk `pages/` and `journals/`, read every `.md` and re-parse it **per keystroke**, on the event loop ([#449](https://github.com/outlmd/outl/issues/449)).
+
+Three contracts:
+
+- **`BlockIndex::search_text` is deliberately not the source.** It matches by substring; this box and the `((` autocomplete both fuzzy-match, so reusing it would have traded match quality for the speed. `iter_blocks` is the same data with `crate::fuzzy::fuzzy_score` kept on top.
+- **`iter_blocks` is explicitly unordered**, so the sort settles ties on `md_path` then `block_path`. Without that the hit list reshuffles between index rebuilds; pinned by `the_hit_order_is_stable_across_rebuilds`.
+- **`SearchHit` carries `block_path`, not a flat index**, and `jump_to_search_hit` resolves it with `index_for_path` *after* `load_current`. A flat preorder index cannot come from the block index, and it goes stale when the page changed between the search and the jump.
+
+`the_search_reads_the_index_not_the_filesystem` deletes `pages/` after indexing: a filesystem-backed search returns nothing from there, so the test fails if the source regresses.
+
+**Not a bug, and worth not re-filing**: `max_depth(1)` in `WorkspaceIndex::build` is correct. `slugify` folds `/` away, so `[[os/linux]]` is `pages/os-linux.md` — the namespace is a slug convention and `pages/` is flat. Measured: zero subdirectories under `pages/` on a 2,874-page workspace.
 
 ## Reuse across UI surfaces (Tauri, mobile)
 
