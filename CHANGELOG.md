@@ -60,6 +60,15 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ### Fixed
 
+- **Pasting a link into a block showed nothing and then erased it** ([#488](https://github.com/outlmd/outl/issues/488)).
+  Copy a link out of an email — the clipboard holds the label with the address behind it — paste it into a block you are editing, and nothing appeared.
+  Leave the block and the link was gone from the `.md` too, with nothing on screen to say so.
+  The same thing happened to the first line of a pasted outline: the lines below it became blocks as expected, the first one did not.
+  A plain-text URL was fine, which is why this looked like a rich-clipboard problem and was not.
+  Both GUI clients hold the block you are typing in as a draft seeded once, so refreshing the outline was not enough — the editor stayed on the pre-paste text and committed *that* back over the paste on the next Esc, blur or tap away.
+  The paste now reports the block's new text and where the caret belongs in it, and both clients put the caret back where you pasted rather than at the end of the block, so a paste without formatting leaves your tail where it was.
+  The backend is the single owner of both: the merge can insert a separating space, so "where I pasted plus what I sent" is the wrong answer.
+  Credit to [@matthieu403](https://github.com/matthieu403) for the report, including the detail that made it findable: the link *was* briefly in the `.md`, and leaving the block took it out again.
 - **`outl page prop list` listed the wrong properties, in both directions.**
   It probed a hardcoded list of nine "well-known" keys instead of reading the page, so a page carrying `alpha::`, `due::`, `owner::` and `zeta::` listed **none** of them — and it listed `page-slug` / `page-kind`, which define the page and which `outl page prop set` refuses, inviting an edit that would rewrite the page's identity on the next projection.
   The comment justifying the probe said the tree exposed no per-node property iterator; it has for a long time, and the sibling `outl block prop list` was already using it.
@@ -137,11 +146,23 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 - **`outl-linux-x64.tar.gz` carried a glibc 2.39 floor it never needed**, so it died with `version GLIBC_2.38 not found` on Debian 12, Ubuntu 22.04 and RHEL 9 — the distros where someone downloads a tarball instead of using a package manager.
   A glibc-linked binary runs on the glibc it was built against or newer, never older, so the runner image *is* the compatibility floor.
   `build_desktop_linux` was pinned to Ubuntu 22.04 (glibc 2.35) for exactly this and said so in a comment; the CLI leg was on 24.04, which was an oversight rather than a decision.
-  Both Linux legs are on 22.04 now, and `docs/development.md` → Runner sizing owns the rule so the next bump is made on purpose.
+  Both Linux legs are on 22.04 now, and `docs/ci-and-release.md` → Runner sizing owns the rule so the next bump is made on purpose.
   The same floor applied to the Homebrew `x86_64_linux` bottle, which is the other thing that binary feeds.
 
 ### Changed
 
+- **A beta is cut nightly instead of on every push to `main`.**
+  `release.yml` fires at 06:00 UTC and a `gate` job asks whether anything landed in the preceding 24h, so an idle night costs nothing.
+  October 2026 produced 66 betas, 2.1 a day, each spending 15.3 minutes of macOS runner across the universal desktop bundle and the two CLI legs: 950 minutes, $76 of a $699.92 gross bill, for builds that were superseded within hours.
+  A `v*` tag still builds the moment it is pushed, and so does a manual run — **Actions → Release → "Run workflow"** is the way to get a beta right now, and it skips the gate.
+  What this costs you: `brew install outl-beta` and `scoop update` now track a day rather than a commit.
+- **`test (macos)` runs on pushes to `main`, not on pull requests.**
+  It was the single most expensive job in the repo (3,259 macOS minutes in October, 63% of all macOS spend, $260.75 gross) and across July–October, over 403 runs where both legs reached a conclusion, it caught **zero** failures `test (linux)` did not.
+  It failed alone twice, both in September, and both were test calibration rather than platform defects (fixed then in `085303b6` and `8f64fa4b`); the reverse happened once, with Linux catching what macOS passed.
+  That follows from what the legs run: `--exclude outl-mobile --exclude outl-desktop --exclude outl-tauri-shared` leaves one piece of macOS-specific code under test, `platform_host_id`, which shells out to `ioreg`.
+  A macOS-only defect now has a window of one merge, and the push-to-`main` run is what closes it.
+  **What this does not cover, and never did:** APFS is case-insensitive where ext4 is not, so a macOS-only slug collision is a real failure mode that no test here exercises — the macOS leg was not protecting against it on a PR either.
+  [`docs/ci-and-release.md` → Runner cadence](docs/ci-and-release.md#runner-cadence) carries the measurement and the gap.
 - **Property order has one owner, and it is written down** ([#285](https://github.com/outlmd/outl/issues/285)).
   outl renders `key:: value` lines alphabetically, reorders a hand-sorted file on the next projection, and that was never documented anywhere — the behaviour lived in eight copy-pasted `sort_by` calls, three of which explained the reason in their own words and disagreed.
   `outl_actions::tree::sort_in_presentation_order` is the one owner now; every surface calls it (the `.md` renderer, the outline DTO each GUI reads, the parsed outline the from-disk readers build, a backlink row's shallow leaf, the tree-derived index, the clipboard, `outl page prop list` and `outl block prop list`), and [`docs/markdown-format.md` → Property order](docs/markdown-format.md#property-order) says what the order is and why declaration order is not recoverable: `Op::SetProp` carries no slot, so the nearest thing available is each op's HLC, which is the order properties were last *edited* — a peer fixing one typo would reshuffle the block on every device.
