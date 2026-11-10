@@ -94,11 +94,11 @@
     "upstream": {
       "flake": false,
       "locked": {
-        "lastModified": 1794309236,
-        "narHash": "sha256-chUCSsH7RuEUP1IOF2HYaKZvvS3V4TtIiYnlqE6cYcs=",
+        "lastModified": 1794321005,
+        "narHash": "sha256-V6It3XmaSmab8aadtQFGCT4bFM+bJ9WEm4wO+S1aqZY=",
         "owner": "outlmd",
         "repo": "outl",
-        "rev": "7464cec3d455f851a02f433a2944146d0298c57a",
+        "rev": "91d98b6b59b0e905330eca0cdb28c84b3c432880",
         "type": "github"
       },
       "original": {
