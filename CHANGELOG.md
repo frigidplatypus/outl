@@ -5,7 +5,20 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ## [Unreleased]
 
+### Fixed
+
+- **`outl serve --no-watch` no longer holds the device actor while the embedded MCP is idle** ([#540](https://github.com/outlmd/outl/issues/540)).
+  The MCP warm-up opened the workspace for writing, so a plain `--no-watch` daemon kept the write lock for its whole life and every GUI or TUI started later got an ephemeral actor.
+  It now reads through a read open, takes the device actor only for a mutating tool (failing with a clear error if another process holds it), and releases it when the last session closes.
+
 ### Added
+
+- **`outl serve` serves MCP in-process by default; `--no-mcp` opts out** ([#540](https://github.com/outlmd/outl/issues/540)).
+  A machine running `outl serve` as its daemon used to need a second process, `outl mcp serve`, which replayed the whole op log itself (about 28 s on a 720k-op workspace) and, when it lost the race for the device actor, minted an ephemeral actor and left an `ops-<ulid>.jsonl` plus a lock file behind forever.
+  The daemon now listens on a Unix domain socket (`<device dir>/run/mcp-<hash>.sock`, directory 0700, socket 0600, no TCP) and every connection is one MCP session sharing the daemon's single workspace and device actor.
+  `outl mcp serve` bridges to that socket when it is up and otherwise behaves exactly as before; `--standalone` forces the old behaviour.
+  A socket that cannot be set up (another `outl serve` already serving, permissions, a path too long, no Unix sockets) logs a warning and never stops serve; `--once` never starts it.
+  See [docs/mcp.md](docs/mcp.md#running-beside-outl-serve).
 
 - **`outl import logseq-db` imports a Logseq DB graph from its EDN export** ([#355](https://github.com/outlmd/outl/issues/355), partial).
   Logseq 2.x keeps a graph in `db.sqlite`; pointing `outl import logseq` at that directory used to report 0 pages and 0 blocks with no error.
@@ -97,6 +110,15 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   It does cost a third more memory to hold, since the base64 of N bytes is 4N/3 characters — the cap is on what the server may send, not on the representation.
 
 ### Fixed
+
+- **`outl import --force` replaces pages instead of merging into them.**
+  A page present in the op log without its `.md` + sidecar (a paired replica, a server image) or sitting in the trash kept all its old blocks next to the imported ones, and a trashed page came back out of the trash with them.
+  The old blocks are now moved to the trash (logged in `orphans.log` first), the import report counts them as `replaced_blocks`, page-level properties the source no longer has are cleared too (`replaced_props`), and pages the source does not contain are untouched.
+
+- **A hole in a device's own offset sidecar no longer makes every peer resend that actor's full log forever.**
+  A second opener persisting a regrown sidecar could rename it over the live writer's, dropping entries the writer had just appended; the freshness ladder then trusted the holed file, the device advertised a short op count for its own actor, and each peer resent the whole log on every sync, which ingest refuses by design.
+  Appends and sidecar persists now serialize on `ops/.idx-lock-<actor>`, and ingest rebuilds a holed own sidecar when a peer's resend proves one, so existing workspaces heal without peer changes.
+  See [docs/storage.md](docs/storage.md).
 
 - **A phone's background sync reaches a peer that is online even when another one is asleep.**
   The forced sync pass behind `sync_now` dialed paired devices one after another, and every iOS background window waits on that pass: 12s for `BGAppRefreshTask`, 20s for the processing task and the flush.
