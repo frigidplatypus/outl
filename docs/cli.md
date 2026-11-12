@@ -388,7 +388,7 @@ CLI exit code is `1` in that case; MCP returns the payload via the normal envelo
 | `outl sync`                                  | —                       |
 | `outl telemetry status\|on\|off`             | —                       |
 | `outl workspace info [--json]`               | `outl_workspace_info`   |
-| `outl import roam\|logseq\|obsidian\|auto <src> <dst> [--dry-run] [--json] [--preserve-timestamps] [--no-assets] [--force]` | — |
+| `outl import roam\|logseq\|logseq-db\|obsidian\|auto <src> <dst> [--dry-run] [--json] [--preserve-timestamps] [--no-assets] [--download-remote-assets] [--keep-source-ids] [--force]` | — |
 
 `init`, `serve`, `reconcile`, `recover`, `compact`, `import`, `mcp serve`, `peer`, `plugin`, and `sync` are CLI-only on purpose — they're either interactive, long-running, or bootstrap commands that don't fit a tool-call shape.
 `telemetry` is CLI-only for a different reason: it is a person's consent, and MCP is a program's surface rather than a person's.
@@ -497,14 +497,42 @@ That release matters: a lease left held by a killed process locks every outl pro
 
 ### `outl workspace info`
 
-A summary: root, actor, page and journal counts, op count, tree nodes.
+A summary of the workspace and its materialized tree.
 
-**`ops` counts the resident op log, which is not always the whole log.**
-A workspace that boots from a snapshot replays only the ops above the cutoff, so that is what the count covers.
-When it does, the output says so (`ops: 332 since the last snapshot`) and the JSON carries `ops_complete: false`.
-A partial count presented as a total reads as data loss — it printed `ops: 332` for a graph whose `ops/` holds 228,943 — so the label is part of the answer, not a footnote.
+```text
+root:      /path/to/workspace
+actor:     01J...
+pages:     12
+journals:  3
+blocks:    89 (107 total nodes)
+props:     214
+tags:      7
+backlinks: 31
+assets:    4
+trashed:   2
+snapshots: 1 (12.4 KB)
+modified:  2026-11-09T01:23:45Z
+ops:       23,456 total
+```
 
-`outl doctor` is where the exact figure lives: it parses every `.jsonl` because integrity is its job, and making a summary command parse the whole log to print one number is a cost this command has no reason to pay.
+**`ops` is the persisted op-log total.**
+It includes ops folded into the snapshot boot cache as well as the post-cutoff delta held in memory, so it matches the figure `outl doctor` reports without parsing every `.jsonl`.
+The JSON also carries `ops_since_snapshot`, the in-memory delta above the snapshot cutoff; the human line only prints it when it differs from the total.
+
+Other fields:
+
+| Field | Meaning |
+|---|---|
+| `pages` / `journals` | Count by page kind. |
+| `blocks` | Nodes that are not pages or journals. |
+| `tree_nodes` | Total nodes in the materialized tree. |
+| `properties` | Property bindings on all nodes. |
+| `tags` | Unique `#tag` names in properties. |
+| `backlinks` | Referencing blocks across the whole workspace. |
+| `assets` | Files in `assets/`. |
+| `trashed` | Nodes currently under the trash root. |
+| `snapshots` / `snapshot_bytes` | Snapshot cache file count and size. |
+| `last_modified` | Wall-clock time of the most recent persisted op. |
 
 ### `outl doctor`
 
@@ -753,7 +781,7 @@ No business logic lives in either layer — they format input and output, that's
 
 Shipping today:
 
-- `outl init`, `outl serve`, `outl doctor`, `outl reconcile`, `outl recover`, `outl import logseq|obsidian|roam`, `outl theme`.
+- `outl init`, `outl serve`, `outl doctor`, `outl reconcile`, `outl recover`, `outl import logseq|logseq-db|obsidian|roam`, `outl theme`.
 - `outl` (no subcommand) opens the TUI.
 - `outl page get|create|update|delete|list|rename|render` (`create` accepts `--content` to seed the outline in one call)
 - `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree`

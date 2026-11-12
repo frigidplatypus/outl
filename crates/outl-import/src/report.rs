@@ -28,8 +28,8 @@ pub struct ImportReport {
     /// Refs whose target page couldn't be handle-mapped — degraded to
     /// a `[[Page Title]]` link.
     pub refs_page_fallback: usize,
-    /// Refs whose UID matches nothing in the source — left greppable
-    /// as `((unresolved:uid))`.
+    /// Refs whose UID matches nothing in the source, kept as the
+    /// source wrote them, `((uid))`, still greppable.
     pub refs_unresolved: usize,
     /// `{{embed}}` of a block resolved to `!((blk-XXXXXX))`.
     pub embeds_resolved: usize,
@@ -51,9 +51,18 @@ pub struct ImportReport {
     pub components_verbatim: BTreeMap<String, usize>,
     /// Source queries translated to a ` ```query ` fence.
     pub queries_translated: usize,
+    /// Roam `{{[[pdf]]: url}}` components rewritten to a `[name](url)`
+    /// file link, outl's form for a file.
+    pub pdfs_linked: usize,
     /// Org-style `DEADLINE:`/`SCHEDULED:` timestamps converted to
-    /// `[[YYYY-MM-DD]]` date links (issue #63 model).
+    /// `[[YYYY-MM-DD]]` date links (issue #63 model). Logseq only: org
+    /// syntax is Logseq's, and Roam keeps a stamp as the text it is.
     pub org_dates_converted: usize,
+    /// Roam `{{[[table]]}}` blocks folded into one pipe-table block.
+    pub tables_converted: usize,
+    /// Cell blocks a table fold turned into rows of its table block.
+    /// Another legitimate reducer of the emitted block count.
+    pub blocks_folded_into_tables: usize,
     /// Blocks that stopped being blocks because their content was
     /// promoted to page properties (a leading pure-attribute block).
     /// A legitimate reducer of the emitted block count — tracked so the
@@ -94,8 +103,9 @@ pub struct ImportReport {
     pub props_blocks: usize,
     /// Blocks whose collapsed/folded state landed as `Op::SetCollapsed`.
     pub collapsed_applied: usize,
-    /// Blocks whose create/edit timestamps were dropped (default
-    /// policy; re-run with `--preserve-timestamps` to keep them).
+    /// Blocks and pages whose create/edit timestamps were dropped
+    /// (default policy; re-run with `--preserve-timestamps` to keep
+    /// them).
     pub timestamps_dropped: usize,
     /// Page-name collisions after slugify — disambiguated with a
     /// numeric suffix.
@@ -113,6 +123,9 @@ pub struct ImportReport {
     pub assets_missing: usize,
     /// Total bytes of the assets pulled in.
     pub assets_bytes: u64,
+    /// Remote images left as the source wrote them (`![alt](url)`):
+    /// not downloaded, see `ImportOptions::download_remote_assets`.
+    pub assets_remote_kept: usize,
     /// Source files skipped entirely, with the reason.
     pub skipped: Vec<SkippedFile>,
     /// Non-fatal fidelity warnings, with location.
@@ -155,9 +168,11 @@ pub struct Reconciliation {
     pub emitted_blocks: usize,
     /// Blocks promoted to page properties instead of staying blocks.
     pub blocks_lifted_to_props: usize,
+    /// Table cell blocks folded into their table's block.
+    pub blocks_folded_into_tables: usize,
     /// Blocks that belonged to a skipped page.
     pub blocks_skipped: usize,
-    /// `source − emitted − lifted − skipped`: blocks that vanished with
+    /// `source − emitted − lifted − folded − skipped`: blocks that vanished with
     /// no reported reason. Non-zero means the pipeline lost content.
     pub blocks_unaccounted: usize,
     /// Blocks confirmed in the destination's op log after the import.
@@ -229,7 +244,10 @@ impl ImportReport {
         let blocks_skipped: usize = self.skipped.iter().map(|s| s.blocks_dropped).sum();
         let emitted_pages = self.pages + self.journals;
         let pages_accounted = emitted_pages + self.pages_merged + pages_skipped;
-        let blocks_accounted = self.blocks + self.blocks_lifted_to_props + blocks_skipped;
+        let blocks_accounted = self.blocks
+            + self.blocks_lifted_to_props
+            + self.blocks_folded_into_tables
+            + blocks_skipped;
         // Downstream half of the contract: the counters above stop at
         // render, so they can't see a page that failed to write, failed
         // to reconcile, or lost blocks in the matcher. Only measured on
@@ -251,6 +269,7 @@ impl ImportReport {
             source_blocks: self.source_blocks,
             emitted_blocks: self.blocks,
             blocks_lifted_to_props: self.blocks_lifted_to_props,
+            blocks_folded_into_tables: self.blocks_folded_into_tables,
             blocks_skipped,
             blocks_unaccounted: self.source_blocks.saturating_sub(blocks_accounted),
             balanced: pages_accounted == self.source_pages
@@ -308,6 +327,12 @@ impl ImportReport {
         if self.queries_translated > 0 {
             println!("  queries translated:  {}", self.queries_translated);
         }
+        if self.pdfs_linked > 0 {
+            println!(
+                "  pdf embeds:          {} became file links",
+                self.pdfs_linked
+            );
+        }
         if !self.components_verbatim.is_empty() {
             let kinds: Vec<String> = self
                 .components_verbatim
@@ -320,6 +345,12 @@ impl ImportReport {
             println!(
                 "  multi-word tags:     {} became [[page refs]]",
                 self.tags_multiword_to_page_ref
+            );
+        }
+        if self.tables_converted > 0 {
+            println!(
+                "  tables:              {} became pipe tables",
+                self.tables_converted
             );
         }
         if self.org_dates_converted > 0 {
@@ -351,6 +382,12 @@ impl ImportReport {
                 "  assets copied:       {} ({} KiB)",
                 self.assets_copied,
                 self.assets_bytes / 1024
+            );
+        }
+        if self.assets_remote_kept > 0 {
+            println!(
+                "  remote images kept:  {} (link left as written; --download-remote-assets pulls them)",
+                self.assets_remote_kept
             );
         }
         if self.assets_missing > 0 {
@@ -407,6 +444,12 @@ impl ImportReport {
             "    blocks:            {}/{} emitted ({} lifted to page props, {} in skipped pages)",
             r.emitted_blocks, r.source_blocks, r.blocks_lifted_to_props, r.blocks_skipped
         );
+        if r.blocks_folded_into_tables > 0 {
+            println!(
+                "                       {} table cells folded into their table block",
+                r.blocks_folded_into_tables
+            );
+        }
         if r.landing_measured {
             println!(
                 "    in the op log:     {}/{} emitted blocks confirmed on disk after reconcile",

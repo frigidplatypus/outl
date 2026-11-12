@@ -66,8 +66,11 @@ pub(super) fn rewrite_placeholders(
         let replacement = lookup(uid, is_embed);
         // A resolved REF whose preceding user text ends in `!` would
         // read as `!((blk-…))` — outl's *embed* syntax. A space is the
-        // minimal faithful separator that keeps it a reference.
-        if !is_embed && out.ends_with('!') && replacement.starts_with("((") {
+        // minimal faithful separator that keeps it a reference. An
+        // unresolved ref goes back to its source text (`((uid))`), which
+        // outl does not read as a handle, so it needs no separator.
+        let handle_open = format!("(({}", outl_md::sidecar::REF_HANDLE_PREFIX);
+        if !is_embed && out.ends_with('!') && replacement.starts_with(&handle_open) {
             out.push(' ');
         }
         out.push_str(&replacement);
@@ -190,8 +193,9 @@ pub(super) fn apply(
     // op path couldn't rewrite — a page whose block count diverged from
     // the sidecar, an individual block whose text drifted, a marker the
     // parser lifted into a property value — is degraded in the file
-    // itself (`[[Title]]` / `((unresolved:uid))`) and reconciled back,
-    // the same external-edit path a hand-edited `.md` takes. Nothing
+    // itself (`[[Title]]`, or the source `((uid))` for a target the
+    // export does not have) and reconciled back, the same external-edit
+    // path a hand-edited `.md` takes. Nothing
     // references these blocks by handle (resolution into an unmappable
     // page already fell back), so a re-identification is harmless.
     for page in pages {
@@ -210,19 +214,15 @@ pub(super) fn apply(
         {
             continue;
         }
-        let new_text = rewrite_placeholders(&text, &mut |uid, is_embed| match uid_map.get(uid) {
-            Some(loc) => {
-                if is_embed {
-                    report.embeds_page_fallback += 1;
-                } else {
-                    report.refs_page_fallback += 1;
-                }
-                format!("[[{}]]", loc.page_title)
-            }
-            None => {
-                report.refs_unresolved += 1;
-                format!("((unresolved:{uid}))")
-            }
+        // The page *holding* the marker could not be wired block by
+        // block (a marker in a property value, or a page whose block
+        // count diverged), but the *target* usually can: its handle is
+        // in its own sidecar. Only a target on an unmappable page
+        // degrades to a `[[Title]]` link. Degrading every one of them
+        // turned a `note:: ((uid))` property into a page link even when
+        // the block it named was right there.
+        let new_text = rewrite_placeholders(&text, &mut |uid, is_embed| {
+            resolve_one(uid, is_embed, uid_map, &sidecars, report)
         });
         if let Err(e) = outl_md::write_atomic(&page.path, new_text.as_bytes()) {
             report.warn(&page.title, format!("fallback sweep write failed: {e}"));
@@ -235,7 +235,8 @@ pub(super) fn apply(
         }
         report.warn(
             &page.title,
-            "unmappable placeholders degraded to [[links]] via file fallback",
+            "placeholders outside block text resolved via file fallback (unmappable targets \
+             degrade to [[links]])",
         );
     }
 
@@ -268,9 +269,15 @@ fn resolve_one(
                 format!("[[{}]]", loc.page_title)
             }
         },
+        // The target is not in the export (deleted in the source, or
+        // never part of it). Keep the source text as written, `((uid))`:
+        // outl does not read a source uid as one of its handles, so it
+        // stays inert text, and the uid is still there to search for.
+        // An embed keeps its `!` (already in the text), so it reads
+        // `!((uid))`.
         None => {
             report.refs_unresolved += 1;
-            format!("((unresolved:{uid}))")
+            format!("(({uid}))")
         }
     }
 }

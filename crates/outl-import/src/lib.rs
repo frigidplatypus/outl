@@ -67,15 +67,30 @@ pub struct ImportOptions {
     /// property lines per block pollute the markdown for metadata most
     /// users never read. Dropped timestamps are counted in the report.
     pub preserve_timestamps: bool,
-    /// Pull referenced files into the workspace's `assets/` dir (copy a
-    /// local file, download a remote URL) and rewrite the link to the
-    /// content-addressed path. On by default (`outl import --no-assets`
-    /// turns it off, keeping the original relative/remote link). A
-    /// referenced file that can't be pulled is counted, never fatal.
+    /// Pull referenced local files into the workspace's `assets/` dir and
+    /// rewrite the link to the content-addressed path. On by default
+    /// (`outl import --no-assets` turns it off, keeping the original
+    /// relative link). A referenced file that can't be pulled is counted,
+    /// never fatal.
     pub import_assets: bool,
+    /// Also download remote images (`![alt](https://…)`) into `assets/`.
+    /// Off by default: the link is the user's text, and rewriting it to
+    /// `assets/<hash>` loses the source URL, which the outl link syntax
+    /// has no room to keep. Left verbatim, outl still renders the image
+    /// straight from its URL. With this on, the alt text is kept as
+    /// written. An encrypted upload (`….enc`) is never downloaded: its
+    /// bytes are ciphertext. Has no effect when `import_assets` is off.
+    pub download_remote_assets: bool,
     /// Upper bound in bytes on a single imported asset (`0` = unbounded).
     /// The CLI fills this from `[assets] max_bytes`.
     pub max_bytes: u64,
+    /// Roam: land every source block as exactly one outl block that
+    /// carries its Roam uid as a `roam-uid::` property (pages too), so a
+    /// sync back to Roam can map the two. Leading attribute blocks stay
+    /// blocks (their attributes are also copied to the page header) and
+    /// tables keep their cell blocks. Off by default: one more property
+    /// line per block.
+    pub keep_source_ids: bool,
 }
 
 impl Default for ImportOptions {
@@ -83,7 +98,9 @@ impl Default for ImportOptions {
         Self {
             preserve_timestamps: false,
             import_assets: true,
+            download_remote_assets: false,
             max_bytes: 0,
+            keep_source_ids: false,
         }
     }
 }
@@ -103,7 +120,7 @@ pub fn dry_run(
     opts: &ImportOptions,
 ) -> Result<ImportReport, ImportError> {
     let mut report = ImportReport::new(adapter.id());
-    let graph = adapter.parse(src, &mut report)?;
+    let graph = adapter.parse_with(src, opts, &mut report)?;
     emit::dry_run(&graph, opts, &mut report);
     report.finalize();
     Ok(report)
@@ -131,7 +148,7 @@ pub fn run_import_with_progress(
 ) -> Result<ImportReport, ImportError> {
     let mut report = ImportReport::new(adapter.id());
     sink(ImportProgress::Parsing);
-    let graph = adapter.parse(src, &mut report)?;
+    let graph = adapter.parse_with(src, opts, &mut report)?;
     emit::run(&graph, dest, opts, &mut report, sink)?;
     report.finalize();
     Ok(report)

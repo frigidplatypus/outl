@@ -48,11 +48,10 @@ status:: active
 - first block...
 ```
 
-A value that is empty or only whitespace is not written.
-`render` skips it, on a page and on a block, so a bare `key::` does not stay in the file.
-The parser still accepts that line and stores `""`.
-`outl page prop set key=` and `outl page prop delete` both append `Op::SetProp` with no value, so a blank set removes the key.
-An older log may still hold an empty string; the projection omits that line.
+A value that is empty or only whitespace is written as a bare `key::`, on a page and on a block.
+The parser reads that line back as `""`, so the key survives the round trip (an imported `published::` stays in the file).
+`outl page prop set key=` and `outl page prop delete` both append `Op::SetProp` with no value, so a blank set removes the key and no line is written.
+An older log may still hold an empty string from before that change; it projects as `key::` until the key is deleted.
 
 The `type::` key carries the page's semantic kind and is consumed by surfaces that filter pages by role — `type:: person` is the canonical example, recognised by the `@` mention autocomplete (see [§Mentions](#mentions-name)).
 Other types (`type:: project`, `type:: meeting`, …) are free-form today; the autocomplete only filters on `person`.
@@ -122,6 +121,11 @@ A line whose own text is itself indented (`"head\n  detail"`) comes back one lev
 Continuation **ends** at the first line that is a block marker (`-`), a property (`key:: value`), a genuinely empty line, or once a child block has claimed the slot after one.
 After that, a line the grammar still can't place — over-indented, no open continuation to absorb it — is recovered as a **child block** at the depth it was written (see "Permissive parsing & warnings" below).
 Nothing is silently skipped, at any depth.
+
+**A text line shaped like structure is escaped with one backslash.**
+A continuation line that would otherwise parse as a block marker (`- item`), an unclosed fence opener (```` ```yaml ````) or a property (`source:: x`) is written as `\- item`, `` \```yaml `` or `\source:: x`, and the parser drops exactly that backslash.
+So a block whose text holds such a line comes back as one block with the same text, its lines in the order they were written; written bare, `source:: x` would be lifted out of the text into a property and land after it.
+A `key:: value` line written bare under a bullet is still a property, as above.
 
 In the TUI: `Alt+Enter` (or `Ctrl+J`, or `Shift+Enter` in kitty-protocol-aware terminals) inserts a soft newline inside the current block.
 Plain `Enter` commits and creates a sibling — unless the cursor is inside an open fenced code block, in which case `Enter` auto-detects and inserts a soft newline instead (see below).

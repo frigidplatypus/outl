@@ -192,6 +192,9 @@ fn convert_file(
         props,
         body: PageBody::Raw(body),
         stem_override: (!is_journal).then_some(assigned_stem),
+        created: None,
+        edited: None,
+        source_uid: None,
     });
     Ok(())
 }

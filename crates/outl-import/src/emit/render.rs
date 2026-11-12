@@ -7,6 +7,7 @@
 //! handles. The two prefixes are distinct so resolve knows ref-vs-embed
 //! from the marker itself.
 
+use super::merge_names::{alias_entry, merged_warning};
 use crate::ir::{
     BlockContent, EmbedTarget, ImportBlock, ImportGraph, ImportPage, Inline, PageBody, PageName,
 };
@@ -98,7 +99,16 @@ pub fn render_graph(
     // carry both `May 25th, 2026` and `2026-05-25`); named pages
     // disambiguate slug collisions with a numeric suffix.
     let mut journal_groups: Vec<(NaiveDate, Vec<&ImportPage>)> = Vec::new();
+    // Named pages grouped by their outl identity. outl derives a page's
+    // id from its slug and resolves `[[Name]]` by slug before anything
+    // else, so two source pages on one slug (`Cloudflare` and
+    // `cloudflare`) are one page in outl whatever the files say: with a
+    // `-2` suffix the second one was unreachable, every link to it landed
+    // on the first. They merge like same-date journals do, and the other
+    // spellings become `alias::` names. Adapters with their own stem
+    // policy (Obsidian paths) pin the stem and are left alone.
     let mut named: Vec<(&str, Vec<&ImportPage>)> = Vec::new();
+    let mut named_by_slug: HashMap<String, usize> = HashMap::new();
     for page in &graph.pages {
         match &page.name {
             PageName::Journal(d) => match journal_groups.iter_mut().find(|(k, _)| k == d) {
@@ -115,6 +125,22 @@ pub fn render_graph(
                 }
                 None => journal_groups.push((*d, vec![page])),
             },
+            PageName::Named(t) if page.stem_override.is_none() => {
+                let slug = slugify(t);
+                match named_by_slug.get(&slug) {
+                    Some(&i) => {
+                        // Warned per page below, once the group knows
+                        // which spelling keeps the title.
+                        report.pages_merged += 1;
+                        report.slug_collisions += 1;
+                        named[i].1.push(page);
+                    }
+                    None => {
+                        named_by_slug.insert(slug, named.len());
+                        named.push((t.as_str(), vec![page]));
+                    }
+                }
+            }
             PageName::Named(t) => named.push((t.as_str(), vec![page])),
         }
     }
@@ -130,17 +156,30 @@ pub fn render_graph(
         render_page(
             sources,
             &title,
+            &[],
             stem,
             path,
             true,
-            opts,
+            (opts, graph.source_uid_key),
             report,
             &mut pages_out,
             &mut uid_map,
         );
         report.journals += 1;
     }
-    for (title, sources) in &named {
+    for (title, sources) in &mut named {
+        // The page with the most content keeps the title; the other
+        // spellings of a merged group become aliases.
+        if sources.len() > 1 {
+            let primary = (0..sources.len())
+                .max_by_key(|&i| (outline_len(sources[i]), std::cmp::Reverse(i)))
+                .unwrap_or(0);
+            sources.swap(0, primary);
+            sources[1..].sort_by_key(|p| graph_position(graph, p));
+            *title = page_title(sources[0]);
+        }
+        let title: &str = title;
+        let sources: &[&ImportPage] = sources;
         // Adapters with their own collision policy (Obsidian) pin the
         // stem; otherwise the title slugifies.
         let base = sources[0]
@@ -157,13 +196,23 @@ pub fn render_graph(
             format!("{base}-{n}")
         };
         let path = pages_dir.join(format!("{stem}.md"));
+        let aliases: Vec<String> = sources[1..]
+            .iter()
+            .map(|p| page_title(p))
+            .filter(|t| *t != title)
+            .filter_map(alias_entry)
+            .collect();
+        for other in sources[1..].iter().map(|p| page_title(p)) {
+            report.warn(other, merged_warning(other, title, &stem));
+        }
         render_page(
             sources,
             title,
+            &aliases,
             stem,
             path,
             false,
-            opts,
+            (opts, graph.source_uid_key),
             report,
             &mut pages_out,
             &mut uid_map,
@@ -174,10 +223,39 @@ pub fn render_graph(
     (pages_out, uid_map)
 }
 
+/// A named page's title (journals never reach the callers).
+fn page_title(page: &ImportPage) -> &str {
+    match &page.name {
+        PageName::Named(t) => t,
+        PageName::Journal(_) => "",
+    }
+}
+
+/// Blocks in a page's outline, for picking a merged group's title.
+fn outline_len(page: &ImportPage) -> usize {
+    fn count(blocks: &[ImportBlock]) -> usize {
+        blocks.iter().map(|b| 1 + count(&b.children)).sum()
+    }
+    match &page.body {
+        PageBody::Outline(blocks) => count(blocks),
+        PageBody::Raw(raw) => raw.len(),
+    }
+}
+
+/// Source order of a page, so a merged group keeps it after its primary.
+fn graph_position(graph: &ImportGraph, page: &ImportPage) -> usize {
+    graph
+        .pages
+        .iter()
+        .position(|p| std::ptr::eq(p, page))
+        .unwrap_or(usize::MAX)
+}
+
 /// Per-page render accumulator.
 struct Ctx<'a> {
     report: &'a mut ImportReport,
     opts: &'a ImportOptions,
+    uid_key: Option<&'static str>,
     page_title: String,
     out: String,
     dfs: usize,
@@ -189,10 +267,11 @@ struct Ctx<'a> {
 fn render_page(
     sources: &[&ImportPage],
     title: &str,
+    aliases: &[String],
     stem: String,
     path: PathBuf,
     is_journal: bool,
-    opts: &ImportOptions,
+    (opts, uid_key): (&ImportOptions, Option<&'static str>),
     report: &mut ImportReport,
     pages_out: &mut Vec<RenderedPage>,
     uid_map: &mut HashMap<String, UidLoc>,
@@ -200,6 +279,7 @@ fn render_page(
     let mut ctx = Ctx {
         report,
         opts,
+        uid_key,
         page_title: title.to_string(),
         out: String::new(),
         dfs: 0,
@@ -213,10 +293,50 @@ fn render_page(
     if !is_journal {
         header.push_str(&format!("title:: {title}\n"));
     }
+    let mut aliases_written = aliases.is_empty();
     for page in sources {
         for (k, v) in &page.props {
-            header.push_str(&format!("{k}:: {v}\n"));
+            if k == "alias" && !aliases_written {
+                // One `alias::` line: the index reads only the first.
+                header.push_str(&format!("{k}:: {v}, {}\n", aliases.join(", ")));
+                aliases_written = true;
+            } else {
+                header.push_str(&format!("{k}:: {v}\n"));
+            }
             ctx.report.props_pages += 1;
+        }
+    }
+    if !aliases_written {
+        header.push_str(&format!("alias:: {}\n", aliases.join(", ")));
+    }
+    let page_uids: Vec<&str> = sources
+        .iter()
+        .filter_map(|p| p.source_uid.as_deref())
+        .collect();
+    if let Some(key) = uid_key.filter(|_| !page_uids.is_empty()) {
+        header.push_str(&format!("{key}:: {}\n", page_uids.join(", ")));
+    }
+    // Page timestamps, same policy as block ones. A merged journal
+    // (two source pages, one date) keeps the earliest creation and the
+    // latest edit. A source attribute of the same name wins: it is what
+    // the user wrote.
+    let created = sources.iter().filter_map(|p| p.created).min();
+    let edited = sources.iter().filter_map(|p| p.edited).max();
+    if created.is_some() || edited.is_some() {
+        if ctx.opts.preserve_timestamps {
+            let has_key = |key: &str| {
+                sources
+                    .iter()
+                    .any(|p| p.props.iter().any(|(k, _)| k.eq_ignore_ascii_case(key)))
+            };
+            for (key, ts) in [("created", created), ("edited", edited)] {
+                if let Some(ts) = ts.filter(|_| !has_key(key)) {
+                    header.push_str(&format!("{key}:: {}\n", ts.to_rfc3339()));
+                    ctx.report.props_pages += 1;
+                }
+            }
+        } else {
+            ctx.report.timestamps_dropped += 1;
         }
     }
     if !header.is_empty() {
@@ -345,15 +465,18 @@ fn render_block(b: &ImportBlock, depth: usize, ctx: &mut Ctx<'_>) {
     // Emit: first line as the bullet, the rest as continuation lines.
     let pad = "  ".repeat(depth);
     let cont_pad = "  ".repeat(depth + 1);
-    let mut lines = logical.split('\n');
-    let first = lines.next().unwrap_or("");
+    // Same line split + escaping as outl-md's own renderer, so a
+    // continuation line shaped like `- item` stays text instead of
+    // parsing back as a child bullet (which broke the 1:1 DFS mapping).
+    let mut lines = outl_md::render::block_text_lines(&logical).into_iter();
+    let first = lines.next().unwrap_or_default();
     ctx.out.push_str(&pad);
     ctx.out.push_str("- ");
-    ctx.out.push_str(first);
+    ctx.out.push_str(&first);
     ctx.out.push('\n');
     for line in lines {
         ctx.out.push_str(&cont_pad);
-        ctx.out.push_str(line);
+        ctx.out.push_str(&line);
         ctx.out.push('\n');
     }
 
@@ -363,14 +486,25 @@ fn render_block(b: &ImportBlock, depth: usize, ctx: &mut Ctx<'_>) {
         props.push(("state".to_string(), state.to_string()));
     }
     props.extend(b.props.iter().cloned());
+    if let (Some(key), Some(uid)) = (ctx.uid_key, &b.uid) {
+        props.push((key.to_string(), uid.clone()));
+    }
     if b.created.is_some() || b.edited.is_some() {
         if ctx.opts.preserve_timestamps {
-            if let Some(c) = b.created {
-                props.push(("created".to_string(), c.to_rfc3339()));
-            }
-            if let Some(e) = b.edited {
-                props.push(("edited".to_string(), e.to_rfc3339()));
-            }
+            // A `created::` / `edited::` property the user wrote wins
+            // over the source's own timestamp, the same rule the page
+            // header follows. Writing both made the later line win in
+            // the op log, so the user's value was lost. A line of that
+            // shape in a block with prose is text (the renderer escapes
+            // it), so it does not compete with the stamp.
+            let user_has = |key: &str| props.iter().any(|(k, _)| k.eq_ignore_ascii_case(key));
+            let stamps = [("created", b.created), ("edited", b.edited)];
+            let keep: Vec<(String, String)> = stamps
+                .into_iter()
+                .filter(|(key, _)| !user_has(key))
+                .filter_map(|(key, ts)| ts.map(|t| (key.to_string(), t.to_rfc3339())))
+                .collect();
+            props.extend(keep);
         } else {
             ctx.report.timestamps_dropped += 1;
         }

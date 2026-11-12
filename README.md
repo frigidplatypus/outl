@@ -100,9 +100,11 @@ outl import logseq ~/path/to/logseq-graph ~/notes
 outl import roam ~/Downloads/backup.json ~/notes
 ```
 
-The importers (Roam, Logseq, Obsidian — or `auto` to detect) resolve `((uid))` block refs and `{{embed}}`s into real outl block references, keep folded state, and translate each dialect.
+Logseq's new DB version stores a graph in SQLite; export it with **Export graph → Export EDN file** and run `outl import logseq-db <export.edn> ~/notes` ([details](docs/import.md#logseq-db-graphs-logseq-db)).
+
+The importers (Roam, Logseq, Logseq DB, Obsidian — or `auto` to detect) resolve `((uid))` block refs and `{{embed}}`s into real outl block references, keep folded state, and translate each dialect.
 Everything touched is counted in the import report — run with `--dry-run` first to measure fidelity against your backup.
-Anything unresolvable stays as `((unresolved:UID))` for manual triage.
+A ref whose target is not in the export stays as the source wrote it, `((UID))`, so it remains greppable for manual triage.
 
 ## Contributing
 

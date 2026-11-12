@@ -6,7 +6,9 @@
 //! module runs once, right after render and **before** any file is
 //! written: for every [`AssetRef`] it copies the local file (or
 //! downloads the remote URL) into `<root>/assets/<hash>.<ext>` and maps
-//! the placeholder to the final `[name](assets/<hash>.<ext>)` link.
+//! the placeholder to the final `[name](assets/<hash>.<ext>)` link. A
+//! remote image is downloaded only on `download_remote_assets`; by
+//! default it keeps the link the source wrote.
 //!
 //! The substitution touches both the page text *and* every
 //! [`PlaceholderBlock`](super::render::PlaceholderBlock) text, so the
@@ -21,7 +23,7 @@ use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::ir::{AssetSource, ImportGraph, ASSET_PLACEHOLDER_PREFIX};
+use crate::ir::{AssetRef, AssetSource, ImportGraph, ASSET_PLACEHOLDER_PREFIX};
 use crate::report::ImportReport;
 use crate::ImportOptions;
 
@@ -57,8 +59,14 @@ fn resolve_all(
     report: &mut ImportReport,
 ) -> HashMap<usize, String> {
     let mut links = HashMap::with_capacity(graph.assets.len());
+    let mut missing_local: Vec<&Path> = Vec::new();
     for (idx, asset) in graph.assets.iter().enumerate() {
         if !opts.import_assets {
+            links.insert(idx, asset.original.clone());
+            continue;
+        }
+        if !pulls(asset, opts) {
+            report.assets_remote_kept += 1;
             links.insert(idx, asset.original.clone());
             continue;
         }
@@ -72,11 +80,63 @@ fn resolve_all(
             }
             None => {
                 report.assets_missing += 1;
+                if let AssetSource::Local(path) = &asset.source {
+                    missing_local.push(path);
+                }
                 links.insert(idx, asset.original.clone());
             }
         }
     }
+    warn_missing_local(&missing_local, report);
     links
+}
+
+/// Local files the source links to and the import could not read, said
+/// once instead of once per file: an export that left its attachments
+/// behind misses hundreds, and a line each buried every other warning.
+/// Each path is still logged at `debug`.
+fn warn_missing_local(missing: &[&Path], report: &mut ImportReport) {
+    const NAMED: usize = 5;
+    if missing.is_empty() {
+        return;
+    }
+    let named: Vec<String> = missing
+        .iter()
+        .take(NAMED)
+        .map(|p| p.display().to_string())
+        .collect();
+    let more = missing.len().saturating_sub(NAMED);
+    let tail = if more > 0 {
+        format!(" and {more} more (RUST_LOG=debug lists every path)")
+    } else {
+        String::new()
+    };
+    let detail = format!(
+        "{} local file(s) linked from the source could not be read, links kept as written: {}{tail}",
+        missing.len(),
+        named.join(", ")
+    );
+    tracing::warn!("import: {detail}");
+    report.warn("(graph)", detail);
+}
+
+/// Whether `asset` is pulled into `assets/` (given `import_assets` is
+/// on). A local file always is. A remote image only on
+/// `download_remote_assets`, and never an encrypted upload: Roam keeps
+/// an encrypted graph's images as `….enc` objects whose bytes are
+/// ciphertext, so the download would store noise under an image link.
+pub(super) fn pulls(asset: &AssetRef, opts: &ImportOptions) -> bool {
+    match &asset.source {
+        AssetSource::Local(_) => true,
+        AssetSource::Remote(url) => opts.download_remote_assets && !is_encrypted_upload(url),
+    }
+}
+
+/// `true` for a URL whose path names an encrypted object (`….enc`,
+/// percent-encoded or not), like the files of an encrypted Roam graph.
+fn is_encrypted_upload(url: &str) -> bool {
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    path.to_ascii_lowercase().ends_with(".enc")
 }
 
 /// Copy a local file into `assets/`. `None` (→ missing) on a read error
@@ -94,7 +154,7 @@ fn pull_local(
             Some(asset.markdown)
         }
         Err(e) => {
-            tracing::warn!(path = %path.display(), error = %e, "import: local asset skipped");
+            tracing::debug!(path = %path.display(), error = %e, "import: local asset skipped");
             None
         }
     }
@@ -104,7 +164,7 @@ fn pull_local(
 /// network / status / import failure; never aborts the import.
 fn pull_remote(
     url: &str,
-    display_name: &str,
+    alt: &str,
     root: &Path,
     opts: &ImportOptions,
     report: &mut ImportReport,
@@ -116,11 +176,15 @@ fn pull_remote(
             return None;
         }
     };
-    match outl_actions::import_asset_bytes(root, &bytes, &ext, display_name, opts.max_bytes) {
+    match outl_actions::import_asset_bytes(root, &bytes, &ext, alt, opts.max_bytes) {
         Ok(asset) => {
             report.assets_copied += 1;
             report.assets_bytes += bytes.len() as u64;
-            Some(asset.markdown)
+            // The alt text stays as the source wrote it, empty included:
+            // `import_asset_bytes` would label an empty one with the file
+            // name, which the source never said.
+            let prefix = if asset.is_image { "!" } else { "" };
+            Some(format!("{prefix}[{alt}]({})", asset.rel_path))
         }
         Err(e) => {
             tracing::warn!(url, error = %e, "import: remote asset import failed");
@@ -309,5 +373,15 @@ mod tests {
         );
         // No usable extension in the path.
         assert_eq!(ext_from_url("https://x.example/download"), None);
+    }
+
+    #[test]
+    fn encrypted_uploads_are_told_apart_by_the_path() {
+        assert!(is_encrypted_upload(
+            "https://h.invalid/o/a%2Fb.png.enc?alt=media&token=t"
+        ));
+        assert!(is_encrypted_upload("https://h.invalid/x.PNG.ENC#frag"));
+        assert!(!is_encrypted_upload("https://h.invalid/x.png?name=y.enc"));
+        assert!(!is_encrypted_upload("https://h.invalid/encoder.png"));
     }
 }

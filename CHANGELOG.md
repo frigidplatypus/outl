@@ -6,6 +6,24 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 ## [Unreleased]
 
 ### Added
+
+- **`outl import logseq-db` imports a Logseq DB graph from its EDN export** ([#355](https://github.com/outlmd/outl/issues/355), partial).
+  Logseq 2.x keeps a graph in `db.sqlite`; pointing `outl import logseq` at that directory used to report 0 pages and 0 blocks with no error.
+  It now fails with the steps to export (**Export graph → Export EDN file**), and `outl import logseq-db <export.edn> <dst>` (or `auto`) reads that file: pages, journals, tags, the ordered outline, page and block refs, tasks, code blocks and user properties, with everything it cannot translate counted in the report.
+  Reading `db.sqlite` directly, assets, whiteboards and the other EDN export shapes are not covered yet; [docs/import.md](docs/import.md#logseq-db-graphs-logseq-db) has the mapping.
+
+- **`#` opens the page picker on the desktop and the phone** ([#15](https://github.com/outlmd/outl/issues/15)).
+  A tag is a page, so the trigger searches the same pages `[[` does.
+  It accepts the **slug**, not the title: `#` has no closing delimiter, so the first space ends the tag, and inserting "Deep Work" would tag `#Deep` and leave "Work" sitting in the block as prose.
+  The TUI has had this for a while; the two GUI clients were reading a shared detector that only knew `[[` and `((`.
+  Where a tag name ends is `outl_md::reference::try_tag`'s answer, not a second rule written in TypeScript, so the popup never offers to complete past the point the parser stops reading.
+  When more than one trigger could fire, an open `[[` or `((` wins over `#` and `@`, and `#` wins over `@` — a tag is one word, so whenever it matches it is the trigger closest to the caret.
+
+- **`((blk-…))` refs and `!((blk-…))` embeds render as the source block's text on the phone** ([#16](https://github.com/outlmd/outl/issues/16)).
+  They printed the raw handle before, on every ref, which reads as the feature being absent.
+  Nothing was missing from the backend or the renderer: `MarkdownInline` decides this entirely from an `embeds` prop, and this client never filled it.
+  Resolving is `O(workspace)` and the journal re-renders on every commit, so it reruns only when the page or its set of handles changed, and an older in-flight answer can no longer land on top of a newer one.
+  Two surfaces still show the handle on both GUI clients: a ref inside a **backlink** row, and a ref whose source block you are editing **on the page you are looking at** — the second settles as soon as you navigate.
 - **The calendar week starts where you say it does** ([#94](https://github.com/outlmd/outl/issues/94)).
   `[calendar] week_start = "monday" | "sunday"` in `~/.config/outl/config.toml` retitles and re-pads the grid on all three surfaces that draw one: the TUI sidebar, the desktop sidebar, and the phone's journal sheet.
   Unset, each surface keeps the day it has always drawn — Monday on desktop and the TUI, Sunday on the phone — so an untouched config changes nothing; setting it makes all three agree.
@@ -79,6 +97,28 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   It does cost a third more memory to hold, since the base64 of N bytes is 4N/3 characters — the cap is on what the server may send, not on the representation.
 
 ### Fixed
+
+- **A phone's background sync reaches a peer that is online even when another one is asleep.**
+  The forced sync pass behind `sync_now` dialed paired devices one after another, and every iOS background window waits on that pass: 12s for `BGAppRefreshTask`, 20s for the processing task and the flush.
+  An unreachable peer costs up to 15s (5s direct + 10s relay), so with a laptop asleep at the head of `peers.json` the refresh window ran out before the always-on peer behind it was ever dialed, and the phone fell behind until someone opened the app.
+  The pass now dials every peer at once and still returns only when all of them have finished, so the completion the background windows wait on means the same thing it did.
+
+- **A property with an empty value keeps its `key::` line.**
+  An imported graph that wrote `published::` with nothing after it lost the key on disk, because the projection skipped empty values.
+  `render` now writes a bare `key::` for an empty or whitespace-only value, on a page and on a block, and the parser reads it back as `""`.
+  Deleting a key is unchanged: `outl page prop delete`, and a blank `outl page prop set key=`, append `Op::SetProp` with no value, so no line is left behind.
+
+- **`outl doctor` told you to file a bug about ops that a sync would have fetched** ([#301](https://github.com/outlmd/outl/issues/301)).
+  It had one line for two defects with opposite remediations: a node whose `Create` never arrived from a peer, and a node the log did create that the replay then rejected.
+  The first is fixed by running `outl sync` against the device that still holds the op, so the finding now names that device and that op.
+  The second is not fixed by anything the user can do, so it says to report it.
+  `Move` is not evidence that the log placed a node: replaying one against a node this replica has never seen is a no-op on the tree, so a node carrying a `Move` and no `Create` was being filed under "please report it" with no device named — the complaint in [#301](https://github.com/outlmd/outl/issues/301), reproduced in the other direction.
+
+- **The client catalog said the phone had no page history, and the phone has had one.**
+  `<HistorySheet />` is reached by long-pressing the page title, reads the same `page_timeline` the desktop's `⏱` panel reads, and restores from it.
+  The catalog's job is that every client declares a verdict for every capability, and an exhaustive `match` can force the declaration without forcing it to be true.
+  A wrong `Missing` is worse than an undeclared gap, because its sentence is shown to the user: this one sent people who already had the feature to go and find it on another device.
+  `capability_parity.rs` now fails if that row and this client disagree again.
 
 - **`ctx.storage` was unreachable from a plugin's `activate`, its content transformers and its sync transport**, with or without the `storage:local` permission.
   A turn needs two things wired before the engine runs — the plugin's local KV and its keychain access — and four of the six entry points wired only the keychain: `load_plugin` (whose `engine.load` also runs `activate(ctx)`), `transform_block`, `sync_push` and `sync_pull`.
@@ -446,6 +486,8 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   Every client skips its config rewrite when the directive is set, so the home-manager symlink survives `home-manager switch` and the desktop Settings modal disables Save and points at the declarative source.
   Set `managed = false` to hand the file back to the clients.
 
+- **`gruvbox-light` theme preset.**
+  The light side of morhetz's retro-groove palette, pairing with the existing `gruvbox` (dark). Warm cream canvas (`#fbf1c7`), dark warm-gray text, and the classic muted accents darkened so every fill pair clears WCAG AA on the light background. Selectable in the TUI (`outl --theme gruvbox-light`), the desktop Settings picker, and mobile, like every other preset.
 - **Mobile command palette, and one look across desktop and phone.**
   Type `>` in the phone's Search or Pages sheet to list actions (today, capture, tasks, reminders, calendar, sync, devices, plugins, settings, fold); a plain query shows matching actions under the pages, as the desktop palette does.
   Block text and its edit box share one line height on both clients, so rows keep one rhythm and no longer jump when you start editing on the phone; task boxes use the theme's task colours on the phone too; the phone's debug footer (block and op counts) is gone, as it never was on desktop.

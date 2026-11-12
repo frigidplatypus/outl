@@ -28,6 +28,30 @@ The flow is two honest steps, no filler:
 
 Only the chrome is desktop-local; why the copy and the panel are shared rather than rebuilt is in [`crates/outl-desktop/CLAUDE.md`](../crates/outl-desktop/CLAUDE.md) → "First-run onboarding".
 
+## Switch workspace — File menu (macOS) and Settings button
+
+The native menu is built in `src-tauri/src/menu.rs` and exists on **macOS only**.
+Tauri installs a default menu on macOS alone, so Windows and Linux never had a menu bar, and adding one there would be new chrome nobody asked for.
+On macOS the default's File menu held only "Close Window", so the menu is built here instead.
+It keeps what the default offered (the app menu, Edit with undo / redo / cut / copy / paste / select all, View, Window, and File → Close Window) and adds **File → Switch Workspace…** above Close Window.
+
+**Settings → Workspace → Switch…** is the cross-platform route, and the only one on Windows and Linux.
+It runs the same `switchWorkspace` flow as the menu item, and closes the modal once the workspace actually changed (not on cancel or failure: the draft still holds the old `last_workspace`, and Save writes it back).
+The helper line under the path names the File menu on macOS and says only "Use the button to change." elsewhere (`switchWorkspaceHint`, which reads `@tauri-apps/plugin-os`).
+Each time the modal opens it re-reads `last_workspace`, so a switch made through the menu does not leave a stale path on screen.
+
+Clicking the menu item picks nothing in Rust; it emits `menu://switch-workspace`.
+`AppShell` listens (`onMenuSwitchWorkspace`) and runs `switchWorkspace` (`lib/switch-workspace.ts`), the same function the Settings button calls:
+
+1. A folder dialog titled "Switch outl workspace".
+   Cancelling does nothing.
+2. `set_workspace(path)`, the command the first-run picker calls.
+3. The page, selection, backlinks and other slices tied to the old workspace are cleared, then today's journal of the new workspace is loaded.
+   A failure lands on the error toast and leaves the current page on screen.
+
+The menu item does nothing while `<Onboarding />` or the loading screen is up, because the picker is itself the screen then.
+It has no chord and no palette row: both would need a new `Action`, which every client has to declare a verdict for ([`client-parity.md`](client-parity.md)).
+
 ## Chrome toggle bar and quick capture
 
 `components/ChromeToggleBar.tsx` is a fixed bottom-left cluster, mounted by `AppShell`, carrying two visible mirrors of chords.
@@ -141,16 +165,18 @@ Cross-client contract: [`clients.md` → Zoom / focus on a block](clients.md#zoo
 
 ## Inline autocomplete popups
 
-`BlockEditor` hosts four popups, and only one is ever open at a time.
+`BlockEditor` hosts five popups, and only one is ever open at a time.
 
 | Trigger | Popup | Source | What accepting inserts |
 |---|---|---|---|
 | `:shortcode` (word-initial `:[a-z]`) | `EmojiSuggestPopup` | `searchEmojis` → `outl_md::emoji::search` | the canonical `:shortcode:` |
 | `[[…]]` | `RefSuggestPopup` | `search_pages`, the same command the `Cmd+P` picker calls | the page title, or the ISO slug for a journal |
 | `((…))` | `BlockSuggestPopup` | `search_blocks`, from disk, debounced ~150 ms | the ref handle `((blk-XXXXXX))` |
+| `#…` (word-initial, one word) | `RefSuggestPopup` | `search_pages` — a tag *is* a page | the page **slug**, never the title: `#` has no closer, so the first space would end the tag and leave the rest as prose |
 | block-initial `/` | slash menu | `templateSlashCommands` (`lib/slash-commands.ts`) plus the shared command set | runs the row, e.g. `instantiateTemplateAt` for `template: <name>` |
 
 Detection and span replacement are `@outl/shared/autocomplete`'s (`detectRefContext`, `detectEmojiContext`, `applySuggestion`, `applyEmojiSuggestion`), which the TUI and mobile run too.
+When more than one trigger could fire, an open `[[`/`((` wins over `#` and `@`, and `#` wins over `@` — a tag is one word, so it is always the closer trigger when it matches.
 
 `((blk-…))` handles also **resolve** at render (issue #147, TUI parity).
 `OutlineView` gathers them with `collectBlockRefHandles` plus `resolveEmbeds` into `appState.embeds`, and `BlockBody` feeds that to `<MarkdownInline embeds= />`.

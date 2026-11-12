@@ -30,7 +30,7 @@ pub(crate) struct Cli {
     pub(crate) workspace: Option<PathBuf>,
 
     /// TUI theme preset (default-dark, light, logseq-light, dracula,
-    /// solarized-dark, nord, monokai, gruvbox). Overrides `[theme]
+    /// solarized-dark, nord, monokai, gruvbox, gruvbox-light). Overrides `[theme]
     /// preset` in workspace `config.toml` for this run.
     #[arg(long, global = true, value_name = "PRESET")]
     pub(crate) theme: Option<String>,
@@ -313,11 +313,12 @@ pub(crate) enum Command {
     /// Import a graph from another outliner.
     Import {
         /// Source format: `roam` (JSON file), `logseq` (graph
-        /// directory), `obsidian` (vault directory), or `auto`
-        /// (detect from the source's shape).
+        /// directory), `logseq-db` (the EDN file from Logseq's "Export
+        /// graph > Export EDN file"), `obsidian` (vault directory), or
+        /// `auto` (detect from the source's shape).
         format: String,
-        /// Path to the Logseq graph directory, the Roam backup file,
-        /// or the Obsidian vault directory.
+        /// Path to the Logseq graph directory, the Logseq DB EDN export,
+        /// the Roam backup file, or the Obsidian vault directory.
         src: PathBuf,
         /// Destination workspace. Created if it doesn't exist yet.
         dst: PathBuf,
@@ -335,6 +336,17 @@ pub(crate) enum Command {
         /// original relative/remote links verbatim.
         #[arg(long)]
         no_assets: bool,
+        /// Also download remote images into `assets/`. Off by default:
+        /// a remote `![alt](url)` stays as written, URL included. With
+        /// this on, the link points at the local copy and the URL is
+        /// gone (the alt text is kept). Encrypted uploads (`.enc`) are
+        /// never downloaded.
+        #[arg(long)]
+        download_remote_assets: bool,
+        /// Roam: keep each block as one outl block carrying its Roam
+        /// uid as a `roam-uid::` property (pages too), for a sync back.
+        #[arg(long)]
+        keep_source_ids: bool,
         /// Import even when the destination already holds content —
         /// overwrites those pages and discards anything written in outl,
         /// or received from a paired device, since the last import.
