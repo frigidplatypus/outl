@@ -11,6 +11,10 @@
 		0363A100000000000000000D /* OutlKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0363A100000000000000000C /* OutlKit */; };
 		0363A100000000000000000E /* OutlWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0363A1000000000000000001 /* OutlWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0363A1000000000000000012 /* OutlCaptureWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0363A1000000000000000011 /* OutlCaptureWidget.swift */; };
+		0363A1000000000000000014 /* OutlQuickAddControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0363A1000000000000000013 /* OutlQuickAddControl.swift */; };
+		0363A1000000000000000016 /* OpenQuickAddIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0363A1000000000000000015 /* OpenQuickAddIntent.swift */; };
+		0363A1000000000000000017 /* OpenQuickAddIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0363A1000000000000000015 /* OpenQuickAddIntent.swift */; };
+		0363A1000000000000000019 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0363A1000000000000000018 /* Assets.xcassets */; };
 		0363B2000000000000000001 /* OutlCaptureInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0363B2000000000000000002 /* OutlCaptureInbox.swift */; };
 		0363C3000000000000000001 /* OutlAddToTodayIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0363C3000000000000000002 /* OutlAddToTodayIntent.swift */; };
 		0363D400000000000000000D /* OutlKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0363D400000000000000000C /* OutlKit */; };
@@ -39,6 +43,7 @@
 		F0A1B2C00000000001000007 /* OutlBackgroundRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1B2C00000000001000008 /* OutlBackgroundRefresh.swift */; };
 		F0A1B2C00000000001000009 /* OutlOpsWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1B2C0000000000100000A /* OutlOpsWatcher.swift */; };
 		F0A1B2C0000000000100000B /* OutlBrandChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1B2C0000000000100000C /* OutlBrandChrome.swift */; };
+		F0A1B2C0000000000100000F /* OutlSafeArea.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1B2C00000000001000010 /* OutlSafeArea.swift */; };
 		F0A1B2C0000000000100000D /* OutlBonjour.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1B2C0000000000100000E /* OutlBonjour.swift */; };
 		F0BEB4AE563193FCE5465D6D /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 04D1082CDE08E6CFF900477A /* Metal.framework */; };
 /* End PBXBuildFile section */
@@ -80,6 +85,9 @@
 		0363A1000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0363A1000000000000000003 /* OutlWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OutlWidget.entitlements; sourceTree = "<group>"; };
 		0363A1000000000000000011 /* OutlCaptureWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlCaptureWidget.swift; sourceTree = "<group>"; };
+		0363A1000000000000000013 /* OutlQuickAddControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlQuickAddControl.swift; sourceTree = "<group>"; };
+		0363A1000000000000000015 /* OpenQuickAddIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenQuickAddIntent.swift; sourceTree = "<group>"; };
+		0363A1000000000000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		0363B2000000000000000002 /* OutlCaptureInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlCaptureInbox.swift; sourceTree = "<group>"; };
 		0363C3000000000000000002 /* OutlAddToTodayIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlAddToTodayIntent.swift; sourceTree = "<group>"; };
 		0363D4000000000000000001 /* OutlShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OutlShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -116,8 +124,10 @@
 		F0A1B2C00000000001000008 /* OutlBackgroundRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlBackgroundRefresh.swift; sourceTree = "<group>"; };
 		F0A1B2C0000000000100000A /* OutlOpsWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlOpsWatcher.swift; sourceTree = "<group>"; };
 		F0A1B2C0000000000100000C /* OutlBrandChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlBrandChrome.swift; sourceTree = "<group>"; };
+		F0A1B2C00000000001000010 /* OutlSafeArea.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlSafeArea.swift; sourceTree = "<group>"; };
 		F0A1B2C0000000000100000E /* OutlBonjour.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlBonjour.swift; sourceTree = "<group>"; };
 		F164B16BCE3D8D774DEB42C9 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		0364CF0000000000000000F1 /* Outl.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Outl.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -172,7 +182,10 @@
 		0363A1000000000000000004 /* OutlWidget */ = {
 			isa = PBXGroup;
 			children = (
+				0363A1000000000000000018 /* Assets.xcassets */,
 				0363A1000000000000000011 /* OutlCaptureWidget.swift */,
+				0363A1000000000000000013 /* OutlQuickAddControl.swift */,
+				0363A1000000000000000015 /* OpenQuickAddIntent.swift */,
 				0363A1000000000000000002 /* Info.plist */,
 				0363A1000000000000000003 /* OutlWidget.entitlements */,
 			);
@@ -246,6 +259,7 @@
 		8B5F93D0F33FF3A6234E686C = {
 			isa = PBXGroup;
 			children = (
+				0364CF0000000000000000F1 /* Outl.xcconfig */,
 				44DED8F4CED1FB65709229F9 /* assets */,
 				C883D4BA8E2E34769FE43776 /* Assets.xcassets */,
 				626BD1839E141625CCF789B9 /* LaunchScreen.storyboard */,
@@ -297,6 +311,7 @@
 				F0A1B2C00000000001000008 /* OutlBackgroundRefresh.swift */,
 				F0A1B2C0000000000100000A /* OutlOpsWatcher.swift */,
 				F0A1B2C0000000000100000C /* OutlBrandChrome.swift */,
+				F0A1B2C00000000001000010 /* OutlSafeArea.swift */,
 				F0A1B2C0000000000100000E /* OutlBonjour.swift */,
 				0363B2000000000000000002 /* OutlCaptureInbox.swift */,
 				0363C3000000000000000002 /* OutlAddToTodayIntent.swift */,
@@ -410,6 +425,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0363A1000000000000000019 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -463,6 +479,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				0363A1000000000000000012 /* OutlCaptureWidget.swift in Sources */,
+				0363A1000000000000000014 /* OutlQuickAddControl.swift in Sources */,
+				0363A1000000000000000016 /* OpenQuickAddIntent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -486,9 +504,11 @@
 				F0A1B2C00000000001000007 /* OutlBackgroundRefresh.swift in Sources */,
 				F0A1B2C00000000001000009 /* OutlOpsWatcher.swift in Sources */,
 				F0A1B2C0000000000100000B /* OutlBrandChrome.swift in Sources */,
+				F0A1B2C0000000000100000F /* OutlSafeArea.swift in Sources */,
 				F0A1B2C0000000000100000D /* OutlBonjour.swift in Sources */,
 				0363B2000000000000000001 /* OutlCaptureInbox.swift in Sources */,
 				0363C3000000000000000001 /* OutlAddToTodayIntent.swift in Sources */,
+				0363A1000000000000000017 /* OpenQuickAddIntent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -524,7 +544,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "app.outl.mobile-app.widget";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OUTL_BUNDLE_ID).widget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -550,7 +570,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "app.outl.mobile-app.widget";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OUTL_BUNDLE_ID).widget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -576,7 +596,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "app.outl.mobile-app.share";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OUTL_BUNDLE_ID).share";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -602,7 +622,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "app.outl.mobile-app.share";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OUTL_BUNDLE_ID).share";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -663,6 +683,7 @@
 		};
 		36D05CEFC85032D43AED2F18 /* release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0364CF0000000000000000F1 /* Outl.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -772,6 +793,7 @@
 		};
 		BE076A937BD2628AF7CC5679 /* debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0364CF0000000000000000F1 /* Outl.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;

@@ -192,6 +192,17 @@ pub(crate) fn handle_normal_key(app: &mut App, key: KeyEvent) -> Result<bool> {
                 app.go_today()?;
                 return Ok(false);
             }
+            // `g [` / `g ]` anchor on **today**; the bare `[` / `]`
+            // step from the open journal, so on a 2020 page they mean
+            // 2020 and these still mean yesterday / tomorrow.
+            ('g', KeyCode::Char('[')) => {
+                app.go_relative_day(-1)?;
+                return Ok(false);
+            }
+            ('g', KeyCode::Char(']')) => {
+                app.go_relative_day(1)?;
+                return Ok(false);
+            }
             ('g', KeyCode::Char('x')) => {
                 // `gx` = run the code block under the cursor.
                 // Mnemonic: "go execute".
@@ -220,6 +231,18 @@ pub(crate) fn handle_normal_key(app: &mut App, key: KeyEvent) -> Result<bool> {
                 // page properties `g p` now edits. Shifted for the
                 // rarer of the two, same as `g r` / `g R`.
                 app.toggle_pinned();
+                return Ok(false);
+            }
+            ('g', KeyCode::Char('D')) => {
+                // `g D` = land this block on DONE, whatever state it
+                // was in. "go Done". Shifted so it can't be fat-fingered
+                // instead of `g d` (delete the page) — the two chords
+                // look alike on a keyboard, and the consequences of the
+                // wrong guess are very different. `Action::MarkDone` in
+                // the shared catalog; mirrors the mobile/desktop "mark
+                // done" gesture rather than `Ctrl+T`'s TODO → DOING →
+                // DONE cycle.
+                app.mark_done();
                 return Ok(false);
             }
             ('g', KeyCode::Char('d')) => {
@@ -634,6 +657,20 @@ mod reminder_chord_tests {
             lookup(Mode::Normal, &seq),
             Some(Action::TogglePin),
             "the `('g', Char('P'))` arm in handle_normal_key must match this"
+        );
+    }
+
+    #[test]
+    fn g_shift_d_still_means_mark_done() {
+        // `g D` lands a block on DONE outright, distinct from `Ctrl+T`'s
+        // TODO → DOING → DONE cycle. Shifted so it can't be fat-fingered
+        // instead of `g d` (delete the page) — a near-miss between "finish
+        // this task" and "delete this whole page".
+        let seq = ChordSequence::pair(Chord::ch('g'), Chord::new(Modifiers::SHIFT, Key::char('d')));
+        assert_eq!(
+            lookup(Mode::Normal, &seq),
+            Some(Action::MarkDone),
+            "the `('g', Char('D'))` arm in handle_normal_key must match this"
         );
     }
 

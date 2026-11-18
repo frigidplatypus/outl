@@ -5,7 +5,556 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ## [Unreleased]
 
+### Fixed
+
+- **The desktop burned a whole CPU core and froze while syncing, on a workspace that had nothing to sync.**
+  Measured on a 748,684-op / 23-actor graph with four paired devices: 30 % of a core at p90 and **131 % at peak** on an app sitting idle, with the window periodically refusing keystrokes.
+
+  Nothing was broken, which is why it ran for so long.
+  The sync census — *which ops does this device hold* — was already the cheap read, optimised once when it was killing the iOS app on launch.
+  That round cut the constant and left the shape: `O(total ops)` per call, nothing memoising it, no caller aware another had just asked.
+  One exchange asked six times, and twice opened the op log in full (both index sidecars for every actor, 160 MB resident each) to re-derive byte offsets the census was already holding.
+  ~710 ms of CPU per peer, every 8 s, to move zero ops.
+  The freeze was those allocations, not the CPU: against an already-large process, macOS started compressing memory.
+
+  One census per exchange now, carrying the offsets, so the clock, the delta selection and the op bodies all come out of a single pass — and the op bodies are read by seeking to those offsets instead of opening anything.
+  **221 ms → 39 ms per exchange side, and 160 MB → 0.**
+  The census itself went 100 ms → 38 ms by not rebuilding an index it had just read.
+
+  The always-visible sync dot also stopped paying for it.
+  `pending_ops` is the only field in a peer status that reads the op log, and only the Sync panel's device list shows it, but the dot polled for it every 8 s **and** once per op delivered — several full censuses a second during an active sync, for a number that was not on screen.
+
+  Pinned structurally rather than by timing: the no-open tests delete the index sidecars and fail if either comes back.
+  The fast-path test that existed throughout passed throughout, because a converged peer returns early and never reaches the branch that was expensive.
+  The rule this bought is root `CLAUDE.md` invariant 15, with the measurements and the per-client checklist in [`docs/performance.md`](docs/performance.md).
+
+- **Pasting a Roam or Logseq block that embedded something deleted the embed, page name and all.**
+  Not "left it as literal text": the token reached the generic `{{…}}` strip and went with it.
+  Measured on every spelling, only `{{embed: ((blk-…))}}` survived.
+  Roam's own canonical form, `{{[[embed]]: ((blk-…))}}`, was one of the ones that vanished, as was `{{embed ((blk-…))}}` and every page spelling.
+  A paste is the fastest way to move one note out of Roam, so this ran on exactly the content a person was trying to rescue.
+
+  The opener set is now declared once (`EMBED_OPENERS`), which is what fixed the two block spellings alongside the page ones.
+  `{{{embed ((blk-…))}}}` still leaves two stray braces around a correct ref; handling that closer is block-embed work and is tracked separately.
+  A `((uuid))` from a foreign graph stays untranslatable and says so, because the handle derives from a `NodeId` that only exists in this workspace.
+
+- **Logseq import: every namespaced page came in under the wrong name.**
+  `pages/projeto___outl.md` imported as the page `projeto outl`, not `projeto/outl`.
+  `___` is Logseq's **namespace separator** — it is what `/` is written as on disk in `:file/name-format :triple-lowbar`, the format every graph Logseq has created since 0.6.7 — and the importer read it as a space.
+  Percent-escapes beyond `%2F` were not decoded either, so `com%3Ados.md` stayed `com%3Ados` instead of `com:dos`.
+
+  Filename decoding is now ported from Logseq's own `tri-lb-title-parsing` / `legacy-title-parsing` (`deps/graph-parser/.../extract.cljc`), and the format is read from `logseq/config.edn` — including the detail that the shipped config has most keys commented out, so a `;;`-prefixed `:file/name-format` is documentation, not a setting.
+  A graph that says `:legacy` is decoded the old way (`.` is the separator).
+  The title keeps the slash, the slug stays flat (`pages/projeto-outl.md`), and `[[projeto/outl]]` resolves through the title index.
+
+- **Logseq import: two embed spellings arrived as plain text.**
+  `{{{embed ((uuid))}}}` — the triple-brace form Logseq's own block-embed command used to insert, so it is in every graph that has been around a while — and `{{embed((uuid))}}` with no space, which Logseq renders.
+  Both resolve to a real `!((blk-XXXXXX))` handle now.
+  A `((uuid))` inside a **property value** (`related:: ((uuid))`) also used to stay inert text forever, because a property never reaches the inline tokenizer; it resolves too, through `Op::SetProp` rather than by rewriting the file.
+
+- **Logseq import: three task markers lost their task state, silently.**
+  `WAIT`, `IN-PROGRESS` and `STARTED` are markers Logseq accepts, and a block starting with one imported as plain prose with the word still in the text — not a task in any query or count, and not even reported.
+
+- **Logseq import: text before a page's first bullet was dropped.**
+  A file written or edited outside Logseq often starts with prose (Logseq shows it as the page's "pre-block"); the parser `continue`d past every one of those lines with nothing in the report to show for it.
+  It becomes a block.
+
+- **Logseq import: a page filed into a subdirectory of `pages/` was not imported.**
+  Logseq reads `pages/` recursively; the importer's scan was depth-1, so the file was skipped with no trace.
+
+- **Import: unsupported files vanished without a word, and two of three importers reported no denominator** ([#299](https://github.com/outlmd/outl/issues/299)).
+  A `board.canvas`, a `sub/deep.base`, a `whiteboards/w.edn` appeared in neither `skipped` nor `warnings`, and with `source_pages: 0` the one report block that answers *did everything arrive* never ran for Logseq or Obsidian.
+  Every importer reports a reconciliation now, and every file is accounted for: a **document** the importer will not read is named in `skipped:` with a reason and counted in the page denominator, while an attachment (never a page) is reported once in an aggregate `(graph)` warning.
+  An Obsidian vault is free markdown, where the page is the unit of content, so its reconciliation compares pages and *says* it has no block denominator rather than printing `0` and implying every block vanished.
+
+- **Import: a freshly imported workspace reported itself as needing repair.**
+  Any page with two or more properties was written with its header in source order, while a page's `.md` is a projection of the op log and the op log has no property order — so the bytes on disk were never the ones the tree projects.
+  `outl doctor` therefore greeted a fresh migration with "N page(s) hold a stale `.md` projection … run `outl doctor --repair`", which is a terrible first sentence to read about a graph you have just moved and still only half-trust.
+  The header is now written in the projection's order, and the pipeline closes with a pass that leaves every file byte-identical to its projection (through the same guard as every other writer, so [invariant 8](CLAUDE.md#critical-invariants-never-violate) still refuses a file holding a line the op log never saw).
+  `outl doctor` on a freshly imported workspace reports `integrity OK`.
+
 ### Added
+
+- **`![[page]]` embeds a whole page where you write it** ([#190](https://github.com/outlmd/outl/issues/190)).
+  The target page's outline expands read-only under the block carrying the token, four levels deep, the same cap `!((blk-XXXXXX))` uses.
+  It is a page reference as well as an embed, so the embedding block shows up in the target's backlinks and renaming the page respells the token.
+  Nothing is copied: the `.md` on disk keeps the literal `![[page]]`.
+  All three clients render it.
+
+  `![[photo.png]]` is deliberately not one, and stays the plain `!` plus `[[photo.png]]` it is today.
+  That spelling already belongs to the vault importer, which turns an Obsidian `![[image.png]]` into an `assets/` link, and a syntax with two owners resolves differently depending on which parser reached it first.
+
+- **Logseq import: a block template becomes an outl template page** ([#563](https://github.com/outlmd/outl/issues/563)).
+  A Logseq template is a *block* carrying `template:: Name`; an outl template is a *page* with that property.
+  So a graph that lives in block templates imported cleanly and then showed an empty `/template` picker.
+  Each one is copied into `templates/<name>` — the original block stays where you wrote it — and `template-including-parent:: true` keeps the carrying block as part of the body.
+  A page that already has page-level `template::` is left alone; two templates with one name keep the first and warn; a template with no body is reported rather than created as a name that stamps nothing.
+
+- **Logseq import: `SCHEDULED:` and `DEADLINE:` keep which kind of date they were** ([#578](https://github.com/outlmd/outl/issues/578)).
+  Both used to collapse into a bare `[[date]]` link, which lost the distinction Logseq draws and queries on, along with any time of day or repeater.
+  The link stays (a date in text surfaces in that day's journal through backlinks) and a `scheduled::` / `deadline::` property carries the kind, with the rest of the stamp: `scheduled:: [[2026-11-20]] 09:00 .+1w`.
+  The `logseq-db` adapter writes the same two properties, so one app does not import two different ways.
+
+- **Logseq import: `#+BEGIN_SRC` and `#+BEGIN_QUOTE` become a fenced code block and `> ` lines.**
+  A markdown graph that came through org-mode is full of them, and they used to import as literal text — which also meant the file and DB importers disagreed about the same construct.
+
+- **Logseq import: pointing at a `.zip` says what to do with it.**
+  Logseq's "Export as standard Markdown" hands you one, and `outl import logseq <that zip>` is the obvious next thing to type.
+  A graph directory holding only `pages/` or only `journals/` is also recognised now, which is what such an export (or a graph whose owner never used journals) looks like.
+
+- **A page still carrying a pre-v0 `.<name>.outl` sidecar lost every block id on reconcile.**
+  `reconcile_md` looked only for the modern `<name>.outl`, so a dotted sidecar read as no sidecar at all: every block was minted a fresh id while the old block nodes stayed under the page, duplicating its content in the tree and breaking every `((blk-…))` handle into it, with nothing in `orphans.log` ([#582](https://github.com/outlmd/outl/issues/582)).
+  It now resolves the path through `resolve_sidecar_path`, the accessor every other sidecar reader already used, so the dotted file is read and renamed to `<name>.outl` on the first pass.
+
+- **Windows: `scoop install` could not install outl at all, on any release.**
+  The Scoop manifest's `architecture.*.url` carried a literal `$version`.
+  Scoop expands that token only inside `autoupdate` — the block a bucket maintainer runs against a new release — so a client downloaded the url exactly as written and GitHub answered `404` for `/download/v$version/outl-windows-x64.zip`.
+
+  It shipped that way with the manifest and stayed through 18 version bumps.
+  Two people reported it ([#413](https://github.com/outlmd/outl/issues/413), [#498](https://github.com/outlmd/outl/issues/498)) and nothing in CI could have caught it: the one check over these urls asked whether each names the right asset, which a templated url answers correctly.
+
+  The bump now writes the concrete version, **derived from the matching `autoupdate` template** rather than written a second time, so the url shape keeps one owner.
+  `check-release-assets.py --manifest` gained the three complaints that make this fail loudly instead of at install time: a literal `$version` in a top-level url, a url whose version disagrees with the manifest's own (that one fetches one release and checks it against another's digest), and an `autoupdate.architecture` key set that no longer matches `architecture` (which is what makes the derivation total).
+
+  **The manifest on `main` is already fixed**, so `scoop update outl-beta; scoop install outl/outl-beta` works now — it does not wait for the next release.
+
+- **Sync: one actor with a gap could stop a whole workspace converging, in one direction, silently.**
+  A peer missing ops *below* its own watermark triggers a resend, and that resend used to cross whole.
+  The reasoning: a budget cuts the oldest ops while the missing ones could be anywhere, so a blind cut might send a slice the peer already has and make no progress.
+  The reasoning is right; its conclusion was not.
+  "Send everything" is not an alternative to a stalled repair when everything does not fit in a frame: an oversized resend is refused by the 64 MB frame cap on the reading side, which is the same non-convergence with the repair removed.
+
+  Measured on a real workspace: an actor holding 508,421 ops (164 MB).
+  Every exchange ingested the peer's ops, built that frame, had it refused, and never reached the durable-ingest ack — so nothing went **out**, for eleven hours, while ops kept coming **in** and the sync dot stayed green.
+  One actor took every other actor's ops down with it.
+
+  The resend is now a window that obeys the budget and **rotates**.
+  It opens where a peer holding a prefix plus the watermark is first missing something, and when a window comes back having taught the peer nothing — its `(max, count)` unchanged, which is exactly that signal — the next one starts where that one ended and wraps.
+  A full rotation covers everything we hold, so the repair progresses for any shape of gap, not just a prefix.
+  A second guard trims the encoded selection to what one frame can carry, because the op budget bounds how many ops cross and nothing bounds how big one is.
+
+  **Updating the sender is what fixes a stuck pair**: the receiver needs no change.
+
+### Added
+
+- **Desktop (macOS): an About window that answers more than "which version", and a Help menu.**
+  **outl → About outl** opens the project's own window: the mark, the name, the running version, one line about what outl is, and three links.
+  **Help** carries the same three — the source, the issue tracker, the sponsor page.
+
+  What it replaces is AppKit's standard panel, which outl was getting by default.
+  That panel shows an icon, a name and a version number, and nothing in it is clickable, so someone who had just hit a bug walked away knowing their build and no way to act on it.
+
+  The links are declared once (`src-tauri/src/links.rs`) and read by both surfaces, so the menu and the window cannot point at different places.
+  The About window is a real window rather than a modal in the main one, which is what lets it open while the workspace is still replaying and on the first-run picker — the two moments someone most wants a version number and somewhere to send a report.
+  Windows and Linux have neither, for the same reason they have no menu bar; the gap is recorded as `Capability::AboutAndSupport`.
+  [`docs/desktop-ux.md`](docs/desktop-ux.md#about-window-and-the-help-menu-macos).
+
+- **Mobile: "Remind me…" is a sheet now, not a text prompt for the rule language.**
+  A time, a repeat, an optional "until", and a **Remove** button.
+  It replaced a `window.prompt` asking for `3pm every 1h until DONE`, which on a phone is easy to miss, easy to cancel, and reads as a tap that did nothing.
+
+  The prompt had a real argument behind it: the rule language is richer than a clock, and a picker that can only express the anchor hides the repeat.
+  So the sheet carries an **Edit as text** field with the rule verbatim, and that field is what keeps the argument true — a rule the controls cannot express opens there rather than being simplified into one they can, and an interval they do not offer (`every 45min`, written in the TUI) keeps its own label instead of reading as "Once".
+
+  **Neither half re-spells the grammar.**
+  `outl_md::remind` gained `format_remind`, the inverse of the parser it already had, so the sheet reads and writes rule text through the same code the `.md` does — twice per session, on open and on save.
+  A field set the grammar cannot express is refused rather than corrected: a rule silently rewritten is a reminder that fires at a time nobody chose.
+  The Reminders tab's empty state names the gesture, so opening it with nothing scheduled is no longer a dead end.
+  [`docs/reminders.md` → Mobile](docs/reminders.md#mobile-outl-mobile), [#572](https://github.com/outlmd/outl/issues/572).
+
+- **Mobile: a New page control, in Search.**
+  The `+` beside the search box asks for a title and opens the page, prefilled with whatever is already in the box.
+
+  Named pages always worked; the only way to *start* one was to type `[[` into a block and tap the link, which a phone-only user has no reason to know — so writing in the journal every day led to the reasonable conclusion that every note has to live on a day.
+  The name goes through `open_ref`, the same resolution a typed `[[ref]]` takes, so **a name that already exists opens that page** instead of making a second one.
+  [`docs/mobile-ux.md`](docs/mobile-ux.md#search-sheet--starting-a-page-that-is-not-a-daily-note), [#573](https://github.com/outlmd/outl/issues/573).
+
+- **Mobile: a first launch now says what the buttons do.**
+  One skippable sheet naming Journal / Search / Tasks / Reminders, the `+`, the week strip, the month label and the block long-press, re-openable any time from **Settings → What's what**.
+
+  The existing 30-second tour teaches the *outline* and only ever appears on an empty page, so it never named a single piece of chrome and a returning user never saw it at all.
+  This one has its own dismissal key for that reason, and any way out counts as read — someone who swiped it away has read as much of it as they intend to.
+  Nothing in it blocks the first bullet.
+  [#574](https://github.com/outlmd/outl/issues/574).
+
+- **Write your own theme: a `.toml` in `~/.config/outl/themes/`.**
+  Three lines is a working theme, because `extends` takes any theme name and inherits the other 44 fields:
+
+  ```toml
+  # ~/.config/outl/themes/mine.toml
+  [dark]
+  extends = "outl"
+  accent = "#ff6ac1"
+  ```
+
+  It resolves as `mine`, appears in every picker on every client, and goes anywhere a preset name goes.
+  A `[light]` section beside it gives `mine-light`, and a file named after a built-in replaces that built-in rather than adding a second entry.
+  Names are derived from the filename and the section, so nothing is spelled twice.
+
+  **This is the same format the built-in themes are written in**, which is the point: the eleven built-ins moved out of Rust and into `crates/outl-theme/themes/*.toml`, `include_str!`'d into the binary so there is still nothing to install.
+  One parser, one validator, one `extends` resolver — a built-in in Rust and a user's in TOML would have been two of each, and the user's `extends = "dracula"` would have had no Rust `fn` to reach.
+
+  A file that fails to load is **named**, never silently dropped: a value that is not a hex colour, a field with nothing to inherit, a misspelled field, a written `name`, an `extends` pointing at nothing, a file that could not be read at all.
+  `outl theme list` prints the reason on stderr and `outl doctor` warns about it; the TUI and the GUI clients log it, because the palette is resolved before any of them has a status line or a toast to put it in.
+  One bad file never takes the others down.
+  [`docs/theming.md` → Your own theme](docs/theming.md#your-own-theme).
+
+- **`outl doctor` reports theme files that failed to load.**
+  A warning naming the file and the reason. A missing themes directory is the normal case and is never flagged.
+
+### Fixed
+
+- **The desktop sync dot turns green again, and the four states it can show are now decided in one place for every client.**
+  On a machine that was syncing perfectly the dot stayed orange, with a tooltip that contradicted itself: "Sync: no peer reachable" one line above "Last synced just now".
+
+  Reachability was recorded for the dials a device **made** and not for the ones it **answered**.
+  That is backwards for the arrangement outl is built on: a phone behind carrier NAT is the side that dials, which is why the phone forces a pass every few seconds instead of waiting to be reached.
+  So the desktop logged a failed dial to the phone every catch-up tick, ingested that same phone's ops seconds later over an inbound connection, recorded nothing for it, and reported every device offline.
+  The responder now records the peer on each confirmed inbound exchange, after the authorization check, so a device that was removed can never mark itself reachable on someone else's dot.
+
+  **A dial that connected and then broke counts as contact too**, and that half is what made the dot flicker rather than simply lie: a first sync, or a gap resend of a 500k-op actor, takes minutes, so an exchange still running — or one cut off half way through its push — was read as "that device is gone".
+  Only a dial that never connected means offline now, and the connection pool decides it, because connecting is the only step that answers the question.
+  That also deleted the reachability parameter from five functions that knew whether the *pass* worked and nothing about whether the device answered.
+
+  The remaining half is the one that would have made this drift back.
+  Both GUI clients read the same `peersOnline`, and then each built its own state, label and colour on top of it — which had already diverged where nobody looks: the desktop treated "no answer yet" as a dim *checking* dot and the phone treated it as orange *offline*, so a launch claimed a verdict on a measurement nobody had taken, and a probe that threw meant "read offline" on one client and "keep the last value" on the other.
+  `syncState`, `syncStateLabel`, `syncStateColor` and the `<SyncDot>` glyph live in `@outl/shared/peers` now, and the clients keep only their own chrome.
+  The dot is also what announces the state to a screen reader, so each client's button says what pressing it does rather than repeating it.
+  [#575](https://github.com/outlmd/outl/issues/575)
+
+- **Zooming into a block is distraction-free on every client, and asking for a page you are already on gets you back out.**
+  Two faults with one shape: the zoom was a slice of the outline body, and everything around the body carried on as if the whole page were open.
+
+  **The page's own surfaces stayed on screen under the block's title** — its backlinks, its nested pages, its namespace mentions, and on mobile its `key:: value` row.
+  Those answer questions about the **page**, so under a block header they read as the block's: a wrong answer, not just a noisy one.
+  All of them are hidden now on the desktop, on mobile and in the TUI.
+  The cursor follows the same rule where there is one: `j` off the zoom's last row stops instead of crossing into the backlinks, and in the TUI `z i` pressed while the cursor sits in the backlinks panel brings it back to the outline rather than leaving it on a row that is no longer drawn.
+
+  **`Cmd+J` zoomed into a block of today's journal did nothing at all**, and so did mobile's Today.
+  Both clients dropped the zoom on exactly one signal — the page id (desktop) or slug (mobile) changing — so navigating to the page *already open* had nothing to notice and left the zoom standing.
+  "The user asked for a page" is now a separate question from "the page changed", and only the first is a navigation.
+  That also fixes the sidebar's Today, a `Cmd+P` pick of the current page, a click on a `[[ref]]` that points back at it, mobile's week strip, calendar, page switcher, deep links and wake-to-today.
+  A commit, a peer refresh, a background poll, a capture into today and a timeline restore are **not** navigations and keep the zoom; a failed open changes nothing.
+  The TUI never had this one: it clears the zoom on every view **load** rather than on a comparison.
+
+  The per-client owners are in [`docs/clients.md` → Zoom / focus on a block](docs/clients.md#zoom--focus-on-a-block-roamworkflowy).
+
+- **The iOS widget was a white card, and the Lock Screen control was a button that did nothing.**
+  Two separate faults in the same extension, both silent.
+
+  The widget never declared `containerBackground(for: .widget)`, which has not been optional since the iOS 17 SDK.
+  WidgetKit does not fall back to its material without it; it paints an opaque white, so the tile sat on the Home Screen as a blank card next to every other widget and the gallery preview showed nothing.
+  The Home Screen now gets the brand gradient and the Lock Screen gets `AccessoryWidgetBackground()`, since an accessory tints its own content.
+
+  The control ran a custom `AppIntent` that returned `.result(opensIntent: OpenURLIntent(…))`.
+  An `AppIntent` inherits `openAppWhenRun == false`, so it ran inside the widget extension, where an intent it hands back has nobody to open it.
+  `OpenQuickAddIntent` now sets `openAppWhenRun` and is compiled into **both** the extension and the app, so `perform()` runs in the app process and routes to the capture sheet through `QuickAddRoute`.
+  Handing the control `OpenURLIntent` directly looks like the smaller fix and is not one: from a control it opens only universal links, so a custom scheme like `outl://` opens nothing on a device, while appearing to work in the simulator.
+  The deep link itself was never the problem.
+
+- **The capture widget shows the outl mark, not `plus.circle`.**
+  On the Home Screen and the Lock Screen it draws the mark with a `+` knocked out of its body, on the app icon's gradient.
+  `scripts/gen-icons.py` writes it from the same geometry every app icon is rasterised from, so the widget and the icon beside it cannot drift; the gradient comes from `OutlKit`'s `BrandColor`, pinned by `BrandColorTests`.
+  It ships as a custom SF Symbol because a control renders no arbitrary SwiftUI view and loads no imageset — both show a `?` placeholder.
+  The Control Center control still shows a system `plus`: it resolves the symbol (the `?` goes away) and draws an empty circle anyway, while the same symbol from the same `Assets.car` draws correctly in the widget. A blank button is worse than a generic one, so that one waits.
+
+### Changed
+
+- **Three preset names changed; every old spelling still resolves.**
+  `default-dark` and `light` were one family all along (the two ANSI fallbacks, the only presets the TUI renders through ratatui's *named* colours so your terminal's own palette shows through), and are now `ansi` and `ansi-light`.
+  `solarized-dark` is `solarized`, since `<name>-dark` is derived for every family that has a dark side.
+  `default-dark`, `dark`, `light` and `default` are kept as legacy names in `outl_theme`'s registry, so **no existing `config.toml` needs an edit**; the list may only ever get shorter.
+  Not one colour changed: the migration is pinned by `presets_fixture`, whose regenerated JSON differs in exactly those three `name` strings across eleven presets and 45 fields.
+
+- **Adding a built-in theme is two steps instead of eight.**
+  A `themes/<family>.toml` and one line in `BUILTIN`.
+  `preset_names`, `by_name`, the `-dark` / `-light` aliases, the TUI's resolver and the GUI clients' `list_themes` / `get_theme` all derive from the files.
+  The TUI's nine hand-written preset delegates and its second `by_name` match are gone with them — `crates/outl-tui/tests/theme_parity.rs` was written to catch the two resolvers drifting, and now pins that the TUI never grows its own again.
+
+- **The contrast test checks text on the canvas, not only `_bg` / `_fg` pairs.**
+  `body text`, `dim text` and `body text on bg_elev` join the checked pairs.
+  The first two pass everywhere; the third found a real defect on its first run: `solarized` paints body text on elevated surfaces (popups, modals) at 4.11:1, under WCAG AA.
+  Both halves are the upstream scheme's own values, so it is exempted by name with the reason rather than papered over.
+  The row exists because `[light]` inheriting `[dark]` makes "a light side that forgot `fg`" reachable, and nothing in this crate could see it.
+
+- **`outl page rename` and `outl_page_rename` now rewrite every mention of the page, and refuse journals.**
+  The command moved the file and left `[[old]]` and `#old` in every other page pointing at a page that no longer existed, handing the list back in `affected_refs`.
+  The rename now lives in `outl_actions::rename_page` and respells each mention through `outl_actions::link_rewrite::rewrite_mentions`, one edit per block, in the same batch.
+  The output gains `rewritten_refs`, `skipped_namespace_refs` and `touched_pages`, and `affected_refs` stays and lists what still names the old slug (namespace children, for one).
+  A journal cannot be renamed any more: its slug is its date.
+  A new slug that another page already owns is still `SLUG_CONFLICT`, and the message now says the page could be merged into it instead.
+  [RFC 0557](docs/rfcs/0557-page-merge-and-rename.md).
+
+- **Today's journal is on screen before the workspace opens.**
+  The screen a user waited on said "Opening your workspace…", and what it was waiting for was the op log: the index sidecars, the snapshot decode, the delta replay, the boot repairs.
+  None of that is needed to *show* today's journal, because the `.md` on disk is the projection of exactly that page and the sidecar beside it carries the block ids.
+  The opener now reads that pair **first** and emits it, and the client paints real text while the open runs behind it.
+  Measured on a real 730k-op workspace against its largest journal (1,006 lines): **0.6-1.3 ms**, against 163 ms of snapshot boot plus the index load, and the cost does not move with the size of the graph.
+  The preview is never editable (every mutation needs the workspace, which is not open yet), never authoritative about what the op log knows and the file does not, and silent when there is nothing to show.
+
+- **A launch stops waiting for the things a launch does not need.**
+  Sync, the filesystem watcher, the plugin host, the backup pass, the orphan `.md` sweep and the boot-cache write all used to start the moment the workspace was published, which on a phone is the moment the webview is laying out the first screen.
+  They read the same disk and take the same workspace lock the first paint needs, so running them on a worker thread never made them invisible: the premise is the device.
+  They now wait for the frontend to report a painted frame (`outl_tauri_shared::FirstPaintGate`), and **deferred never means cancelled** — the gate carries a deadline, because the painted signal arrives over IPC and a webview that fails to report would otherwise be an app that syncs with nobody, silently.
+  Mobile's existing `open_done` channel is kept rather than replaced: it is a memory gate, not a readiness one, and a channel cannot be missed.
+
+- **The snapshot write left the critical path.**
+  The GUI open called the synchronous `save_snapshot` *before* publishing the workspace, so a cold open spent 306 ms on a 10k-page workspace encoding and fsyncing a cache that only the next launch reads.
+  `Workspace::refresh_snapshot_in_background` builds the body under the lock and hands the encode, the fsync and the rename to a worker; the decision is asked after the first frame rather than carried from `boot`, because sync ingest appends to `ops-*.jsonl` without going through `Workspace::apply` and the delta can grow in between.
+
+- **"Is the workspace open yet" is waited on, not polled.**
+  The desktop asked `workspace_stats` every 500 ms behind its loading screen; the phone retried `open_today_journal` 50 times with a 200 ms backoff.
+  Neither could resolve faster than its own interval, so a workspace that became ready 10 ms into a tick waited out the rest of it, every launch.
+  `wait_workspace_ready` is a latch with a blocking wait, and `false` means "not yet, ask again" rather than a failure, because a cold 700k-op replay legitimately takes seconds.
+  The `workspace-ready` event and its fallback stay: an event can be emitted before the frontend subscribed or lost to a webview reload, which is why the poll existed at all.
+
+- **The first painted frame is the user's own theme.**
+  The palette arrives two IPC round-trips after the document parses, so a light-theme user saw the brand's dark background first and an auto-mode user on a light OS saw the reverse.
+  The last installed palette is now replayed by an inline `<head>` script before anything paints; `applyPaletteToRoot` is the only writer of that cache, sitting beside the only writer of the tokens.
+  The desktop window itself is repainted from the theme on disk before the webview exists, so the native frame matches too.
+
+- **Mobile's splash lost its 620 ms floor.**
+  It dismissed itself on a CSS timer (a 380 ms delay plus a 240 ms fade), paid whether the journal was ready in 180 ms or in four seconds.
+  The app dismisses it when the first view is applied, including on the failure state (which carries a Retry button, so a splash over it is a dead end) and on the first-run path, which has no journal to wait for.
+  A 4 s failsafe animation remains as a backstop, not as the mechanism.
+
+- **The TUI shows itself before it opens the workspace.**
+  Raw mode, the alternate screen and a skeleton frame naming the workspace now come first, so a slow open is no longer indistinguishable from a hang against the user's shell prompt.
+  `supports_keyboard_enhancement()` moved after that first frame: it costs 2.4 s on a terminal that does not answer and cannot move to a background thread, because it reads stdin and would race the event loop for the user's keystrokes.
+  A failed open now restores the terminal instead of leaving a shell in raw mode with no prompt.
+
+- **A writing `outl` command persists the boot cache; a read still does not.**
+  Short-lived openers were excluded wholesale because a write would race the long-lived GUI; that race was fixed in the writer (a per-write scratch, published by `rename`), so the cost stopped arguing against the design.
+  On a machine driven only from the terminal nothing else wrote one either, so every invocation full-replayed the log forever: 330-357 ms for `outl page get` against 132-166 ms with a snapshot present.
+
+### Added
+
+- **Rename and merge pages from the desktop and mobile apps.**
+  The desktop sidebar, and the page switcher's long-press sheet on mobile, gain **Rename page...** and **Merge into...** for regular pages (a journal's slug is its date, so journals are left out).
+  Rename opens a prompt prefilled with the current title and rewrites every `[[old]]` and `#old` mention in the same batch.
+  When the new name already belongs to another page, the app asks "A page named X already exists. Merge this page into X?" and writes nothing until you accept.
+  Merge asks you to pick the target and always confirms first.
+  Either way the app opens the resulting page and shows what happened: blocks moved, links updated, and any property both pages held with different values (the target's is kept, the other is named).
+  There is no undo, and a merge does not come apart: [RFC 0557](docs/rfcs/0557-page-merge-and-rename.md) lists what stays.
+  The TUI has no rename (`outl page rename` renames from a terminal), and no client shows the warning about an alias that another page shadows yet.
+
+- **`outl page merge`, `outl page rename --merge`, the `page_merge` batch op and the `outl_page_merge` MCP tool.**
+  `outl page merge <source> <target> --confirm` folds one page into another: the blocks move under the target with their ids, properties merge (the target's value wins on a clash and the dropped one is listed in `property_conflicts`), every `[[source]]` and `#source` mention is rewritten, the source's names become aliases of the target, and the source goes to the trash.
+  `--confirm` is required, with `--yes` as an alias, and without it the command fails with `CONFIRM_REQUIRED`.
+  There is no `--dry-run`: `merge_pages` has no preview path, and a preview would be a second implementation of the merge.
+  Running it again is safe: it moves any block that reached the trashed source late and otherwise reports `nothing_changed`.
+  `outl page rename <old> <new> --merge` does the same when `<new>` is already a page (the existing page keeps its name), and without the flag that case is still `SLUG_CONFLICT`, now naming `--merge` and `outl page merge` as the way out.
+  A journal cannot be merged away (`INVALID_ARG`); a journal can be the target.
+  The batch op `page_merge` takes `source`, `target` and `confirm: true`, `page_rename` takes an optional `merge`, and the MCP tools are `outl_page_merge` (`confirm: true` required) and `outl_page_rename` with `merge`.
+  The TUI has `/merge <page>`, which asks `y/n` first and drops the undo entries of the pages it changed, and the Raycast extension has a "Merge Pages" command.
+  What a merge does not undo: [RFC 0557](docs/rfcs/0557-page-merge-and-rename.md), and the reply shape in [`docs/cli.md`](docs/cli.md#merging-pages).
+
+- **Merging one page into another exists in `outl-actions`.**
+  `outl_actions::merge_pages` moves the source's top-level blocks under the target with their ids intact, unions `alias::` and `tags`, copies properties the target lacks (on a conflict the target wins and the dropped value is reported), makes the source's slug and title aliases of the target, rewrites every mention of the source, and moves the source to the trash.
+  `rename_or_merge` turns a taken name into a merge.
+  Running a merge twice is safe, and a block a peer appended to the source late is moved by the re-run.
+  The command line, the batch op, the MCP tool, the TUI and the Raycast extension wrap it, and so do the desktop and mobile apps (the entries above).
+  Known limits and what is not undone: [RFC 0557](docs/rfcs/0557-page-merge-and-rename.md).
+
+- **A launch reports its own frontend half.**
+  `outl_core::boot_timing` covered the workspace open; nothing in Rust could see when the webview painted, so the measured launch stopped at about half of what the user waited for.
+  Clients now report `html_parsed`, `theme_applied`, `first_content` and `interactive` through `boot_mark`, logged on arrival and summarised on one line, with the same numbers in CI, in a simulator and in production.
+  `first_content` is also what releases the deferred boot work, so the measurement and the behaviour cannot disagree about when a launch finished.
+
+- **CI watches the boot benchmark.**
+  `bench.yml` triggered on `crates/outl-md/**` alone, so `crates/outl-core/benches/boot.rs` never ran on a pull request: a change to the op log, the snapshot or the workspace open could not trip the workflow at all.
+  It now triggers on `outl-core`, `outl-actions` and `outl-tauri-shared` too, runs the 10k tier on every PR and the 50k + 218k tiers weekly.
+  This is a trend line rather than a gate; a real gate needs instruction counts and absolute budgets, which [`docs/boot-performance.md`](docs/boot-performance.md) records as open work along with page-first boot, the persistent backlink index and the remaining full-replay cliffs.
+
+### Fixed
+
+- **An `alias::` that names another page no longer takes that page's backlinks.**
+  Navigation sends `[[Beta]]` to the page titled `Beta`, even when another page lists `Beta` as an alias.
+  The backlink index sent the same mention to the alias owner, so the link and the backlinks panel disagreed about which page held it.
+  One predicate, `PageClaims::shadowed_by`, now decides, and the index drops an alias another live page already answers to, including the `@` forms of a person page.
+  `outl_actions::alias_conflicts` lists those aliases for a client to show.
+
+- **`outl <cmd> | head -1` no longer crashes.**
+  A reader that closed stdout early made the standard `print!` / `println!` panic with `failed printing to stdout` (Unix `EPIPE`, Windows `ERROR_NO_DATA`), and the crash reporter filed it as fatal (OUTL-4).
+  The CLI's print macros now drop output on a broken pipe and let the command finish, with the command's own exit status.
+  Finishing rather than exiting is deliberate: a mutating command such as `outl doctor --repair` is not abandoned half way because its reader went away.
+  Any other stdout error is still a panic and still reported.
+
+- **TestFlight uploads stopped being refused over export compliance.**
+  The app declared `ITSAppUsesNonExemptEncryption = true`, which is not "this app uses encryption" — it is "Apple has approved encryption documentation for this app, and its code is in `ITSEncryptionExportComplianceCode`".
+  outl has no approved documentation and therefore no code, so every upload came back as `Invalid Export Compliance Code ... key value []`, where the empty value is the missing **code**, not the missing flag.
+  The key is now absent, which is the state that is actually true: App Store Connect asks the export questions per build.
+  `testflight.yml` reads the pair out of the IPA before uploading and fails on the one incoherent combination, so a mismatch costs seconds instead of a 70MB transfer and a refusal that `altool` reports with `exit 0`.
+  Which export exception outl's iroh/QUIC over rustls + ring falls under is a regulatory question, so neither the project file nor the docs answers it; [`docs/ios-platform.md`](docs/ios-platform.md) carries the three states and how to leave this one.
+
+### Changed
+
+- **The app icon is the new outl mark on every client.**
+  macOS, Windows, Linux, iOS, Android, both webviews, the Raycast extension and the DMG backdrop all carry the octopus mark on the violet tile.
+  `scripts/gen-icons.py` now draws every master from the mark's vector geometry with resvg instead of reading a hand-exported PNG, so there is one source for the picture; `assets/brand/` carries the same geometry as plain SVG.
+  Android gains a real adaptive icon: a gradient background, the white mark inside the safe zone, and a monochrome layer for themed icons.
+  The 1024 App Store slot `AppIcon-512@2x.png` is now regenerated too, which the old filename match skipped.
+
+
+### Fixed
+
+- **A desktop window left open overnight no longer calls yesterday "Today".**
+  At 08:29 on the 14th, a window opened on the 13th still read `Today · November 13, 2026` in the header, in the accent colour, over the page the user was about to write into — and the sidebar calendar still ringed the 13th.
+  Nothing was stale in the "needs a refetch" sense: the app was asserting a falsehood about the day, on the one surface where believing it means writing into the wrong journal.
+  Two frozen copies of one fact caused it. The header resolved the day in a `createResource` **keyed on the page slug**, so it re-asked on navigation and never otherwise; the sidebar calendar called `new Date()` in a component body, read once at mount **and** on the browser clock rather than the configured `[calendar] timezone`, so that one could be wrong at any hour of any day.
+  `createDayClock` (`@outl/shared/journal`) is the single owner now, and the header, the calendar ring and the task list's journal headings all read it.
+  **The value is still the backend's `today_slug`; the browser clock only decides when to ask**, and because a configured timezone puts midnight somewhere the browser cannot predict, that delay is capped at an hour.
+  **Midnight relabels, it does not navigate** — the user may be looking at the window.
+  Returning to today happens on the way back in (`focus` / `visibilitychange`), under the same `shouldWakeToToday` rule the phone already used, which is now shared rather than mobile-only: never mid-edit, never when today is already on screen.
+
+### Changed
+
+- **A first sync no longer has to fit in one frame, and no longer has to fit in a phone.**
+  The delta exchange shipped every missing op as a single length-prefixed blob.
+  On a real 723k-op workspace that is 719,785 ops and 253 MB of JSONL, against a 256 MB frame ceiling — so it cleared the guard by 1.2% and allocated instead of being refused.
+  An Android phone answers that with `Scudo ERROR: internal map failure` across thirty threads, `std::bad_alloc`, and `SIGABRT` on a `tokio-rt-worker`.
+  Every launch, forever: the ingest reaches disk before the process dies, so each retry re-pulled a slightly smaller mountain and died again.
+  Both ends paid it. The sender read `all_ops` to filter the result back down, so selecting a slice cost the whole log in memory first.
+  `ops_missing_for` now picks HLCs off the offset index, caps the selection at `MAX_OPS_PER_EXCHANGE` (20,000 ops, ~7 MB), and reads only those through the new `JsonlStorage::read_ops_at`.
+  The whole history still crosses; it crosses over roughly 36 exchanges at the catch-up loop's cadence instead of one that cannot finish.
+  **The budget cuts oldest-first, which is what keeps it safe.** Sorting the selection by HLC leaves every actor with a contiguous prefix of what it owed, so the receiver's `count` stays equal to what it holds below its own `max` and the next exchange reads as a fast path instead of tripping the gap check.
+  **A gap resend is exempt, deliberately.** It exists because we cannot tell which ops below the peer's watermark are missing, so a cut slice may be one the peer already holds in full: unchanged `(max, count)`, identical next round, a repair that never progresses. Silent non-convergence is the one outcome this crate will not ship, so an oversized gap resend is refused by the frame cap instead — loudly, which is what it was already doing by crashing.
+
+- **The sync frame ceiling is 64 MB, not 256 MB.**
+  256 MB was sized so a gap-recovery full-actor-log resend always fit, which made it larger than anything the smallest client could hold.
+  A ceiling above that protects nobody: the 253 MB frame above passed it and killed the device.
+  64 MB is about 9x what a budgeted exchange produces and a refusal a phone survives.
+  The `0xFFFFFFFF` → 4 GiB claim from issue #155 is still refused before it sizes anything.
+
+- **Mobile stops opening the workspace and syncing at the same time.**
+  `wire_iroh_transport` started the transport the moment it was built, and starting it binds the endpoint and dials every known peer for an initial sync.
+  The background opener was concurrently replaying the op log.
+  Both peak in the hundreds of MB, and the launch that died above had no `boot phases:` line in its log at all — the open never got to finish.
+  The transport is still built during `setup` (identity and peer store, no socket) so `AppState` can hold it; `start` now waits on a channel the opener closes.
+  A channel rather than the `workspace-ready` event because a channel cannot be missed: the signal is buffered if the transport is not waiting yet, and a panicking opener drops the sender, which wakes the waiter just the same.
+  A transport that exists but has not started is already a supported state — `sync_now()` is a no-op and `peer_health()` is empty until `start()` — so the cost is inbound dials during the open, which peers retry.
+
+- **The index sidecars are fixed-width binary, not JSON Lines.**
+  Boot does not read the op log; it reads the `.ops-<actor>.idx` / `.ops-<actor>.nodes.idx` pair beside each one. On a real 723k-op workspace that pair is 170 MB across 23 actors and about 1.45 million records, and on an iPhone 17 Pro a launch spent **14.3 seconds** there — 12 MB/s on hardware that reads at over a gigabyte a second, so the cost was never the disk. It was a `String` allocated per record by `BufReader::lines`, handed to `serde_json`, carrying ULIDs decoded from 26 characters of base32.
+  Records are now a fixed number of little-endian bytes behind an 8-byte magic, so a load is a bounded read plus one `copy_from_slice` per entry. Measured on that workspace: **170 MB → 61 MB** on disk and **310 ms → 57 ms** to load, with the whole open going 795 ms → 446 ms.
+  The format change is free because a sidecar is a **local boot cache**: dot-prefixed so it never rides the sync surface, and already required to survive being missing or unreadable by rebuilding from the `.jsonl`. A file without the magic reads as absent, so the first launch after an upgrade rebuilds once and every later one is fast. No converter, no migration step.
+  **The ordering check is the integrity check.** JSON gave corruption detection for free — a flipped bit usually broke the parse and the caller rebuilt — and fixed-width binary has no parse to break, so a corrupted record would decode into a plausible offset and send `read_op_at` to the wrong place. Both sidecars are written in strictly increasing offset order (`NodeIndex::save` sorts for exactly this reason) and a load that sees them out of order rebuilds. What that does not catch is a flipped bit leaving the order intact, which `fresh_offset_index` still catches downstream by re-reading the `.jsonl` record at the index's max offset. Neither is a proof and neither has to be: the worst case of a cache this process rejects is one slower boot.
+  A trailing **partial** record — the signature of a crash mid-append — is now dropped rather than treated as corruption, so the freshness check indexes just the tail instead of rebuilding everything.
+
+- **A reload with nothing to read is free.**
+  A reload exists to pick up ops somebody else wrote, and it is O(whole log): on a real workspace it decodes a 48 MB snapshot, replays the delta and rehydrates 169,037 nodes, measured at 271-317 ms.
+  Mobile's poll runs `syncNow` then `reloadWorkspace` on a timer with no way to know whether the pass delivered anything, so on a device whose peers were unreachable that full rebuild ran **every tick, forever, while the user typed** — three of them in the first seven seconds of a launch, `delta_ops` identical across all three. That is the journal that never stops looking like it is loading.
+  `outl_tauri_shared::ops_watermark` answers the one question that decides it: a `(file name, length)` pair per `ops-*.jsonl`, compared against what this process last read. An op log is append-only, so a landed op always grows its actor's file, and compaction — the only rewrite — changes lengths too.
+  **This device's own file is excluded**, because our own appends are already in the resident log: replaying for them is waste, and it races `publish_replayed`'s local-op guard, so a steadily typing user could keep a reload spinning against their own keystrokes.
+  Fixed in the backend rather than in the poll, so it holds for every caller. Getting it wrong costs latency in one direction only: a fingerprint read from disk cannot call a file that grew "unchanged", so an arriving op is never hidden — at worst a reload waits for the next tick.
+
+- **A snapshot boot stops rebuilding every block a peer touched.**
+  Adopting a snapshot hydrates text as of its cutoff, then replays the delta on top, so every node the delta edited has a cached string that is present and wrong. Correcting one means reading its full `Edit` history back from storage, which is unchanged and still mandatory (#129) — what moved is *when*.
+  Doing it at boot made a launch pay for 2,298 nodes to paint a journal that shows about twenty, and it was the **only** thing on the boot path that read the per-node index at all, so it pulled 98 MB of sidecar in before the first frame.
+  `ContentStore` now keeps that set apart from the full-replay path's, because the two resolve from different places: a pending node rebuilds from the resident log, and after a snapshot boot the resident log holds only the delta. `block_text` checks it *before* the cache, and `force_materialize_pending` drains it before a snapshot body can be written — a body built from those strings would publish the pre-delta text as settled, and the next boot would adopt it with a cutoff claiming the newer edit was already folded in. Pinned by `deferred_text_settles_before_a_snapshot.rs`.
+
+- **Boot stops reading the whole workspace to paint today's journal.**
+  The app's premise is that its text input is live when it opens, and on a 723k-op / 2,874-page workspace opening it took 977 ms before the journal could paint, at 508 MB resident. Measured per phase, almost none of that was the journal: 450 ms went to the per-actor index sidecars and 312 ms to choosing a snapshot.
+  Three changes, none of which alter what boot produces:
+  **The adopt slot is decided from each candidate's header.** `cutoff` is a snapshot's third field and a few hundred bytes; the `block_text` map behind it is the file. Ranking used to decode every `snap-*.bin` in the directory — 124 MB on a real four-snapshot one — to pick 48 MB of it. `snapshot::read_header_from_disk` reads a bounded prefix instead, and only the winner is decoded. `snapshot::select` owns the ranking for both the boot selector and the GC, so the cheap read cannot become a second policy.
+  **`decode` verifies the digest against the buffer**, instead of cloning the decoded body and re-encoding it. `content_hash` is the final field and a fixed-size `[u8; 32]`, so the two encodings share every byte before it. On a 48 MB snapshot the old form was ~150 MB of cloned `String`s plus another 48 MB of re-encoded bytes, per decode, on the launch path. `the_buffer_hash_equals_the_body_hash` pins the layout that makes them equal.
+  **Each actor's index sidecars load in parallel.** One actor's pair says nothing about another's, so the sequential loop bought only an ordering nothing reads. 169 MB across 23 actors, 450 ms → 294 ms. The ceiling here is one file and not the thread count: a single actor holds 114.7 MB of that 169 MB, so no distribution of whole files beats ~1.45x. Going below it means reading **less** — the node index is 97 MB of the total and a snapshot boot needs it for a handful of nodes — which is not in this change.
+  Net: 977 ms → 736 ms. `std::thread::scope`, no new dependency: `outl-core` is published for embedding, so a direct dependency here is public surface.
+
+- **A block's `key:: value` properties are an attribute line on mobile, not a row of pills.**
+  A pill is a *tag*: a flat label you tap to filter. A property is a **field**, a named attribute with a value, and drawing one as a pill promised an action the tap did not perform — so the two read as the same thing while behaving differently.
+  They now render the way every mobile app renders an item's fields (Things, Linear, Apple Reminders, GitHub mobile): one quiet line under the block, key in `fg_dimmer`, value in `fg_dim`, `·` between them, truncated, never more than a line.
+  Colour is spent only on a field that **acts on you** — today just `remind::`, which gets the accent and a bell. `auto-run::` executes code and still stays quiet, because it does not interrupt.
+  Past two fields the rest collapses into `+N more`, and the whole line opens the properties sheet, which is now a two-column field list (label, value, chevron) in the shape of iOS Settings or Notion's property panel. Editing left the outline: a row that looks like a form row opens a form.
+  The page's own property strip above the outline was a second hand-written copy of the same thing and is now the same component.
+
+- **An importer's own stamps no longer render in any outline.**
+  `outl import` writes `roam-uid` under `--keep-source-ids` so a re-import matches what it already landed, and `created` / `edited` under `--preserve-timestamps`, copied off the source graph's clocks.
+  On a migrated graph that is a row under essentially every block carrying a value nobody reads while writing notes. They stay in the `.md`, and the property editors still list them — one step dimmer, and sorted below what the user wrote — because you have to see one to delete it.
+  `outl_actions::property::is_import_stamp` is the single owner, mirrored in TypeScript for the GUI clients. **`roam-uid` is decided by its key; `created` / `edited` by their value** — those two are ordinary English words, so only an ISO-8601 instant counts and a `created:: by Roberta` the user wrote still renders. Hiding that by key alone would silently swallow their metadata, which reads as data loss.
+  `is_suggestable_key` stops offering all three as keys to add: on a migrated graph they were the top of the frequency ranking, so the add-a-property menu opened on three keys nobody would pick.
+
+- **Mobile's missing `/` menu is recorded instead of just absent.**
+  `Capability::SlashCommandMenu` joins the per-client catalog: full on the TUI and desktop, missing on mobile, with the sentence a user gets — plugin commands are behind the plugins button in the top bar, templates under "Insert template" on a long-press.
+  `docs/shortcuts.md` had been claiming `/` as a Normal-mode chord on all three clients, which was true only of the TUI; the desktop's menu is inline inside a block and mobile has none.
+
+### Fixed
+
+- **A refused sync says why, in the log and not only in the panel.**
+  `close_refusal_reason` already renders the sentence a user can act on ("this device is not paired with it"), and it reached the progress sink and stopped there.
+  The line every headless client actually has is the catch-up `WARN`, and that prints the outermost context of an `anyhow` chain and nothing under it — so an unpaired device and a flaky link both read as `read sync response`.
+  `outl serve` has no panel; neither does a mobile client's logcat, and both were on the ends of a real failure that took reading `peers.json` on two devices to identify.
+  `protocol::close::read_failure_context` now decides which label wins, pinned by `a_refusal_outranks_the_generic_read_label`.
+
+- **An unreadable own snapshot no longer hides a usable peer's.**
+  The boot selector read this device's own snapshot first, purely to catch an unusable one and drop it — and then returned that error, so one corrupt local file sent the boot to a full op-log replay with a healthy peer snapshot sitting in the same directory. On the workspace this was measured against that is 722,943 ops replayed to avoid adopting 48 MB that was right there, which on iOS is a jetsam kill rather than a slow launch.
+  A snapshot is a cache: one unreadable entry means skip that entry, never skip the cache. Candidates are now tried best-first until one decodes, and a file whose **header** will not parse is ranked last rather than filtered out — it is exactly the rubble that has to reach a decode before `drop_own_if_unusable` is allowed to delete it.
+  Pinned by `an_unreadable_own_snapshot_does_not_hide_a_usable_peer` and `a_directory_of_corrupt_snapshots_reports_an_error`.
+
+- **Typing `/` in the desktop editor opens a real command list.**
+  Two separate defects, both of which looked like "nothing happens".
+  The trigger only fired when `/` was the block's **first** character, so `nota /` opened nothing while the identical keystrokes opened the menu in the terminal — `@outl/shared`'s detector claims to mirror the TUI's `detect_trigger`, which has always fired on any word-initial `/` (block start, or straight after whitespace). It is the TUI's rule now, so `http://host` and `see docs/api` still stay literal.
+  And when it did open, its whole universe was `/upload` plus the workspace's templates and plugin commands — **no native commands at all**. On a workspace with no templates and no plugins installed, that is a popup with one row in it, against the 31 built-ins the TUI's `/` lists.
+  The menu now offers this client's own commands too, taken from the same list the `Cmd+K` palette builds and run through the same handler the chord fires, so a command cannot behave one way from the keyboard and another from the menu. `/today` finds `open-today`, `/sidebar` finds `toggle-sidebar`.
+
+- **Opening a page no longer blinks a backlinks section in and back out.**
+  Backlinks are an `O(blocks-in-workspace)` scan that lands after the page paints, and both GUI clients let that late reply decide whether the section exists at all — so they drew something and then took it away.
+  The desktop mounted a header + skeleton the moment the scan started and unmounted it when the answer came back empty: measured in the running client, 95px appearing and leaving ~1.2s later, on a page that ends with nothing. On a workspace where most journal days have no backlinks, that was most journal days, and every peer refresh re-armed it.
+  Mobile had the mirror: the card mounted immediately on a regular page and said "Linked from 0" / "No backlinks yet" while the scan ran, then contradicted itself. `0` is a wrong answer, not a pending one.
+  A section fed by a late reply now **never appears and then disappears**. A first load draws nothing, the section appears once and complete below the last block, and a page with no references never draws anything — so there is no placeholder to take away and no reserved gap left under the page either.
+  Reserving the space, which was the first idea, fixes neither half: a reservation that collapses still blinks, and one that does not is permanent dead space under every page.
+  A **refetch** is the opposite case and keeps every row it has, marked `loading…` beside the count. That is the one moment the mark is owed, because the user is looking at something that is about to change.
+
+- **Mobile no longer shows the previous page's backlinks under the page you just opened.**
+  Solid's `createResource` keeps its last value through a source change, and `Journal.tsx` handed that straight down — so for the whole scan, a navigation left the old page's backlinks, nested pages and namespace mentions sitting under the new one.
+
+- **A `text-*` class on a mobile `<button>` is dead, and two property surfaces were relying on one.**
+  `src/styles.css` carries an unlayered `button, input, textarea { font-size: inherit }`; an unlayered rule outranks every `@layer utilities` one, so the `text-[11px]` on each chip resolved to nothing and the pill painted at the block body's 17px — centred, because a `<button>` centres by UA default, and wrapping, because nothing capped it. On the reported block that was nine lines of grey above one line of text.
+  The type scale now sits on the row, where `inherit` resolves. **24 other tags in that client still carry a dead `text-*`**; clearing those means deleting the declaration and re-reading every sheet, which is a typography change across the app and is not in this one.
+
+- **A device's own snapshot no longer shadows a peer's that covers more of the log.**
+  The boot selector returned this device's own snapshot the moment it decoded, on the grounds that it has the tightest cutoff for its local ops — true, and not what decides the cost of a boot.
+  An actor missing from a snapshot's cutoff reads as "seen none of your ops", so its entire history goes into the delta.
+  A phone writes a snapshot on its first launch whose cutoff names one actor (itself), and that body then shadowed the desktop's naming twenty: the delta became the whole op log, the convergence guard refused it, and the boot full-replayed into an iOS jetsam kill — with the snapshot it needed sitting in the same directory.
+  Snapshots are now ranked on `(actors covered, newest cutoff, filename)` and this device's own competes like any other.
+  The GC still ranks peers only, so a body the selector skips today is kept for the boot after an actor rotation.
+
+- **`save_snapshot` honours `[snapshot] enabled = false`.**
+  It checked only whether a snapshot directory existed, and `enabled = false` leaves that set, so a user who had switched snapshots off still got one written on every TUI exit.
+
+- **A boot that adopts a snapshot now refreshes it, so opening a large workspace stops getting slower.**
+  Every caller gated the re-persist on "this boot full-replayed", which meant the remedy disarmed itself the moment it worked: a boot that adopted a snapshot never rewrote it, and nothing else does on a device that receives most of its ops over sync — the in-band writer only fires on a local mutation, while synced ops are written straight into `ops-<actor>.jsonl`.
+  The delta replayed on top therefore grew without bound.
+  On a 722,943-op workspace the adopted snapshot covered a third of the log and each open replayed the other 488,651 ops: 9.1s and ~670 MB on the desktop, and on an iPhone a 3.45 GB jetsam kill that showed up as "Couldn't open the workspace".
+  After the fix the same workspace replays 0 ops and opens in 0.57s, for a one-off 210 ms snapshot write.
+  `Workspace::snapshot_refresh_due` is the single owner of that decision now, shared by the GUI open and `SyncEngine::reload_workspace`.
+
+- **Zooming into a block on the desktop renders its title as markdown, not as raw source.**
+  The zoom header promotes the focused block to a page-like `<h1>`, and that `<h1>` interpolated the block's text verbatim, so a title holding a `#tag`, a `[[ref]]` or a `[label](url)` showed the brackets, the hash and the whole URL.
+  It is the same renderer every row uses now, so the ref and the tag navigate from the title too.
+  Mobile and the TUI never had it: both draw the zoom root as an ordinary block.
+
+- **`Shift+Tab` in the desktop editor outdents one level, not two.**
+  The block editor and the global shortcut dispatcher both handled the keystroke: committing an unchanged draft unmounts the textarea synchronously, so by the time the event reached the window listener nothing was focused and the keystroke resolved a second time as a view-mode command.
+  `Tab` had the same double-fire and usually hid it, because the second indent had no previous sibling to move under and was swallowed.
+
+- **`outl serve --no-watch` no longer holds the device actor while the embedded MCP is idle** ([#540](https://github.com/outlmd/outl/issues/540)).
+  The MCP warm-up opened the workspace for writing, so a plain `--no-watch` daemon kept the write lock for its whole life and every GUI or TUI started later got an ephemeral actor.
+  It now reads through a read open, takes the device actor only for a mutating tool (failing with a clear error if another process holds it), and releases it when the last session closes.
+
+### Added
+
+- **The workspace open reports where its time went, and the mobile backend has a log you can read.**
+  The app's premise is that its text input is live when it opens, and that premise is a number nobody could take. `outl_core::boot_timing` puts one `info!` line per open — index, replay, each boot repair, plus the delta size and resident block count that explain them — at a cost of one `Instant::now()` per phase, cheap enough to leave on in release. A measurement you have to rebuild to collect is one nobody takes on the device where it matters.
+  That was blocked by a second problem: **the iOS backend was mute**. The subscriber wrote to stderr with a comment claiming it surfaces in `idevicesyslog` / Xcode, and it does not — a release build on the simulator emits nothing to `simctl launch --console`, `--console-pty` or `log stream`. Every `info!`/`warn!` the backend produced (the sync transport, the workspace opener, every boot repair, every projection refusal) was invisible on the one platform that is hardest to debug and has no `outl doctor` to fall back on.
+  `outl-mobile`'s `backend_log` gives it a sink: `$HOME/Library/Logs/outl-backend.log` inside the app sandbox, truncated per launch, still mirrored to stderr. Truncating rather than rotating is deliberate — what you want from a backend log on a phone is what *this* launch did, and a file holding one launch cannot grow unbounded on a device nobody prunes.
+
+- **`outl serve` serves MCP in-process by default; `--no-mcp` opts out** ([#540](https://github.com/outlmd/outl/issues/540)).
+  A machine running `outl serve` as its daemon used to need a second process, `outl mcp serve`, which replayed the whole op log itself (about 28 s on a 720k-op workspace) and, when it lost the race for the device actor, minted an ephemeral actor and left an `ops-<ulid>.jsonl` plus a lock file behind forever.
+  The daemon now listens on a Unix domain socket (`<device dir>/run/mcp-<hash>.sock`, directory 0700, socket 0600, no TCP) and every connection is one MCP session sharing the daemon's single workspace and device actor.
+  `outl mcp serve` bridges to that socket when it is up and otherwise behaves exactly as before; `--standalone` forces the old behaviour.
+  A socket that cannot be set up (another `outl serve` already serving, permissions, a path too long, no Unix sockets) logs a warning and never stops serve; `--once` never starts it.
+  See [docs/mcp.md](docs/mcp.md#running-beside-outl-serve).
 
 - **`outl import logseq-db` imports a Logseq DB graph from its EDN export** ([#355](https://github.com/outlmd/outl/issues/355), partial).
   Logseq 2.x keeps a graph in `db.sqlite`; pointing `outl import logseq` at that directory used to report 0 pages and 0 blocks with no error.
@@ -97,6 +646,15 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
   It does cost a third more memory to hold, since the base64 of N bytes is 4N/3 characters — the cap is on what the server may send, not on the representation.
 
 ### Fixed
+
+- **`outl import --force` replaces pages instead of merging into them.**
+  A page present in the op log without its `.md` + sidecar (a paired replica, a server image) or sitting in the trash kept all its old blocks next to the imported ones, and a trashed page came back out of the trash with them.
+  The old blocks are now moved to the trash (logged in `orphans.log` first), the import report counts them as `replaced_blocks`, page-level properties the source no longer has are cleared too (`replaced_props`), and pages the source does not contain are untouched.
+
+- **A hole in a device's own offset sidecar no longer makes every peer resend that actor's full log forever.**
+  A second opener persisting a regrown sidecar could rename it over the live writer's, dropping entries the writer had just appended; the freshness ladder then trusted the holed file, the device advertised a short op count for its own actor, and each peer resent the whole log on every sync, which ingest refuses by design.
+  Appends and sidecar persists now serialize on `ops/.idx-lock-<actor>`, and ingest rebuilds a holed own sidecar when a peer's resend proves one, so existing workspaces heal without peer changes.
+  See [docs/storage.md](docs/storage.md).
 
 - **A phone's background sync reaches a peer that is online even when another one is asleep.**
   The forced sync pass behind `sync_now` dialed paired devices one after another, and every iOS background window waits on that pass: 12s for `BGAppRefreshTask`, 20s for the processing task and the flush.

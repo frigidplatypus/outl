@@ -7,15 +7,20 @@ fileGroups: [../../src]
 configs:
   debug: debug
   release: release
+# Mirrors the pbxproj's baseConfigurationReference. Project level, so the
+# three targets inherit the flavor variables; see Outl.xcconfig.
+configFiles:
+  debug: Outl.xcconfig
+  release: Outl.xcconfig
 settingGroups:
   app:
     base:
       PRODUCT_NAME: outl
-      PRODUCT_BUNDLE_IDENTIFIER: app.outl.mobile-app
+      PRODUCT_BUNDLE_IDENTIFIER: $(OUTL_BUNDLE_ID)
       MARKETING_VERSION: 0.3.1
       CURRENT_PROJECT_VERSION: 1
       INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
-      INFOPLIST_KEY_CFBundleDisplayName: outl
+      INFOPLIST_KEY_CFBundleDisplayName: $(OUTL_DISPLAY_NAME)
       ENABLE_USER_SCRIPT_SANDBOXING: NO
 targetTemplates:
   app:
@@ -46,7 +51,7 @@ targets:
       path: OutlWidget/OutlWidget.entitlements
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.outl.mobile-app.widget
+        PRODUCT_BUNDLE_IDENTIFIER: $(OUTL_BUNDLE_ID).widget
         CODE_SIGN_IDENTITY: Apple Development
     dependencies:
       - package: OutlKit
@@ -60,7 +65,7 @@ targets:
       path: OutlShare/OutlShare.entitlements
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.outl.mobile-app.share
+        PRODUCT_BUNDLE_IDENTIFIER: $(OUTL_BUNDLE_ID).share
         CODE_SIGN_IDENTITY: Apple Development
     dependencies:
       - package: OutlKit
@@ -69,6 +74,8 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      # Shared with OutlWidget: the Quick Add control's intent runs in the app.
+      - path: OutlWidget/OpenQuickAddIntent.swift
       - path: Assets.xcassets
       - path: Externals
       - path: outl-mobile_iOS
@@ -80,6 +87,33 @@ targets:
       path: outl-mobile_iOS/Info.plist
       properties:
         LSRequiresIPhoneOS: true
+        # Export compliance is DELIBERATELY NOT DECLARED here. The key has
+        # three states and only one of them is "I use encryption":
+        #
+        #   true    -> Apple has APPROVED encryption documentation for this
+        #              app, and its code is in ITSEncryptionExportComplianceCode.
+        #              The flag is a claim about the paperwork, not about the
+        #              code, which is what made `true` the wrong answer here.
+        #   false   -> the encryption is exempt.
+        #   absent  -> no claim; App Store Connect asks the export questions
+        #              per build.
+        #
+        # We shipped `true` without the code (it is issued only on approved
+        # documentation, and outl has none), so every upload was refused with
+        # `Invalid Export Compliance Code ... key value []` — the empty value
+        # being the missing code, not the missing flag. Absent is the honest
+        # state while that is true, and it costs one answer per build in App
+        # Store Connect.
+        #
+        # To leave this state, pick one and set it in BOTH this file and
+        # outl-mobile_iOS/Info.plist, since the Info.plist is committed:
+        #   - exempt      -> ITSAppUsesNonExemptEncryption: false
+        #   - documented  -> ITSAppUsesNonExemptEncryption: true
+        #                    ITSEncryptionExportComplianceCode: <code from ASC>
+        # What outl actually ships is iroh/QUIC over rustls + ring plus an
+        # ed25519 device identity. Which exception that falls under is a
+        # regulatory call, not a code one, which is why this file does not
+        # make it.
         # Camera access string for the QR pairing scanner
         # (tauri-plugin-barcode-scanner). Required or iOS hard-crashes
         # the first time `scan()` requests the camera.

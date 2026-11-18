@@ -15,6 +15,9 @@ That's the spec; don't change it.
   Recorded as `Capability::NestedPages` → `Partial` in `outl_shortcuts::capability_support`, and the section header says so rather than leaving the user guessing.
 - Block references and embeds: `((blk-XXXXXX))` resolves to the source block's text + page icon.
   `!((blk-XXXXXX))` (when the block contains a single embed token) expands the source block **and its children** read-only below the carrying block.
+  `![[page]]` is the page-level twin ([#190](https://github.com/outlmd/outl/issues/190)).
+  Its chip shows the target page's `icon::` and `title::`; a block whose *whole* text is the token expands that page's **top-level blocks** read-only below it, under the same depth cap.
+  Recorded as `Capability::PageEmbed` → `Full` on the TUI column (`outl_shortcuts::capability_support` owns the row for every client).
   `Enter` on either form opens the source page and lands the cursor on the referenced block.
   The `y r` chord plus `/refer` and `/refer-embed` slash commands copy the current block's handle to the **OS clipboard** (via `arboard`) and stash it in `App::last_yanked_ref` for in-app paste;
   the `((` autocomplete fuzzy-matches block text in Insert.
@@ -45,6 +48,10 @@ This section captures only the **architectural / TUI-specific behaviour** a cont
   `selected` / `id_by_flat` stay **whole-page** flat indices; `render_outline` draws only the root subtree but keeps `cursor` counting from the root's whole-page index (`zoom_root_node`), so nothing re-indexes.
   Navigation is confined to `zoom_root_window()` — `step_forward`/`step_backward` in `actions/nav/selection.rs` clamp to `[start, end)` and don't cross into backlinks while zoomed.
   Zooming a leaf is allowed (Workflowy shows just that block); `z o` at the page root is a silent no-op.
+  **`App::page_sections_visible()` is the one owner of "are the page's own sections on screen"** — the inline backlinks and the nested-pages list, which answer questions about the *page* and read as the focused block's when drawn under its title.
+  Three callers ask it and must not disagree: both renderers in `view::`, and the selection walk in `actions::nav::selection` that used to read `zoom_stack` directly.
+  `zoom_in_on_selected` also resets `focus` to `Focus::Outline`: it reads `selected` (an outline index) and so fires with the cursor parked on a backlink row, which the zoom then takes off screen.
+  Net: `a_zoom_takes_the_pages_backlinks_off_screen`, `a_zoom_takes_the_nested_pages_off_screen`, `zooming_in_brings_the_cursor_back_from_the_backlinks`.
   **Pure local view state** — never an `Op`, per-device, cleared on every view switch (`load_current_no_autorun` empties `zoom_stack` alongside `focus`).
   A stale root path (block moved/deleted) degrades to the whole page instead of panicking.
 - **`z M` / `z R` skip-leaves contract.**
@@ -104,7 +111,7 @@ This section captures only the **architectural / TUI-specific behaviour** a cont
   A one-shot enum (mutually exclusive with `pending_chord`) consumed by the next `Char(c)` keystroke.
   Any other keystroke cancels.
 - **`*` / `#` reuse the workspace search.** `search_word_under_cursor` extracts the word the cursor sits on (whitespace-bounded), opens the `/` overlay machinery, accepts the first hit, persists the rest into `last_search` so `n` / `N` walk them.
-- **Sidebar intercept.** With the sidebar open (`\` / `Ctrl+E`), `j` / `k` move the row selection, `Tab` cycles the section (Today / Pinned / Recent / Calendar), and `Enter` opens the focused page. `d` on a **regular page** arms a `delete page '<title>'? y/n` confirmation in the status line (`App::pending_sidebar_delete: Option<PendingSidebarDelete>`); `y` / `Y` confirms and runs `outl_actions::delete_page` + `remove_page_projection` + `spawn_index_rebuild`, navigates to today if the deleted page was current, and announces to peers. Any other key cancels (and is swallowed, matching the `pending_input_op` contract). Calendar rows are a no-op, and journals pinned/recent are excluded — only regular pages can be deleted from the sidebar. The `g d` chord (Normal mode) routes through the same confirmation flow via `App::delete_page_from_chord`: with the sidebar focused it delegates to `sidebar_delete_current`, otherwise it arms the confirmation against the current page (refusing journals).
+- **Sidebar intercept.** With the sidebar open (`\` / `Ctrl+E`), `j` / `k` move the row selection, `Tab` cycles the section (Today / Pinned / Recent / Calendar), and `Enter` opens the focused page. `d` on a **regular page** arms a `delete page '<title>'? y/n` confirmation in the status line (`App::pending_sidebar_delete: Option<PendingSidebarDelete>`); `y` / `Y` confirms and runs `outl_actions::delete_page` + `remove_page_projection` + `spawn_index_rebuild`, navigates to today if the deleted page was current, and announces to peers. Any other key cancels (and is swallowed, matching the `pending_input_op` contract). The same prompt carries `/merge` (see "Merge" below). Calendar rows are a no-op, and journals pinned/recent are excluded, so only regular pages can be deleted from the sidebar. The `g d` chord (Normal mode) routes through the same confirmation flow via `App::delete_page_from_chord`: with the sidebar focused it delegates to `sidebar_delete_current`, otherwise it arms the confirmation against the current page (refusing journals).
 - **Visual range capture.**
   Every Visual exit (`Esc`, `y`, `d`) routes through `remember_visual_range` so `g v` can restore the last range.
 - **Visual range reorder (`Alt+↑` / `Alt+↓`).**
@@ -149,6 +156,20 @@ Six contracts, each of which was the alternative:
 - **The refusal is the backend's sentence, and it can arrive twice.** The row's own `refusal` is a snapshot of a verdict that reads the live tree, so `r` can be declined on a row that looked restorable. `trash::restore` re-asks `refusal_for` and its answer is the *same* string, which lands on the overlay's status line while the list re-reads itself. Nothing here phrases a refusal.
 
 Recorded as `Capability::Trash` → `Full` on the TUI column; mobile is the one client left without a surface.
+
+### Merge (`/merge <page>`)
+
+`actions/merge/` folds the open page into another and asks first; the merge itself is `outl_actions::merge_pages` (RFC 0557).
+User-facing behaviour is in [`docs/tui.md`](../../docs/tui.md) under "Pages".
+
+Four contracts, each of which was the alternative:
+
+- **Opened from the command registry, not a chord, and recorded as `Capability::PageMerge`.** One `MergeCommand` registration serves `/merge` and `:merge`. All three columns are `Full`: the desktop and mobile apps reach the same `merge_pages` through their own merge picker.
+- **The confirmation is the page delete's, not a second modal.** `PendingSidebarDelete` carries `merge_into: Option<String>`; `Some` makes the existing `y/n` intercept in `input/normal.rs` run `confirm_page_merge` instead of the delete. `state.rs` sits at its size baseline, so the struct gained a field rather than the `App` growing a second pending slot.
+- **Projection is the CLI's order.** The mutation runs once, then `commit_page` (an empty mutation, for its guarded projection and announce) on every `touched_pages` slug through `CaptureCommit`, and the source's `.md` is removed only once the target itself projected. A withheld projection is classified like the trash restore's: `AheadOfLog` carries `refusal::ahead_of_log_notice`'s sentence, and a retryable one is said once too, because the source file stays behind in that case.
+- **The undo and redo entries of every touched page are dropped, and that is the point.** A snapshot of the target from before the merge, restored by `u`, would render the merged blocks away and reconcile that as a delete. The status line says `can't be undone here` up front rather than leaving `u` to do something surprising.
+
+There is no rename prompt: this client has no page rename. When one lands, `ActionError::PageExists` is the signal to arm this same confirmation, with `rename_or_merge` behind the `y`.
 
 ### Properties (`g p`)
 
@@ -238,17 +259,44 @@ TUI-specific contracts worth remembering:
   `[[ref]]` cyan-underlined (no brackets),
   `#tag` magenta-underlined,
   `((blk-XXXXXX))` resolves to the source block's text + page icon (orphan handles render dimmed),
+  `![[page]]` resolves to the target page's icon + `↳ ` + `title::` (an unknown name renders the literal `![[name]]` dimmed, like an orphan handle),
   `:shortcode:` renders as the unicode glyph (`:tada:` → 🎉; unknown shortcodes never tokenize so the literal stays visible).
 - The selected/editing block keeps `:` (dim) + shortcode (raw) + `:` (dim) so cursor columns match source bytes 1:1 — the pretty render is the only place the glyph appears.
-- `!((blk-XXXXXX))` — when a block contains a single embed token (whitespace OK around it) — expands the source block **and its children** read-only below the carrying block.
+- A block whose **whole** text is one embed token (whitespace OK around it) expands that embed read-only below itself.
+  Two spellings, one geometry.
+  `!((blk-XXXXXX))` expands the source block's **children**, `![[page]]` the target page's **top-level blocks** — in both cases the carrying row already holds the parent (the block's text, or the page's title) as its chip.
   Conventions:
   - Every embed row carries a `↳ ` prefix (root + descendants) so the expansion reads as one cohesive block.
   - Descendants get `2 * (depth + 1)` spaces of padding before `↳ ` so children align under the source root's *text*, not under its `↳ `.
   - Outer indent (`│ ` guides) matches the carrying block's outline depth.
   - Task checkboxes (`☐` TODO / `◐` DOING / `☑` DONE), page refs and tags render with their normal styling inside the expansion (via `render_pretty_block_text`).
-  - Recursion is capped at depth 4 to break embed cycles.
-  - Expansion runs in every render mode — but the carrying block's first row keeps the raw `!((…))` literal under the cursor so column-byte alignment holds.
-- The selected/editing block renders **raw** (delimiters visible, dimmed) so cursor columns map 1:1 to source bytes — including the literal `((blk-XXXXXX))` and `!((blk-XXXXXX))` forms.
+  - Recursion is capped at `EMBED_MAX_DEPTH` (4), shared by both spellings — never a second constant.
+  - Expansion runs in every render mode — but the carrying block's first row keeps the raw `!((…))` / `![[…]]` literal under the cursor so column-byte alignment holds.
+  - The expanded rows are **visual only**: they don't move the flat `cursor`, so `j` / `k` cross the whole expansion in one step.
+- The selected/editing block renders **raw** (delimiters visible, dimmed) so cursor columns map 1:1 to source bytes — including the literal `((blk-XXXXXX))`, `!((blk-XXXXXX))` and `![[page]]` forms.
+
+### `view::embed` owns borrowed content
+
+Three contracts, each of which was the alternative:
+
+- **`emit_block_embed` is the single entry point**, so `view::outline` contributes only the indent.
+  "Does this block borrow content, and what" is one question with two spellings, and two `if let`s at the call site makes their order load-bearing.
+  `the_two_bare_embed_predicates_never_both_answer` pins that it is not.
+- **The depth cap is the guard, and it stays sufficient because nothing recurses.**
+  An embed nested *inside* an expansion renders as the inline chip — the source block's text for `!((blk-X))`, the page's title for `![[page]]` — and is never expanded again.
+  So an `A → B → A` cycle, at the block level or the page level, never enters `emit_embedded_children`, which walks concrete `OutlineNode` data and re-resolves nothing.
+  Widening that is what would need a `visited` set, not a bigger cap.
+- **The page embed's two inline renders live here, not in `view::inline` beside their sibling arms.**
+  One module owns every shape borrowed content takes, and `inline.rs` sits at the file-size ratchet while this one does not.
+  The arms in `inline.rs` are thin delegations, pinned as wired by `the_pretty_render_shows_the_title_inside_prose` and `the_cursor_bearing_render_keeps_the_source_verbatim`.
+  The unit tests on `page_embed_chip` / `page_embed_raw` pass either way, which is why those two exist.
+
+`page_embed_roots` walks `WorkspaceIndex::block_at_location(slug, &[i])` from `0` until it misses, because the index exposes no ordered per-page list.
+It drops `properties`: the block index stores them **lowercased** for the query DSL's `prop:` filter, so handing them to a renderer would print a key the user never typed, and the expansion draws text and children only.
+
+**Recorded gap**: `Ctrl+T` on a bare `![[page]]` row prefixes `TODO ` onto the token.
+`toggle_todo` (`actions/block/metadata.rs`) routes a bare `!((blk-X))` row to the *source* block's state for exactly this reason, and a page embed has no single source block to route to.
+The ref survives (the chip still renders inside prose), but the row stops expanding — a surprise, not data loss.
 - A block whose text starts with the CommonMark `"> "` prefix renders with a left `│ ` bar (dimmed, `theme.dim`) and full body colour — the `│` is enough of a cue, dimming refs / tags / bold would erase their affordance.
   Same affordance as `TODO`/`DONE`.
   The chrome lives in **`view::inline::render_pretty_block_text_impl`** and is the **only owner** of the bar + checkbox + token rendering pipeline;
@@ -346,7 +394,7 @@ Every piece of logic that's not strictly about ratatui rendering lives in `outl-
 |-------|------|
 | `outl-core` | Op log, CRDT, storage, workspace |
 | `outl-md` | Parse/render, sidecar, matching, reconcile, **inline tokens (`InlineTok`, `RefTarget`)**, **slugify** |
-| `outl-actions` | UI-agnostic workspace operations (edit, indent, move, toggle TODO, page model, backlinks). **TUI now imports from here** — `cycle_todo`, `split_todo`, and `TodoState` live in `outl-actions`, and so does the date slash-command math (`dates::parse_date_arg`, `week_tag`, `days_until_next_weekday`, `journal_ref`); `commands/builtins/dates.rs` keeps only the Insert-mode wiring. |
+| `outl-actions` | UI-agnostic workspace operations (edit, indent, move, toggle TODO, page model, backlinks). **TUI now imports from here** — `cycle_todo`, `split_todo`, and `TodoState` live in `outl-actions`, and so does the whole date slash-command **catalog** (`outl_actions::insert`: the names, the aliases, the descriptions and the text each one produces), on top of the math it already owned. `commands/builtins/dates.rs` keeps only the Insert-mode wiring — one `InsertTextCommand` over the catalog, registered once per entry. |
 | `outl-tui` | Terminal-specific: ratatui mapping, key handling, raw-mode lifecycle |
 | `outl-mobile` (shipping today) | Tauri 2 + Solid: consumes `InlineTok` / `RefTarget` from `outl-md` and renders to JSX. Shares every workspace operation with the TUI via `outl-actions`. |
 | `outl-desktop` (shipping today) | Tauri 2 + Solid for macOS / Linux / Windows. Shares the entire `outl-actions` surface plus the `@outl/shared` TS lib (DTOs, `MarkdownInline`, paste / autocomplete helpers, command wrappers) with mobile. Adds OS-standard shortcuts, `outl-exec` code-block execution, and a cross-platform FS watcher (`notify`) that emits `peer-ops-changed` so the frontend reloads automatically when a peer's `ops-*.jsonl` arrives. |
@@ -442,6 +490,22 @@ A retryable failure (I/O, permissions, an unreadable sidecar) is a
 picks it up, and nagging about it trains the user past the banner that
 matters.
 
+## The terminal comes up before the workspace
+
+`runtime/boot.rs` owns the two frames before there is a workspace, and the reordering that put them first.
+
+The open used to happen **before** the alternate screen, so everything it cost was spent against the user's shell prompt: 190-270 ms warm, and the whole of a cold replay on a large graph, with nothing on screen to distinguish "replaying a 700k-op log" from "hung".
+Now: raw mode, the alternate screen, a skeleton frame naming the workspace, then `open_workspace`.
+
+Three consequences:
+
+- **A failed open happens inside the alternate screen**, so `restore_terminal` runs on that path too. Returning `?` straight out hands the user a shell in raw mode with no prompt.
+- **The skeleton's theme comes from the global config alone**, because the per-workspace `[theme] preset` lives in the file `open_workspace` reads. A workspace that overrides the preset shows the global palette for that one frame.
+- **`supports_keyboard_enhancement()` moved after the first frame.** It costs **2.4 s** on a terminal that does not answer, and it cannot move to a thread, because it reads stdin: a thread doing that races the event loop for the user's keystrokes, and losing that race swallows input. Those 2.4 s are still input-dead wherever they happen; closing that needs a way to skip the query outright, which is a config key and a decision about its default.
+
+The boot reports its phases through `outl_core::boot_timing`, same line the GUI clients produce.
+Budgets and the rest of the launch sequence: [`docs/boot-performance.md`](../../docs/boot-performance.md).
+
 ## Persistence model
 
 Editing is **AST-first**: edits mutate an in-memory `ParsedPage`.
@@ -507,6 +571,20 @@ Three contracts:
 `runtime::preset::resolve_preset_name(&ThemeCfg) -> &str` decides which side of the `[theme] preset` / `preset_dark` pair the global-config fallback resolves to: `Light` → `preset`, `Dark` and `Auto` → `ThemeCfg::dark()`.
 A terminal has no API to read the OS appearance setting, and probing (OSC 11, `COLORFGBG`) is unreliable under tmux/screen and several emulators — so `Auto` is hardcoded to the dark side rather than guessed.
 This is a declared, permanent gap (RFC 0022), not a TODO; see [`docs/theming.md` → Light / dark pair and `mode`](../../docs/theming.md#light--dark-pair-and-mode).
+
+## The theme catalog is built once and passed down
+
+`runtime::preset::load_catalog()` builds an `outl_theme::Registry` from the built-ins plus every `.toml` in `outl_config::theme_dir()`, and `resolve_theme` takes it as an argument.
+
+Three things about that shape:
+
+- **It is a parameter, not a call inside the resolver.** The directory comes from `XDG_CONFIG_HOME`, which is process-wide, so a resolver that read it itself would make every test in `runtime/preset.rs` depend on the developer's own theme files (root `CLAUDE.md` invariant 9, third question).
+- **One catalog per launch**, shared by the skeleton frame and the first real frame. A theme file written while the TUI is up takes effect on the next launch.
+- **A broken theme file is a `tracing::warn!` and nothing else here, and that is a recorded gap.** The palette is resolved before `App` exists, so there is no toast and no status line to write into — the skeleton is drawn with whatever `resolve_theme` returns. `outl theme list` names the file on stderr and `outl doctor` warns about it; those are the surfaces that reach the user. If this crate ever grows a boot-notice channel (the one `Loaded::notice()` uses on the first frame), this belongs in it.
+
+Every level of the precedence order resolves against that catalog, so `--theme mine`, a per-workspace `preset = "mine"` and a global one all accept a theme from `~/.config/outl/themes/` exactly as they accept a built-in.
+
+`crates/outl-tui/src/theme.rs::from_palette` is what renders one: it hands `ansi` and `ansi-light` to their hand-built ANSI themes and derives everything else. It is `pub` so `outl theme show` can render a user's theme through the same path.
 
 Only the global-config lookup in `resolve_theme` (`runtime/preset.rs`) goes through this resolver.
 The `--theme <preset>` CLI override and the per-workspace `.outl/config.toml` `[theme] preset` both stay a bare preset name with no pair — an explicit preset always overrides the pair, per `docs/theming.md`'s precedence order.

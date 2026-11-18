@@ -184,17 +184,10 @@ export interface BlockNode {
   children: BlockNode[];
 }
 
-/** A block resolved from its ref handle (`blk-XXXXXX`) — reply shape of
- *  `resolveEmbeds`. Serves both surfaces the handle appears in:
- *  `((…))` inline refs render `text`; `!((…))` embeds render `text` plus
- *  the `children` subtree. Mirrors the Rust `EmbedContent`. */
-export interface ResolvedBlock {
-  handle: string;
-  text: string;
-  page_slug: string;
-  status: string | null;
-  children: BlockNode[];
-}
+// `ResolvedBlock` / `PageEmbedContent` live in `./embeds` beside the two
+// wrappers that return them, the `./paste` arrangement. Re-exported so
+// `@outl/shared/api/types` stays the one import path.
+export type { PageEmbedContent, ResolvedBlock } from "./embeds";
 
 export interface PageMeta {
   id: string;
@@ -699,6 +692,10 @@ export interface ReminderSettings {
   /** `"22:00-07:00"`, or `""` when the user set no quiet hours. */
   quiet_hours: string;
 }
+
+// `RemindFields` lives in `./commands-reminders`, with the two
+// wrappers that read and write it (the `./paste` arrangement).
+export type { RemindFields } from "./commands-reminders";
 
 /**
  * Property key carrying a reminder rule on a block. Mirrors

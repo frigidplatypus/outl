@@ -52,6 +52,15 @@ pub const TUI_TABLE_NO_SCROLL: &str =
      there, the columns just stop lining up. Widen the terminal, or open the page in the \
      desktop app.";
 
+/// The TUI has no rename surface. `outl page rename` does the same
+/// thing from a terminal (`outl_actions::rename_page`, links
+/// rewritten), and the MCP tool `outl_page_rename` is the same route
+/// for an agent. Onto a name another page owns it refuses unless
+/// given `--merge`.
+pub const NO_TUI_PAGE_RENAME: &str =
+    "Renaming a page isn't in the TUI yet. Run `outl page rename <old> <new>` from a \
+     terminal, or rename it in the desktop or mobile app. Links to the page follow the new name.";
+
 /// The TUI has no marketplace UI at all — installing an
 /// unlisted or registry plugin from inside the terminal client
 /// goes through the CLI, not a browse-and-tap surface.
@@ -214,6 +223,26 @@ pub const NO_PROACTIVE_NOTICE_IN_THE_TERMINAL: &str =
     "Crash reporting is on, and the terminal does not announce it the way the apps do — run \
      `outl telemetry status` to see where it stands, or read the full list of what a report \
      carries at outl.app/privacy.";
+
+/// Mobile types `/` like any other character: nothing in
+/// `BlockTextarea.tsx` watches for it, and `@outl/shared/autocomplete`
+/// exposes `detectSlashContext` that this client simply does not call.
+///
+/// The nudge names the two surfaces rather than apologising, because
+/// the commands themselves are reachable here — and it names them
+/// where they actually are, which is **not** one menu: the plugins
+/// button sits in the journal's top bar (`JournalChrome`, aria-label
+/// "Plugin commands"), while "Insert template" is an entry in a
+/// block's long-press menu (`Journal.context-actions.ts`).
+///
+/// Worth the extra clause. A nudge that sends a user to a menu that
+/// does not hold the thing is the failure the `PageHistory` row's
+/// comment records: an exhaustive `match` forces a verdict and nothing
+/// forces the verdict to be true.
+pub const NO_SLASH_MENU_ON_THE_PHONE: &str =
+    "Typing `/` doesn't open a command list on the phone yet — plugin commands are behind the \
+     plugins button in the top bar, and templates are under \"Insert template\" when you \
+     long-press a block.";
 
 pub const DESKTOP_HOSTS_ONLY: &str =
     "The desktop can host a pairing (show the QR / ticket) but has no camera to scan one — \

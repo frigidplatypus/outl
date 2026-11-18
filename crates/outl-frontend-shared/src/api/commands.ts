@@ -27,7 +27,6 @@ import type {
   Palette,
   PageTimeline,
   PropertyKey,
-  ResolvedBlock,
   RunCodeBlockReply,
   TemplateDto,
   ThemeConfig,
@@ -245,6 +244,34 @@ export function resolvePageLabels(nodeIds: string[]): Promise<string[]> {
  */
 export function listTemplates(): Promise<TemplateDto[]> {
   return invoke<TemplateDto[]>("list_templates_cmd");
+}
+
+/**
+ * One text-inserting slash command (`/date-today`, `/time-now`,
+ * `/week-num`), mirroring `InsertCommandDto`. Names, descriptions and
+ * the strings produced are `outl_actions::insert`'s — a client renders
+ * the list and splices the answer, holding no date format of its own.
+ * `needs_args` is the filter a client with no argument prompt applies.
+ */
+export interface InsertCommandDto {
+  name: string;
+  description: string;
+  aliases: string[];
+  needs_args: boolean;
+}
+
+/** Every text-inserting slash command, in menu order. */
+export function listInsertCommands(): Promise<InsertCommandDto[]> {
+  return invoke<InsertCommandDto[]>("list_insert_commands");
+}
+
+/**
+ * The text `name` inserts right now, resolved in the backend's
+ * `[calendar] timezone` — never the webview's `new Date()`, whose zone
+ * is not the user's journal day.
+ */
+export function resolveInsertCommand(name: string, args?: string): Promise<string> {
+  return invoke<string>("resolve_insert_command", { name, args });
 }
 
 /**
@@ -531,17 +558,7 @@ export function runAutoRunBlocks(
   });
 }
 
-/**
- * Batch-resolve embed handles (`blk-XXXXXX`) to their source content.
- * Returns a map from handle to {@link ResolvedBlock} — the source
- * block's `text`, `page_slug`, `status`, and its `children` subtree
- * (populated for `!((…))` embeds, empty for a leaf).
- */
-export function resolveEmbeds(
-  handles: string[],
-): Promise<Record<string, ResolvedBlock>> {
-  return invoke<Record<string, ResolvedBlock>>("resolve_embeds", { handles });
-}
+export { resolveEmbeds, resolvePageEmbeds } from "./embeds";
 
 /**
  * Open an external `[label](url)` link in the user's default browser
@@ -721,9 +738,11 @@ export {
   clearReminderSnooze,
   deliverDueReminders,
   formatNextFire,
+  formatRemindRule,
   groupReminders,
   listReminders,
   markBlockDone,
+  parseRemindRule,
   reminderSettings,
   setBlockRemind,
   setReminderSettings,

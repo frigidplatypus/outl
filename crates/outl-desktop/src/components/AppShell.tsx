@@ -7,16 +7,18 @@ import {
   openTodayJournal,
   pageBacklinks,
   reloadWorkspace,
+  todaySlug,
 } from "@outl/shared/api/commands";
 import type { PageView } from "@outl/shared/api/types";
+import { bootMark } from "@outl/shared/boot";
 import { installForegroundRefresh } from "@outl/shared/capture";
+import { createDayClock } from "@outl/shared/journal";
 import { flattenAll } from "@outl/shared/outline";
 import { CrashReportsNotice } from "@outl/shared/polish";
 
 import {
   appState,
   setAppState,
-  setOutline,
   trackBacklinks,
 } from "../lib/store";
 import {
@@ -39,6 +41,8 @@ import { installShortcuts, type ActionHandlers } from "../lib/shortcuts";
 import { loadTransformers } from "@outl/shared/plugins/transformer-registry";
 import { buildHandlers } from "../lib/action-handlers";
 import { followSelection, installRegionKeys } from "../lib/keyboard-reach";
+import { resetForNavigation } from "../lib/page-change";
+import { applyPageState } from "../lib/page-view";
 import { BatchToolbar } from "./BatchToolbar";
 import { Sidebar } from "./Sidebar";
 import { OutlineView } from "./OutlineView";
@@ -64,6 +68,7 @@ import { deliverDueReminders } from "@outl/shared/api/commands";
 const REMINDER_POLL_MS = 30_000;
 import { ChromeToggleBar } from "./ChromeToggleBar";
 import { ErrorToast } from "./ErrorToast";
+import { NoticeToast } from "./NoticeToast";
 
 /**
  * 2-pane shell rendered once a workspace is loaded.
@@ -85,8 +90,13 @@ export function AppShell() {
   const [handlers, setHandlers] = createSignal<ActionHandlers | null>(null);
 
   function applyView(view: PageView) {
-    setAppState({ page: view.page });
-    setOutline(view.outline);
+    // The page's own state — properties, parse warnings, the
+    // ahead-of-log notice — is `applyPageState`'s, and this path is
+    // every navigation the chrome owns (sidebar, picker, Today, a task
+    // row, a deep link). Writing `page` and the outline alone here is
+    // what left the previous page's chips and banners standing over the
+    // new one.
+    applyPageState(view);
     // Drop editing / selection cursors that the new outline no longer
     // contains. This path fires on peer-driven reloads (onPeerChange →
     // reloadWorkspace), which replace the outline without going through
@@ -104,6 +114,25 @@ export function AppShell() {
       // anchor instead of a dangling id.
       setAppState("selectedBlockId", view.outline[0]?.id ?? null);
     }
+  }
+
+  /**
+   * Show a page the user **asked** for — the chrome's half of
+   * `ctx.navigateTo` (`lib/handler-context.ts`), which owns why that is
+   * not the same as applying a reply.
+   *
+   * Which surfaces take which is the part that is not obvious, and the
+   * list is **not** "everything that shows a page": `refreshActivePage`
+   * (a peer reload keeps the page *and* the user's zoom), a quick
+   * capture — which only refreshes today when today is already on
+   * screen — and a timeline restore all keep `applyView`.
+   * `<RemindersPanel />` does too, and calls `resetForNavigation` inside
+   * its own `jumpTo`, because one prop cannot answer for both that and
+   * its `markDone`.
+   */
+  function openView(view: PageView) {
+    resetForNavigation();
+    applyView(view);
   }
 
   function setError(msg: string) {
@@ -127,7 +156,7 @@ export function AppShell() {
   async function loadToday() {
     try {
       const view = await openTodayJournal();
-      applyView(view);
+      openView(view);
       await refreshStats();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -240,7 +269,7 @@ export function AppShell() {
           : payload.kind === "daily"
             ? await openJournalFor(payload.date)
             : await openPageBySlug(payload.slug);
-      applyView(view);
+      openView(view);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -257,7 +286,7 @@ export function AppShell() {
    */
   async function handleOpenFile(path: string) {
     try {
-      applyView(await openExternalFile(path));
+      openView(await openExternalFile(path));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -266,6 +295,33 @@ export function AppShell() {
   // F6 cycles sidebar / outline / chrome, Esc returns to the outline.
   onMount(() => onCleanup(installRegionKeys()));
   followSelection(() => appState.selectedBlockId);
+
+  /**
+   * Which day it is, for a window that is open for days.
+   *
+   * It feeds `appState.todaySlug`, which the header and the sidebar
+   * calendar read — both used to answer from their own frozen copy, so
+   * a window left open overnight called yesterday "Today" and ringed
+   * yesterday on the calendar.
+   *
+   * The `wake` half is the same rule the phone uses: come back to a
+   * window that sat on another day and it opens today, but never on the
+   * midnight tick itself (the user may be looking at the page) and
+   * never while they are in a block.
+   *
+   * Created in the component body, not in `onMount`: it registers an
+   * `onCleanup`, and that one is `async`, so the owner is gone by the
+   * time the body resumes.
+   */
+  const dayClock = createDayClock({
+    resolve: todaySlug,
+    wake: {
+      currentSlug: () => appState.page?.slug ?? null,
+      editing: () => appState.editingBlockId !== null,
+      jumpToday: () => void loadToday(),
+    },
+  });
+  createEffect(() => setAppState("todaySlug", dayClock.today()));
 
   onMount(async () => {
     // Subscribe BEFORE draining. `take_pending_open_file` is what tells
@@ -289,11 +345,25 @@ export function AppShell() {
     // The drain below waits on this before refreshing, so a capture
     // landing first cannot reach `refreshActivePage`'s no-page branch
     // and load today over the requested target.
-    const initialNav: Promise<unknown> = pending
-      ? handleDeepLink(pending)
-      : pendingFile
-        ? handleOpenFile(pendingFile)
-        : loadToday();
+    // `first_content` is reported off whichever of the three cold-start
+    // targets wins, not off `loadToday` alone — a launch that opened a
+    // deep link or an imported file painted real content just the same,
+    // and the backend's deferred boot work is waiting on this mark.
+    const markFirstContent = () => bootMark("first_content");
+    const initialNav: Promise<unknown> = (
+      pending
+        ? handleDeepLink(pending)
+        : pendingFile
+          ? handleOpenFile(pendingFile)
+          : loadToday()
+    ).then(markFirstContent, (e: unknown) => {
+      // A failed open still ends the "nothing on screen" phase: the
+      // shell is mounted and the error is rendered. Holding the mark
+      // back would hold back sync and the orphan sweep behind a state
+      // nothing is going to resolve on its own.
+      markFirstContent();
+      throw e;
+    });
 
     // Land anything `outl capture` left in the inbox (RFC 0363): on
     // mount, and on every return to the foreground. That is what makes a
@@ -379,6 +449,11 @@ export function AppShell() {
       });
     }, REMINDER_POLL_MS);
     onCleanup(() => clearInterval(remindersTimer));
+
+    // Last line of the shell's mount: every listener is armed and every
+    // ticker is running. It emits the summary line, so a launch missing
+    // it in the log is a launch that did not get here.
+    bootMark("interactive");
   });
 
   function gridTemplate(): string {
@@ -409,7 +484,7 @@ export function AppShell() {
         style={{ "grid-template-columns": gridTemplate() }}
       >
         <Show when={appState.sidebarOpen} fallback={<div />}>
-          <Sidebar onToday={loadToday} onPickPage={applyView} />
+          <Sidebar onToday={loadToday} onPickPage={openView} />
         </Show>
 
         <OutlineView />
@@ -419,14 +494,14 @@ export function AppShell() {
         {(h) => <BatchToolbar handlers={h()} />}
       </Show>
       <ChromeToggleBar handlers={handlers()} />
-      <Picker onPicked={applyView} handlers={handlers()} />
+      <Picker onPicked={openView} handlers={handlers()} />
       <QuickCapture applyView={applyView} />
       <PluginMarketplace />
       <SettingsModal onSwitchWorkspace={switchWorkspaceHere} />
       <HelpOverlay />
       <RemindersPanel applyView={applyView} setError={setError} />
-      <TasksPanel applyView={applyView} setError={setError} />
-      <TrashPanel applyView={applyView} setError={setError} />
+      <TasksPanel applyView={openView} setError={setError} />
+      <TrashPanel applyView={openView} setError={setError} />
       <TimelinePanel setError={setError} applyView={applyView} />
       <PluginEffectLayer />
       {/* Shell level, not above the outline: it is a statement about the
@@ -436,6 +511,7 @@ export function AppShell() {
       <CrashReportsNotice />
       {/* Mounted last so the notification toast sits above every chrome
        *  element (ChromeToggleBar, overlays) in the stacking order. */}
+      <NoticeToast />
       <ErrorToast />
     </>
   );

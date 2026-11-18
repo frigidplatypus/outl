@@ -1,8 +1,9 @@
 import { Show, onCleanup } from "solid-js";
 import type { BlockNode } from "@outl/shared/api/types";
-import type { EmbedMap } from "@outl/shared/markdown";
+import type { EmbedMap, PageEmbedMap } from "@outl/shared/markdown";
 import {
   BlockProperties,
+  EmbeddedSubtree,
   MarkdownInline,
   MarkdownTable,
   QuoteWrap,
@@ -13,6 +14,7 @@ import {
 import { DiagramFence, chooseFence, diagramsMode } from "@outl/shared/diagram";
 import { HighlightedCode, detectFence } from "@outl/shared/highlight";
 import { transformerFor } from "@outl/shared/plugins/transformer-registry";
+import { pageEmbedOnlyName } from "@outl/shared/outline";
 import { createLongPress } from "../lib/long-press";
 import { BulletOrCheckbox, CollapseTriangle } from "./BlockMarkers";
 import { EditableTextarea } from "./BlockTextarea";
@@ -80,10 +82,14 @@ export function BlockBody(props: {
   onTagClick?: (tag: string) => void;
   /** External `[label](url)` link tap — opens in the system browser. */
   onLinkClick?: (href: string) => void;
-  /** Commit a `key:: value` property edit; empty value clears it. */
-  onSetProperty?: (blockId: string, key: string, value: string) => void;
+  /** Open the properties sheet on this block. The attribute line
+   *  under the text is the tap target; editing a field is the
+   *  sheet's job, never the outline's. */
+  onOpenProperties?: (blockId: string) => void;
   /** Resolved `((blk-…))` / `!((blk-…))` sources, keyed by handle. */
   embeds?: EmbedMap;
+  /** Resolved `![[page]]` targets, keyed by the name as written. */
+  pageEmbeds?: PageEmbedMap;
   onTextareaMount?: (el: HTMLTextAreaElement) => void;
   /** See `BlockRowProps.onPasteMarkdown`. The parent has already
    *  injected `blockId`; this variant gets the caret + text. */
@@ -172,6 +178,16 @@ export function BlockBody(props: {
   onCleanup(() => longPress.cancel());
 
   const padLeft = () => rowPadLeft(props.depth);
+
+  /** Top-level blocks of the page this block transcludes, when the
+   *  block is nothing but a `![[page]]` embed. An accessor, not a
+   *  const: both `props.block` and `props.pageEmbeds` change under us,
+   *  and a prop read once at first render freezes (root `CLAUDE.md`
+   *  anti-patterns). */
+  const pageEmbedBlocks = (): BlockNode[] | undefined => {
+    const name = pageEmbedOnlyName(props.block.tokens);
+    return name ? props.pageEmbeds?.[name]?.blocks : undefined;
+  };
 
   return (
     <div
@@ -313,6 +329,7 @@ export function BlockBody(props: {
                   ? split.body.length
                   : props.block.text.length;
                 return (
+                  <>
                   <p
                     class="break-words text-[17px] leading-(--outl-block-leading)"
                     classList={{
@@ -333,23 +350,48 @@ export function BlockBody(props: {
                         variant="inline"
                         blockAssets
                         embeds={props.embeds}
+                        pageEmbeds={props.pageEmbeds}
                         onRefClick={tap(props.onRefClick)}
                         onTagClick={tap(props.onTagClick)}
                         onLinkClick={tap(props.onLinkClick)}
                       />
                     </Show>
-                    {/* `remind::` was invisible here: the long-press
-                        menu wrote the rule and the block looked
-                        untouched. Tapping a chip reopens it. */}
-                    <BlockProperties
-                      properties={props.block.properties}
-                      onCommit={(key, value) =>
-                        props.onSetProperty?.(props.block.id, key, value)
-                      }
-                      chipClass="rounded-full bg-(--color-outl-border)/40 px-2 py-0.5 text-[11px] text-(--color-outl-fg-dim)"
-                      inputClass="rounded-full border border-(--color-outl-accent)/50 bg-(--color-outl-bg-elev) px-2 py-0.5 text-[11px] text-(--color-outl-fg) outline-none"
-                    />
                   </p>
+                  {/* `remind::` was invisible in the outline, which is
+                      why this row exists at all. It is a sibling of
+                      the `<p>` and not a child: the line is a `<div>`,
+                      and a `<div>` inside a `<p>` is invalid markup
+                      that only survives because nothing re-parses it.
+
+                      It owns its own type scale — see the component.
+                      A `text-*` here would be dead anyway, since
+                      `styles.css`'s unlayered `font-size: inherit`
+                      outranks it on the button inside. */}
+                  <BlockProperties
+                    properties={props.block.properties}
+                    label="Block properties"
+                    onOpen={
+                      props.onOpenProperties
+                        ? () => props.onOpenProperties?.(props.block.id)
+                        : undefined
+                    }
+                  />
+                  {/* A block that is *only* `![[page]]` expands that
+                      page's top-level blocks beneath its title, through
+                      the same read-only `<EmbeddedSubtree />` the
+                      desktop uses. Nothing is drawn until the resolve
+                      answers with rows: the title line is already on
+                      screen as the embed's own placeholder, so the
+                      page never enters a load state for it
+                      (`UX.md` → Never block a keystroke). */}
+                  <Show when={pageEmbedBlocks()?.length}>
+                    <EmbeddedSubtree
+                      nodes={pageEmbedBlocks()!}
+                      embeds={props.embeds}
+                      pageEmbeds={props.pageEmbeds}
+                    />
+                  </Show>
+                  </>
                 );
               })()}
             >

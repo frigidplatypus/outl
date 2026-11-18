@@ -19,7 +19,6 @@ import {
   pastePlain,
   pluginRun,
   pluginSyncHooks,
-  resolveEmbeds,
   runAutoRunBlocks,
   runCodeBlock,
   setBlockCollapsed,
@@ -28,15 +27,13 @@ import {
   setBlockProperty,
 } from "@outl/shared/api/commands";
 
-import type { MdAheadOfLog, PageView } from "@outl/shared/api/types";
+import type { PageView } from "@outl/shared/api/types";
 
 import { PageAheadOfLogBanner, ParseWarningsBanner } from "@outl/shared/warnings";
 import { isAssetLink } from "@outl/shared/links";
 import { HistoryIcon, PageGlyph, PaperclipIcon } from "@outl/shared/icons";
 import {
-  collectBlockRefHandles,
   findBlock,
-  focusSubtree,
   rawTextWithTodo,
   visualRangeSet,
 } from "@outl/shared/outline";
@@ -56,14 +53,18 @@ import {
   appState, emptyBacklinks,
   savedMarks,
   setAppState,
-  setOutline,
   trackBacklinks,
+  visibleRoots,
+  zoomView,
 } from "../lib/store";
 import { BlockRow, type BlockCallbacks } from "./BlockRow";
+import { installPageChangeEffect, resetForNavigation } from "../lib/page-change";
+import { applyPageState } from "../lib/page-view";
 import { createPasteOps } from "./outline-paste";
 import { createStructureOps } from "./outline-structure";
 import { PageSections } from "./PageSections";
 import { PageTitle } from "./PageTitle";
+import { ZoomTitle } from "./ZoomTitle";
 import { PropertyEditor } from "./PropertyEditor";
 
 /**
@@ -114,65 +115,9 @@ export function OutlineView() {
   const editingId = () => appState.editingBlockId;
   const setEditingId = (id: string | null) => setAppState("editingBlockId", id);
 
-  /**
-   * Auto-select the first visible block whenever the *page itself*
-   * changes (different journal, different page). We deliberately
-   * **don't** depend on `appState.selectedBlockId` here — including
-   * it would create a feedback loop where the j/k handlers'
-   * selection updates would re-trigger this effect, which would
-   * scan the outline and (under some Solid timing windows where the
-   * outline `.children` arrays haven't been re-attached yet) flip
-   * the selection back to `outline[0]`. That manifested as a "k
-   * skips one line" bug.
-   *
-   * `appState.page?.id` is the right dependency: it changes once
-   * per page navigation; on a navigation we reset to the first
-   * block; in between, j/k own the cursor uncontested.
-   */
-  createEffect(() => {
-    const pageId = appState.page?.id;
-    if (!pageId) {
-      setAppState("selectedBlockId", null);
-      setAppState("selectedBacklinkBlockId", null);
-      return;
-    }
-    // Navigating to a different page always lands the cursor on
-    // the outline (never on a stale backlink from the previous page)
-    // and drops any zoom held on the previous page's block.
-    setAppState("selectedBacklinkBlockId", null);
-    setAppState("focusBlockId", null);
-    const outline = appState.outline;
-    if (outline.length === 0) {
-      setAppState("selectedBlockId", null);
-      return;
-    }
-    // Untracked read: don't re-run when selectedBlockId changes.
-    // We use a peek via the store's underlying signal instead of a
-    // reactive read — for Solid stores, indexing into `appState`
-    // outside an effect doesn't track. Inside an effect we'd need
-    // `untrack`, but we can just compare against null + the current
-    // outline scan once per page change.
-    const current = appState.selectedBlockId;
-    if (current === null) {
-      setAppState("selectedBlockId", outline[0].id);
-      return;
-    }
-    // The page id changed and the previous cursor may not exist in
-    // the new outline; verify and snap to the first block when not.
-    const exists = (() => {
-      const walk = (bs: typeof outline): boolean => {
-        for (const b of bs) {
-          if (b.id === current) return true;
-          if (b.children.length > 0 && walk(b.children)) return true;
-        }
-        return false;
-      };
-      return walk(outline);
-    })();
-    if (!exists) {
-      setAppState("selectedBlockId", outline[0].id);
-    }
-  });
+  // Per-page reset (selection, zoom) fires only on a page id change;
+  // see `installPageChangeEffect` for why commits must not trigger it.
+  installPageChangeEffect();
 
   /**
    * Lazily fetch backlinks — but ONLY when the page slug changes
@@ -205,89 +150,17 @@ export function OutlineView() {
   );
 
   /**
-   * "Is this page still not syncing?", carried across same-page
-   * refreshes — but only across the replies that cannot answer.
-   *
-   * Only the open commands attempt the re-projection that discovers the
-   * condition; a mutation reply is built from the tree and never carries
-   * the flag. Reading it straight off every view would therefore clear
-   * the banner on the user's first edit — the exact action the banner
-   * warns against, since a local edit re-projects the page and
-   * overwrites the unlogged lines.
-   *
-   * `md_ahead_of_log_checked` is what separates the two: a reply that
-   * ran the check is authoritative in **both** directions, so an absent
-   * notice means the page is healthy again (the user ran
-   * `outl reconcile --ahead-of-log`) and the banner clears. Sticking
-   * past that would leave a permanent "this page isn't syncing" on a
-   * page that syncs — the mirror of the silence the banner exists to
-   * end, and a banner users learn to ignore.
+   * Fold a reply into the page's state — `applyPageState`
+   * (`lib/page-view.ts`) owns which fields that is and why the
+   * ahead-of-log notice is sticky — then auto-run the page's query
+   * blocks. The transclusion resolve rides the outline effect above,
+   * so it is not repeated here.
    */
-  function stickyAheadOfLog(view: PageView): MdAheadOfLog | undefined {
-    if (view.md_ahead_of_log_checked) return view.md_ahead_of_log;
-    if (view.md_ahead_of_log) return view.md_ahead_of_log;
-    return appState.page?.id === view.page.id ? appState.mdAheadOfLog : undefined;
-  }
-
   function applyView(view: PageView) {
-    if (view.projection_error) setAppState("lastError", view.projection_error);
-    setAppState({
-      page: view.page,
-      parseWarnings: view.warnings ?? [],
-      mdAheadOfLog: stickyAheadOfLog(view),
-      pageProperties: view.page_properties ?? [],
-    });
-    // Reconcile the outline (see `setOutline`): only the block that
-    // actually changed re-renders, not all N rows.
-    setOutline(view.outline);
-    // Auto-run query blocks after page load / commit, then re-resolve
-    // embeds with the updated outline.
+    applyPageState(view);
     void runAutoRunBlocks(view.page.id)
       .then((reply) => {
-        if (reply.ran > 0) {
-          const updated = reply.view;
-          setAppState({
-            page: updated.page,
-            parseWarnings: updated.warnings ?? [],
-            mdAheadOfLog: stickyAheadOfLog(updated),
-            pageProperties: updated.page_properties ?? [],
-          });
-          setOutline(updated.outline);
-          void resolvePageEmbeds(updated.outline);
-        }
-      })
-      .catch(() => {});
-    // Resolve embeds on the initial page view.
-    void resolvePageEmbeds(view.outline);
-  }
-
-  // Last resolve's page + handle set, so a commit that changed neither
-  // can skip the round-trip (see `resolvePageEmbeds`).
-  let lastResolvedSlug = "";
-  let lastResolvedKey = "";
-
-  /** Collect unique block-ref handles (`((…))` refs + `!((…))` embeds)
-   *  from the outline and batch-resolve them to source blocks.
-   *
-   *  `resolveEmbeds` rebuilds the workspace index off disk, so it's
-   *  O(workspace) — and `applyView` calls this on every mutation, not
-   *  just navigation. Refs don't change per keystroke, so we skip when
-   *  the page (slug) and the handle set both match the last resolve.
-   *  That keeps the scan off the commit path (same rule the backlinks
-   *  fetch follows), while a newly-typed ref (handle set grows) or a
-   *  navigation (slug changes) still resolves — the slug check also
-   *  refreshes source text edited on another page. */
-  function resolvePageEmbeds(outline: import("@outl/shared/api/types").BlockNode[]) {
-    const slug = appState.page?.slug ?? "";
-    const handles = collectBlockRefHandles(outline);
-    const key = handles.join("\n");
-    if (slug === lastResolvedSlug && key === lastResolvedKey) return;
-    lastResolvedSlug = slug;
-    lastResolvedKey = key;
-    if (handles.length === 0) return;
-    void resolveEmbeds(handles)
-      .then((map) => {
-        setAppState("embeds", map);
+        if (reply.ran > 0) applyPageState(reply.view);
       })
       .catch(() => {});
   }
@@ -314,40 +187,30 @@ export function OutlineView() {
   });
 
   /**
-   * Zoom view (Roam/Workflowy focus). `null` when not zoomed; otherwise
-   * the focused block's subtree + ancestor breadcrumb, sliced from the
-   * outline the client already holds — pure view state, no round-trip.
-   * `focusSubtree` returns `null` when the focused id is no longer in
-   * the outline (a peer deleted it, or it moved off-page); we clear the
-   * zoom so the full page renders again instead of a blank pane.
+   * Zoom view (Roam/Workflowy focus): the focused block's subtree +
+   * ancestor breadcrumb, or `null` when not zoomed — *or* when the
+   * focused id left the outline, which the effect below then clears.
+   *
+   * `zoomView` (`lib/store.ts`) is the one owner of that resolution,
+   * shared with `j` / `k` and with `<PageSections zoomed>`; the memo
+   * keeps the walk to once per render, not once per reader.
    */
-  const focus = createMemo<import("@outl/shared/outline").FocusView | null>(
-    () => {
-      const id = appState.focusBlockId;
-      if (!id) return null;
-      return focusSubtree(appState.outline, id);
-    },
-  );
+  const focus = createMemo(() => zoomView());
 
-  // Self-heal a stale zoom target *outside* the memo: when the focused
-  // id left the outline (peer delete / off-page move) `focus()` is
-  // `null` while `focusBlockId` still holds the dead id, so clear it and
-  // the full page renders. Kept in an effect, not the memo, so the memo
-  // stays a pure derivation (a `setAppState` inside a memo is a
-  // reactivity hazard as the component grows).
+  // Self-heal a stale zoom target: `focusBlockId` still holds an id the
+  // outline lost (peer delete / off-page move), so clear it and the full
+  // page renders. An effect and not the memo, so the memo stays a pure
+  // derivation (a `setAppState` inside one is a reactivity hazard).
   createEffect(() => {
     if (appState.focusBlockId && !focus()) {
       setAppState("focusBlockId", null);
     }
   });
 
-  /** Blocks to render in the outline body. When zoomed (Roam-style) the
-   *  focused block becomes the header title, so the body shows its
-   *  **children**; otherwise the whole page. */
-  const rootBlocks = () => {
-    const fv = focus();
-    return fv ? fv.root.children : appState.outline;
-  };
+  /** Blocks to render in the outline body — the same ones `j` / `k`
+   *  walk (`visibleRoots`, `lib/store.ts`). Memoised because three
+   *  readers call it per render and the zoom slice is an O(page) walk. */
+  const rootBlocks = createMemo(visibleRoots);
 
   async function handleError<T>(promise: Promise<T>): Promise<T | undefined> {
     try {
@@ -378,7 +241,11 @@ export function OutlineView() {
 
   async function handleRefClick(target: string) {
     const view = await handleError(openRef(target));
-    if (view) applyView(view);
+    if (!view) return;
+    // A navigation, even when the ref points back at the open page —
+    // so the zoom goes, the same way `Cmd+J` drops it.
+    resetForNavigation();
+    applyView(view);
   }
 
   function handleTagClick(tag: string) {
@@ -837,14 +704,16 @@ export function OutlineView() {
                   </For>
                 </nav>
 
-                {/* Title = the focused block itself. */}
+                {/* Title = the focused block itself, rendered the way
+                 *  every other surface renders a block — see
+                 *  `<ZoomTitle />` for why it is not `root.text`. */}
                 <h1 class="text-[24px] font-semibold leading-[1.2] tracking-[-0.011em]">
-                  <Show
-                    when={fv().root.text}
-                    fallback={<span class="opacity-40">(empty block)</span>}
-                  >
-                    {fv().root.text}
-                  </Show>
+                  <ZoomTitle
+                    root={fv().root}
+                    onRefClick={handleRefClick}
+                    onTagClick={handleTagClick}
+                    onLinkClick={handleLinkClick}
+                  />
                 </h1>
               </>
             )}
@@ -906,9 +775,12 @@ export function OutlineView() {
             </For>
           </Show>
 
-          {/* Backlinks, nested pages, namespace mentions — in that
-              order, below the outline (TUI parity). */}
-          <PageSections blank={isBlankOutline(rootBlocks())} onOpenPage={(slug) => void handleRefClick(slug)} />
+          {/* Backlinks, nested pages, namespace mentions — in that order
+              below the outline (TUI parity), and none of them while
+              zoomed: the header is a block there, so the page's
+              references would read as that block's. */}
+          <PageSections blank={isBlankOutline(rootBlocks())} zoomed={focus() !== null}
+            onOpenPage={(slug) => void handleRefClick(slug)} />
         </div>
       </div>
       {/* The error surface is the top-right `<ErrorToast />` (mounted in

@@ -287,6 +287,14 @@ The page's `.md` is the caller's business as usual.
 A revive emits `Op::Move`s only, so a `.md` holding lines the op log never saw still refuses to be overwritten — see [Surfacing a page that stopped syncing](#surfacing-a-page-that-stopped-syncing).
 A `.md` still showing blocks the log holds *in the trash* is re-projected without them, which is the delete reaching the file.
 
+## Renaming and merging pages
+
+`outl_actions::rename_page` and `outl_actions::merge_pages` own both operations, including the rewrite of every `[[old]]` and `#old` mention ([RFC 0557](rfcs/0557-page-merge-and-rename.md)).
+The desktop and mobile apps reach them through the `rename_page` and `merge_pages` commands, and the caller projects every page in `report.touched_pages` and removes the old projection last, as `outl page rename` does.
+`@outl/shared/pages/rename-merge` owns the flow (rename, confirm a merge when the name is taken, merge) and the wording of the confirmations and summaries, so the two clients do not each invent it.
+Which clients can do it is recorded as `Capability::PageRename` and `Capability::PageMerge`: rename is full on desktop and mobile and missing in the TUI, whose terminal route is `outl page rename`; merge is full on every client (the TUI through `/merge <page>`), and `outl page merge` / `outl page rename --merge` reach it from a terminal.
+Neither has a chord, so there is no `Action`.
+
 ## Running code blocks
 
 Every client that lets the user execute a `` ```lang ``` `` block (TUI `g x`, desktop `Cmd+Shift+X` / Run button, mobile long-press → "Run code") goes through **one** shared entry point:
@@ -577,6 +585,24 @@ On the GUI clients (desktop + mobile) the subtree lookup + ancestor breadcrumb i
 This is pure view state with no Rust mirror — the id never leaves the frontend; the TUI reaches the same behaviour through its own path-based zoom stack in `outl-tui/src/actions/zoom.rs`.
 Every client resolves the focused id against the **live** outline on each render, so an edit / collapse inside the zoom stays reflected, and a stale target (block deleted or moved to another page → `null`) transparently falls back to the full page.
 Switching pages drops the zoom, so focus is scoped to the page it was set on.
+
+**Zooming is a request for one subtree, so the page's own surfaces go with it.**
+Backlinks, nested pages, namespace mentions and the page's `key:: value` row answer questions about the *page*; drawn under a block title they read as the block's, which is a wrong answer rather than a noisy one.
+All three clients hide them, and each keeps its cursor out of them too — the desktop through `backlinkBlockIds()`, the TUI through `page_sections_visible()` (which `z i` also uses to bring a cursor back out of the backlinks panel), mobile through having no cursor to move.
+The owner per client: `<PageSections zoomed>` (desktop and mobile) and `App::page_sections_visible` (TUI).
+
+**Asking for a page means the whole page, including when it is the page already open.**
+A client that drops the zoom only when the page *id* or slug changes leaves `Cmd+J` (or a tap on Today) doing nothing visible while zoomed into a block of today's journal — the one gesture that means "take me back" appears broken.
+So "the user asked for a page" is a separate question from "the page changed", and only the first is a navigation:
+
+| Client | What a navigation runs | What catches the rest |
+|---|---|---|
+| desktop | `resetForNavigation()` via `navigateTo` / `openView` | `installPageChangeEffect` on a page-id change |
+| mobile | `resetForNavigation()` via `openView` | `applyView` on a slug change |
+| TUI | `load_current()`, which clears `zoom_stack` outright | — (every view load goes through it) |
+
+The TUI never had the bug: `go_today` loads unconditionally, so the reset is keyed on the load rather than on a comparison.
+A mutation reply, a peer refresh and a background capture are **not** navigations and keep the zoom on every client.
 
 On mobile the gesture is touch, not a chord: a tap on a block's **plain bullet dot** zooms in (`Journal.tsx` holds one `focusBlockId` signal; `BlockRow` → `BulletOrCheckbox` fires `onFocusBlock` when wired).
 That repurposes the plain dot's old mark-as-TODO tap — TODO stays reachable in the long-press context menu — while the TODO/DONE checkbox and the collapse triangle keep their taps, so no gesture collides.

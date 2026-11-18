@@ -19,25 +19,25 @@ outl picks the parts that worked — the outliner UX, the bi-directional graph, 
 | | Roam | Logseq | outl |
 |---|------|--------|------|
 | **Files on disk?** | No — cloud only | Yes (`.md` files) | Yes (`.md` files) |
-| **Markdown stays clean?** | N/A | No — `id::` lines on every block | Yes — IDs in dotfile sidecar |
+| **Markdown stays clean?** | N/A | No — `id::` lines on every block | Yes — IDs in a `.outl` sidecar beside the `.md` |
 | **Offline editing?** | Limited | Yes | Yes |
 | **Multi-device sync** | Cloud sync (paid plan, no merge surfaced) | File rsync (paid plan, last-write-wins) | Tree CRDT, P2P over iroh (default); file/iCloud opt-in |
 | **Conflict on concurrent moves?** | Silent loss | Silent loss | Deterministic resolution, no loss |
 | **Time travel / history** | Paid tier | Per-file git, optional | Issue [#1][i1] tracks ChronDB |
 | **Open source** | No | Yes (frontend) | Yes (MIT) |
-| **Plugin system** | Yes (JS) | Yes (JS, complex) | Issue [#4][i4] tracks `rhai` |
+| **Plugin system** | Yes (JS) | Yes (JS, complex) | Yes (JS, [RFC 0025](rfcs/0025-plugin-system.md)) |
 | **Mobile** | Native, fine | Native, known-bad | iOS (Tauri 2), TestFlight beta; Android APK per release |
 | **Desktop** | Electron | Electron | Issue [#2][i2] tracks Tauri |
 | **TUI** | No | No | Yes — first-class |
 | **Daily journal** | Yes | Yes | Yes |
 | **`[[refs]]` / `#tags`** | Yes | Yes | Yes |
 | **Block refs `((blk-XXXXXX))` + embeds `!((blk-XXXXXX))`** | Yes (long uids) | Yes (long uids) | Short, sidecar-backed handles; clean `.md` |
+| **Page embeds** | `{{embed: [[page]]}}` | `{{embed [[page]]}}` | `![[page]]` — one token, no `{{…}}` wrapper, and still a page reference ([spec](markdown-format.md#page-embeds-page)) |
 | **Queries** | `{{query: ...}}` rich | Datalog-ish | `{{query: ...}}` DSL — planned |
 
 [i1]: https://github.com/outlmd/outl/issues/1
 [i2]: https://github.com/outlmd/outl/issues/2
 [i3]: https://github.com/outlmd/outl/issues/3
-[i4]: https://github.com/outlmd/outl/issues/4
 
 ## What outl is **not**
 

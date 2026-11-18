@@ -33,7 +33,7 @@ Only the chrome is desktop-local; why the copy and the panel are shared rather t
 The native menu is built in `src-tauri/src/menu.rs` and exists on **macOS only**.
 Tauri installs a default menu on macOS alone, so Windows and Linux never had a menu bar, and adding one there would be new chrome nobody asked for.
 On macOS the default's File menu held only "Close Window", so the menu is built here instead.
-It keeps what the default offered (the app menu, Edit with undo / redo / cut / copy / paste / select all, View, Window, and File → Close Window) and adds **File → Switch Workspace…** above Close Window.
+It keeps what the default offered (the app menu, Edit with undo / redo / cut / copy / paste / select all, View, Window, and File → Close Window) and adds **File → Switch Workspace…** above Close Window, plus the **Help** menu described below.
 
 **Settings → Workspace → Switch…** is the cross-platform route, and the only one on Windows and Linux.
 It runs the same `switchWorkspace` flow as the menu item, and closes the modal once the workspace actually changed (not on cancel or failure: the draft still holds the old `last_workspace`, and Save writes it back).
@@ -51,6 +51,41 @@ Clicking the menu item picks nothing in Rust; it emits `menu://switch-workspace`
 
 The menu item does nothing while `<Onboarding />` or the loading screen is up, because the picker is itself the screen then.
 It has no chord and no palette row: both would need a new `Action`, which every client has to declare a verdict for ([`client-parity.md`](client-parity.md)).
+
+## About window and the Help menu (macOS)
+
+**outl → About outl** opens a real window, not AppKit's standard panel.
+The panel shows an icon, a name, a version and a block of credits text, and nothing in it is clickable, so a user who hit a bug learned their version number and no way to act on it.
+
+The window (`src-tauri/src/about.rs`) loads the shipped bundle at `index.html?view=about`; `src/index.tsx` branches on that query before it mounts anything and renders `<AboutWindow />` instead of `<App />`.
+It is 380×460, fixed, centred, with the macOS title bar left empty so the content starts at the top.
+A second click focuses the window already open rather than stacking a copy, and `Esc` or `Cmd+W` closes it.
+
+It carries the brand mark in the theme's accent, the name, the running version, one line describing the project, the three links below, and "MIT licensed · Avelino and contributors".
+The version comes from `getVersion()` and is simply absent when that read fails.
+A placeholder build number would be worse than none: the version is the one fact this window exists to state correctly.
+
+**Help** holds the same three links:
+
+| Item | Opens |
+|---|---|
+| outl on GitHub | <https://github.com/outlmd/outl> |
+| Report a Problem | <https://github.com/outlmd/outl/issues> |
+| Sponsor outl | <https://github.com/sponsors/avelino> |
+
+The table itself is `src-tauri/src/links.rs`, and it is the only copy.
+The menu builds its items from it, and the click router resolves a clicked id back through it.
+`src/lib/links.ts` is a mirror, pinned to it by `the_frontend_mirror_matches_this_table`.
+So the two surfaces cannot name the same destination differently, and adding a row reaches both.
+
+The window opens during the boot replay and on the first-run picker too.
+That is the reason it is a window and not a modal inside `<AppShell />`, which only mounts once a workspace is open.
+Those are the two moments a user most wants a version number and an issue tracker.
+`capabilities/about.json` scopes it to exactly what it does: read the version, close itself, open an `https://` URL.
+Nothing in it touches the workspace.
+
+Windows and Linux have neither surface, for the same reason they have no menu bar.
+The gap is recorded as `Capability::AboutAndSupport` across the three clients in [`client-parity.md`](client-parity.md).
 
 ## Chrome toggle bar and quick capture
 
@@ -73,7 +108,9 @@ Reminders is the one exception: mobile moved it to its bottom bar's Reminders ta
 The sidebar toggle has no mobile twin either and sits alone top-left.
 The sidebar pads its own top so the capsule never covers search, and the page header (`OutlineView`) pads its top the same way so the eyebrow's attach and history icons clear the right capsule.
 
-Dot states: green when at least one iroh peer is reachable, orange when none are, dim while the first probe runs, and a spinner while a sync pass runs.
+Dot states: green when at least one device is reachable, orange when none are, dim while the first probe runs, and a spinner while a sync pass runs.
+**The state, its sentence and its colour are `@outl/shared/peers`' `syncState` / `syncStateLabel` / `syncStateColor`, and the glyph is that module's `<SyncDot>`** — the same four states, decided once, for this client and mobile ([#575](https://github.com/outlmd/outl/issues/575)).
+Reachability counts both directions: a device that can only dial *us* (a phone behind carrier NAT) is reachable, and the responder records it on every confirmed inbound exchange.
 The tooltip shows the reachability state and when this window last saw a sync land (a finished pass, or a `peer-ops-changed`).
 Clicking syncs now — `syncNow()` then `reloadWorkspace()`, the same pass as the Sync panel's Refresh — and clicks during a pass are ignored.
 Right-click opens Settings → Sync.
@@ -88,12 +125,38 @@ Journals are excluded, so only regular pages show the affordance.
 The `g d` chord ("go delete", Normal mode) routes through the `DeletePage` handler and runs the same flow.
 The backend is the shared `outl_tauri_shared::commands::page::delete_page` body, with no desktop-specific logic.
 
+## Renaming and merging a page
+
+Two more page actions sit beside the sidebar's delete `×`: **Rename page...** and **Merge into...**.
+Journals are excluded, so only regular pages show them: a journal's slug is its date.
+Both call the shared `outl_actions` functions through the `rename_page` / `merge_pages` Tauri commands, so every link to the page is rewritten in the same batch as the move ([RFC 0557](rfcs/0557-page-merge-and-rename.md)).
+
+- **Rename** opens a text prompt prefilled with the current title.
+  When the new name already belongs to another page, nothing is written yet and a confirm asks "A page named X already exists. Merge this page into X?".
+  Accepting runs the merge, cancelling leaves both pages as they were.
+- **Merge into...** opens the page picker, which leaves out the page itself.
+  It always asks for a confirmation before anything is written, because a merge has no undo.
+- **Afterwards** the app opens the resulting page (the renamed one, or the merge target) and shows a summary toast: blocks moved, links updated, and one line per property both pages held with different values (the target's value is kept, the dropped one is named).
+
+There is **no undo** for either action, and a merge in particular does not come apart.
+The blocks stay under the target, the links stay rewritten and the old name stays as an alias: see "The opposite direction" in the RFC.
+
+The two actions have no chord on any client.
+`Capability::PageRename` and `Capability::PageMerge` record the verdicts in [client-parity.md](client-parity.md): rename is missing in the TUI, merge is full on every client.
+The warning about an alias that another page shadows (`alias_conflicts`) is deliberately not part of this change, so no GUI client shows it yet.
+
 ## Backlinks and nested pages below the outline
 
 `components/PageSections.tsx` is what `OutlineView` mounts below the outline: `<InlineBacklinks />`, then `<NestedPages />` (`@outl/shared/namespace`, issue #275).
 
 `InlineBacklinks.tsx`'s header direction button calls `setBacklinksOrder` to flip newest / oldest; `appState.backlinksOrder` hydrates at boot.
 Contract: [`clients.md` → Backlinks order](clients.md#backlinks-order-issue-142).
+
+The scan lands after the first paint, so **the section is on screen only once it has rows**.
+A first load draws nothing at all, and the section then appears once, complete, below the last block.
+A page with no references never draws anything, so there is no placeholder to take away and no reserved gap left under the page either.
+A **refetch** is the opposite case and keeps everything it has, marked `loading…` beside the count — that is the one moment the mark is owed, because the rows are up and about to change.
+`lateSectionVisible` (`@outl/shared/outline`) owns that rule, the measurement behind it and what each case costs.
 
 A backlink row carries its own `▢` / `▣` / `•` indicator ahead of the text.
 Clicking the indicator toggles the **source** block's TODO without leaving the page; clicking the text navigates.
@@ -140,7 +203,8 @@ That sentence is the backend's, so it reads the same here, in `outl trash list` 
 **A refusal can also arrive on a row that looked fine**, because the verdict is computed against the live tree and the list is a snapshot — another device can trash the landing parent in between.
 The panel puts that sentence in the row rather than in a toast, keeps itself open, and re-reads the listing so the row settles into the state it should have been in.
 
-No chord yet. A chord needs an `Action` in `outl-shortcuts`, whose per-client `support()` match is at its frozen size baseline, which is the same reason the page-history panel has none.
+No chord yet.
+A chord needs an `Action` in `outl-shortcuts`, whose per-client `support()` match is at its frozen size baseline, which is the same reason the page-history panel has none.
 Per-client reach is `Capability::Trash` in [`client-parity.md`](client-parity.md).
 
 Contract, the three refusals and why a page cannot come back: [`clients.md` → Restoring a deleted block](clients.md#restoring-a-deleted-block).
@@ -156,10 +220,19 @@ Convention: [`clients.md` → Blockquote convention](clients.md#blockquote-conve
 Click a neutral `•` bullet, or fire `ZoomIn` (`z i` / `Cmd/Ctrl+Shift+]`), to zoom into the selected block; `ZoomOut` (`z o` / `Cmd/Ctrl+Shift+[`) pops one level.
 
 The header becomes the focused block's own **page-like header**, Roam-style, with the block's text as the `<h1>` title.
+The title is **rendered markdown** (`<ZoomTitle />`), not the raw source: a `#tag`, a `[[ref]]` and a `[label](url)` read as they do in the row the user zoomed out of, and the ref and the tag navigate from there too.
 The eyebrow is a clickable **zoom path**: a leading page crumb (page glyph plus `<slug>` or `<title>`) exits the zoom back to the journal or page, then one crumb per ancestor re-focuses it.
 The outline body renders the focused block's **children** (`rootBlocks()` → `fv.root.children`), so the block is not duplicated as both title and first row.
 `navBlocks()` traverses the same children, so `j` / `k` stay in the body.
 `addFirstBlock()` creates into the focused block (`parentId: focusBlockId`) when it is a zoomed-into leaf.
+
+**Nothing that belongs to the page is on screen while zoomed.**
+The page's `key:: value` row, the backlinks section, the nested-pages list and the namespace mentions all disappear, because the header is a *block* then and the page's references sitting under a block title read as that block's.
+`j` off the last row of the zoom therefore stops instead of crossing into the backlinks, the way it clamps on an unzoomed page with the section toggled off.
+
+**Opening a page leaves the zoom, including the page already open.**
+`Cmd+J` zoomed into a block of today's journal returns to today's full journal; so do the sidebar's Today, a `Cmd+P` pick, a click on a `[[ref]]` or `#tag` that points back at this page, `[` / `]`, and an `outl://` deep link.
+A commit, a batch op, a quick capture into today, a timeline restore and a peer-driven refresh all **keep** it — none of them is the user asking to go somewhere.
 
 Cross-client contract: [`clients.md` → Zoom / focus on a block](clients.md#zoom--focus-on-a-block-roamworkflowy).
 
@@ -173,9 +246,20 @@ Cross-client contract: [`clients.md` → Zoom / focus on a block](clients.md#zoo
 | `[[…]]` | `RefSuggestPopup` | `search_pages`, the same command the `Cmd+P` picker calls | the page title, or the ISO slug for a journal |
 | `((…))` | `BlockSuggestPopup` | `search_blocks`, from disk, debounced ~150 ms | the ref handle `((blk-XXXXXX))` |
 | `#…` (word-initial, one word) | `RefSuggestPopup` | `search_pages` — a tag *is* a page | the page **slug**, never the title: `#` has no closer, so the first space would end the tag and leave the rest as prose |
-| block-initial `/` | slash menu | `templateSlashCommands` (`lib/slash-commands.ts`) plus the shared command set | runs the row, e.g. `instantiateTemplateAt` for `template: <name>` |
+| word-initial `/` | slash menu | this client's own actions (`actionSlashCommands`, from the `Cmd+K` palette's list), the text inserters (`insertSlashCommands`, from `outl_actions::insert`), plus `/upload`, the workspace's templates and every plugin command — all in `lib/slash-commands.ts` | a text inserter splices its answer over the `/token` and stays in the block; everything else runs the row: a native one through the dispatcher's handler, `instantiateTemplateAt` for `template: <name>`, the file picker for `upload`, else `pluginRun` |
 
-Detection and span replacement are `@outl/shared/autocomplete`'s (`detectRefContext`, `detectEmojiContext`, `applySuggestion`, `applyEmojiSuggestion`), which the TUI and mobile run too.
+**`/date-today` writes a date into the block; `/today` opens a journal.**
+The first family is `outl_actions::insert` ([`docs/tui.md`](tui.md#date--time-inserters) owns the table), and accepting one splices its text over the `/token` without leaving the block or committing it.
+`/date` is the one entry the desktop leaves out: the `/` trigger closes on the first space, so there is no way to type its argument here.
+
+**A slash command is called the same thing here and in the TUI.**
+The name comes from `outl_shortcuts::command_name`, which both clients read — `/today`, `/help`, `/run`, `/pin`, `/refer`, `/open`, `/quit`.
+It used to be derived per client: the desktop kebab-cased the `Action` variant, the TUI carried a literal per built-in.
+Of 31 TUI built-ins and 66 desktop action rows exactly two names coincided, so `/today` in the terminal was `/open-today` here.
+An action the catalog does not name is left out of the menu rather than named locally.
+
+Word-initial means the block's start **or** straight after whitespace, which is the TUI's rule — `nota /` opens the menu, `http://host` and `see docs/api` stay literal.
+Detection and span replacement are `@outl/shared/autocomplete`'s (`detectRefContext`, `detectEmojiContext`, `detectSlashContext`, `applySuggestion`, `applyEmojiSuggestion`, `applySlashContext`), which the TUI and mobile run too.
 When more than one trigger could fire, an open `[[`/`((` wins over `#` and `@`, and `#` wins over `@` — a tag is one word, so it is always the closer trigger when it matches.
 
 `((blk-…))` handles also **resolve** at render (issue #147, TUI parity).

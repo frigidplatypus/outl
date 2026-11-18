@@ -22,11 +22,13 @@ vi.mock("@tauri-apps/api/window", () => ({
 
 vi.mock("@outl/shared/api/commands", () => ({
   copyBlockMarkdown: vi.fn(),
+  copyMarkdown: vi.fn(),
   createBlock: vi.fn(),
   deleteBlock: vi.fn(),
   deletePage: vi.fn(),
   editBlock: vi.fn(),
   indentBlock: vi.fn(),
+  markBlockDone: vi.fn(),
   moveBlockAfter: vi.fn(),
   moveBlockDown: vi.fn(),
   moveBlockUp: vi.fn(),
@@ -36,8 +38,12 @@ vi.mock("@outl/shared/api/commands", () => ({
   openTodayJournal: vi.fn(),
   outdentBlock: vi.fn(),
   pasteBlockAfter: vi.fn(),
+  pluginSyncHooks: vi.fn(),
   previousDay: vi.fn(),
+  runCodeBlock: vi.fn(),
   setBlockCollapsed: vi.fn(),
+  setBlockRemind: vi.fn(),
+  snoozeReminder: vi.fn(),
   todaySlug: vi.fn(),
   toggleTodo: vi.fn(),
 }));
@@ -51,11 +57,13 @@ vi.mock("./api", () => ({
 import {
   copyBlockMarkdown,
   deleteBlock,
+  markBlockDone,
   moveBlockAfter,
   moveBlockDown,
   moveBlockUp,
   openRef,
   pasteBlockAfter,
+  pluginSyncHooks,
 } from "@outl/shared/api/commands";
 
 import { buildHandlers } from "./action-handlers";
@@ -339,12 +347,7 @@ describe("multi-select batch ops (#23)", () => {
     vi.clearAllMocks();
     setAppState({
       page: { id: "pg-1", slug: "today", title: "Today", kind: "journal" },
-      outline: [
-        block("blk-a", "a"),
-        block("blk-b", "b"),
-        block("blk-c", "c"),
-        block("blk-d", "d"),
-      ],
+      outline: [block("blk-a", "a"), block("blk-b", "b"), block("blk-c", "c"), block("blk-d", "d")],
       backlinks: [],
       selectedBlockId: null,
       selectedBacklinkBlockId: null,
@@ -493,5 +496,59 @@ describe("AddProperty", () => {
 
     expect(appState.addPropertyBlockId).toBeNull();
     expect(setError).toHaveBeenCalled();
+  });
+});
+
+describe("MarkDone (g D) embed-row guard", () => {
+  const applyView = vi.fn();
+  const setError = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(markBlockDone).mockResolvedValue(pageView());
+    vi.mocked(pluginSyncHooks).mockResolvedValue({ errors: [], views: [] });
+    setAppState({
+      page: { id: "pg-1", slug: "today", title: "Today", kind: "journal" },
+      outline: [
+        block("blk-plain", "buy milk"),
+        {
+          ...block("blk-embed-row", ""),
+          tokens: [{ kind: "embed", value: "blk-src" }],
+        },
+      ],
+      backlinks: [],
+      selectedBlockId: null,
+      selectedBacklinkBlockId: null,
+      editingBlockId: null,
+    });
+  });
+
+  it("marks a plain block done", async () => {
+    setAppState("selectedBlockId", "blk-plain");
+
+    await buildHandlers({ applyView, setError }).MarkDone?.();
+
+    expect(markBlockDone).toHaveBeenCalledWith("pg-1", "blk-plain");
+    expect(setError).not.toHaveBeenCalled();
+  });
+
+  it("refuses a query-result row instead of prefixing the embed token", async () => {
+    setAppState("selectedBlockId", "blk-embed-row");
+
+    await buildHandlers({ applyView, setError }).MarkDone?.();
+
+    // Desktop cannot rewrite the source block over the embed wire yet,
+    // so the honest answer is a message — never `DONE !((blk-src))`.
+    expect(markBlockDone).not.toHaveBeenCalled();
+    expect(setError).toHaveBeenCalledWith(
+      "This row is a query result — open the source block and mark it done there",
+    );
+  });
+
+  it("says why nothing happened when no block is selected", async () => {
+    await buildHandlers({ applyView, setError }).MarkDone?.();
+
+    expect(markBlockDone).not.toHaveBeenCalled();
+    expect(setError).toHaveBeenCalledWith("Select or click a block first, then g D marks it done");
   });
 });

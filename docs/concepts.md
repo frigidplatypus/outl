@@ -54,6 +54,11 @@ A page can also answer to short or alternative names, listed comma-separated in 
 A name with a comma of its own is written in brackets, `alias:: [[Speak, then listen]], Talk`: the comma inside `[[…]]` is part of the name, and the brackets are not.
 Every name a page answers to — slug, title, each alias — resolves the same way: `[[ref]]`, `#tag`, `@mention`, and autocomplete all match case-insensitively against the title and the aliases.
 
+A name that is already another page's slug or title belongs to that page.
+An alias that spells it is inert: `[[Beta]]` opens the page titled `Beta`, and its mentions are listed in that page's backlinks, not in the page that declared the alias.
+Clients can list such aliases through `outl_actions::alias_conflicts`.
+To fold two pages into one, a page merge is the intended way, and it arrives in a later release.
+
 The `type::` property on a page is read by surfaces that filter pages by role.
 The canonical case is `type:: person`: every client opens a person picker on a word-initial `@` keystroke and lists only pages whose `type:: person` is set.
 Accepting a candidate inserts `[[@name]]`, a regular wikilink whose `@` is purely visual (the page identity is still `name`, without the `@`).
@@ -121,8 +126,10 @@ Stores the stable block IDs and content hashes:
 }
 ```
 
-Filename is a dotfile: `pages/avelino.md` ↔ `pages/.avelino.outl`.
-Hidden from `ls` by default; gitignorable if you want (but you'd lose ID stability across devices).
+Filename is the `.md`'s stem with an `.outl` extension, and deliberately **not** a dotfile: `pages/avelino.md` ↔ `pages/avelino.outl`.
+The dotted form was abandoned because iCloud Documents skips dotted paths during cross-device sync, which silently breaks a multi-device workspace.
+An older workspace's dotted `pages/.avelino.outl` is still read (`readable_sidecar_path` falls back to it).
+Gitignorable if you want (but you'd lose ID stability across devices).
 
 `ref_handle` is the short, stable handle used by inline block references (`((blk-XXXXXX))`) and embeds (`!((blk-XXXXXX))`).
 See [`docs/markdown-format.md`](markdown-format.md#block-refs-and-embeds).

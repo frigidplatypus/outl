@@ -1,10 +1,11 @@
-//! Page-scoped builtins: property edits and the `pin` toggle.
+//! Page-scoped builtins: property edits, the `pin` toggle and `merge`.
 //!
 //! These commands operate on either the current block or the page's
 //! top-level properties. They live together because they share the
 //! "mutate AST → save → reconcile" code path through `App`.
 
 use anyhow::Result;
+use outl_shortcuts::{command_name, Action};
 
 use super::super::SlashCommand;
 use crate::state::App;
@@ -78,7 +79,7 @@ impl SlashCommand for PropPageCommand {
 pub struct PinCommand;
 impl SlashCommand for PinCommand {
     fn name(&self) -> &'static str {
-        "pin"
+        command_name(Action::TogglePin)
     }
     fn description(&self) -> &'static str {
         "Toggle pinned:: on the current page (shows in sidebar Pinned)"
@@ -93,6 +94,27 @@ impl SlashCommand for PinCommand {
     }
     fn execute(&self, app: &mut App, _args: &str) -> Result<bool> {
         app.toggle_pinned();
+        Ok(false)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// merge: fold the current page into another page
+// ---------------------------------------------------------------------------
+
+pub struct MergeCommand;
+impl SlashCommand for MergeCommand {
+    fn name(&self) -> &'static str {
+        "merge"
+    }
+    fn description(&self) -> &'static str {
+        "Merge this page into another (asks first, can't be undone here): `merge <page name>`"
+    }
+    fn needs_args(&self) -> bool {
+        true
+    }
+    fn execute(&self, app: &mut App, args: &str) -> Result<bool> {
+        app.arm_page_merge(args);
         Ok(false)
     }
 }

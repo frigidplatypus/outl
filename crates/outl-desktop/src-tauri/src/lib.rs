@@ -36,10 +36,13 @@
 //! - `commands` — Tauri command surface split by responsibility
 //!   (`workspace`, `page`, `block`).
 
+mod about;
 mod commands;
+mod deep_link;
 mod fs_watcher;
 mod helpers;
 mod iroh_sync;
+mod links;
 mod log_target;
 mod menu;
 mod open_with;
@@ -48,6 +51,7 @@ mod quick_capture;
 mod settings;
 mod state;
 mod webview_boot;
+mod window_paint;
 mod workspace_open;
 
 use std::path::PathBuf;
@@ -57,96 +61,42 @@ use outl_core::hlc::HlcGenerator;
 use outl_core::workspace::Workspace;
 use outl_exec::RuntimeRegistry;
 use parking_lot::Mutex;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
 
 use crate::commands::{
-    attach_asset, clear_reminder_snooze, copy_block_markdown, copy_block_ref, copy_markdown,
-    create_block, current_workspace, cut_block, date_title, delete_block, delete_page,
-    deliver_due_reminders, device_activity, drain_capture_inbox, edit_block, export_markdown,
-    get_settings, get_telemetry_enabled, get_theme, get_theme_config, import_asset_file,
-    indent_block, instantiate_template_at, journal_days_with_content, known_property_keys,
-    list_action_support, list_all_pages, list_open_tasks, list_reminders, list_shortcut_bindings,
-    list_templates_cmd, list_themes, list_trash, mark_block_done, merged_edits, move_block_after,
-    move_block_down, move_block_up, next_day, open_asset, open_external_file, open_journal_for,
-    open_page_by_slug, open_ref, open_today_journal, outdent_block, outl_emoji_search,
-    outl_peer_list, outl_peer_pair_host, outl_peer_pair_join, outl_peer_remove, outl_peer_status,
-    outl_sync_now, page_backlinks, page_timeline, paste_block_after, paste_markdown_at,
-    paste_plain_at, plugin_config_set, plugin_install_official, plugin_keybindings, plugin_list,
-    plugin_registry_list, plugin_run, plugin_secret_remove, plugin_secret_set, plugin_set_enabled,
-    plugin_settings_describe, plugin_sync_hooks, plugin_toolbar, plugin_transform,
-    plugin_transformers, plugin_uninstall, previous_day, read_asset_data_url, redo_page,
-    reload_workspace, reminder_settings, resolve_embeds, resolve_page_labels, resolve_ref,
+    attach_asset, boot_mark, clear_reminder_snooze, copy_block_markdown, copy_block_ref,
+    copy_markdown, create_block, current_workspace, cut_block, date_title, delete_block,
+    delete_page, deliver_due_reminders, device_activity, drain_capture_inbox, edit_block,
+    export_markdown, format_remind_rule, get_settings, get_telemetry_enabled, get_theme,
+    get_theme_config, import_asset_file, indent_block, instantiate_template_at,
+    journal_days_with_content, known_property_keys, list_action_support, list_all_pages,
+    list_insert_commands, list_open_tasks, list_reminders, list_shortcut_bindings,
+    list_templates_cmd, list_themes, list_trash, mark_block_done, merge_pages, merged_edits,
+    move_block_after, move_block_down, move_block_up, next_day, open_asset, open_external_file,
+    open_journal_for, open_page_by_slug, open_ref, open_today_journal, outdent_block,
+    outl_emoji_search, outl_peer_list, outl_peer_pair_host, outl_peer_pair_join, outl_peer_remove,
+    outl_peer_status, outl_sync_now, page_backlinks, page_timeline, parse_remind_rule,
+    paste_block_after, paste_markdown_at, paste_plain_at, plugin_config_set,
+    plugin_install_official, plugin_keybindings, plugin_list, plugin_registry_list, plugin_run,
+    plugin_secret_remove, plugin_secret_set, plugin_set_enabled, plugin_settings_describe,
+    plugin_sync_hooks, plugin_toolbar, plugin_transform, plugin_transformers, plugin_uninstall,
+    previous_day, read_asset_data_url, redo_page, reload_workspace, reminder_settings, rename_page,
+    resolve_embeds, resolve_insert_command, resolve_page_embeds, resolve_page_labels, resolve_ref,
     restore_trash_entry, run_auto_run_blocks, run_code_block, search_blocks, search_pages,
     search_persons, set_backlinks_order, set_block_collapsed, set_block_property, set_block_remind,
     set_page_property, set_reminder_settings, set_telemetry_enabled, set_workspace, snooze_presets,
     snooze_reminder, split_block, today_slug_cmd, toggle_pin, toggle_quote, toggle_todo,
-    undo_merged_edit, undo_page, update_settings, workspace_stats,
+    undo_merged_edit, undo_page, update_settings, wait_workspace_ready, workspace_stats,
+};
+use crate::deep_link::{
+    deep_link_payload, dispatch_deep_link, take_pending_deep_link, PendingDeepLink,
 };
 use crate::plugin_service::spawn_plugin_service;
 use crate::state::AppState;
 use outl_tauri_shared::workspace_open::WorkspaceGuards;
 
 use crate::workspace_open::{load_or_create_actor, spawn_workspace_opener};
-
-/// A deep link that arrived during cold start, before the frontend
-/// mounted its `deep-link://navigate` listener. The frontend drains it
-/// once on boot via [`take_pending_deep_link`] (issue #98).
-///
-/// Only the **cold-start** path (the launch URL) populates this. The
-/// warm path (`on_open_url` while the app runs) emits the event directly
-/// — the listener is already up — and never touches the buffer, so a
-/// stale target can't replay on the next plain launch.
-struct PendingDeepLink(parking_lot::Mutex<Option<serde_json::Value>>);
-
-/// Frontend command: take (and clear) the deep link buffered during cold
-/// start. Returns `null` when the app launched normally.
-#[tauri::command]
-fn take_pending_deep_link(pending: tauri::State<'_, PendingDeepLink>) -> Option<serde_json::Value> {
-    pending.0.lock().take()
-}
-
-/// Parse an `outl://` URL via the shared `outl_actions` parser into the
-/// `{kind, …}` payload the frontend maps onto its `open*` commands.
-///
-/// A malformed URL (wrong scheme, unknown kind, bad date, traversal
-/// slug) is logged at `warn` and returns `None` — never a crash, never a
-/// stray page (issue #98). The parser is shared with `outl-mobile` so
-/// the two clients can't drift on the scheme contract.
-fn deep_link_payload(raw: &str) -> Option<serde_json::Value> {
-    use outl_actions::DeepLinkTarget;
-
-    match outl_actions::parse_deep_link(raw) {
-        Ok(DeepLinkTarget::Today) => Some(serde_json::json!({ "kind": "today" })),
-        Ok(DeepLinkTarget::Capture) => Some(serde_json::json!({ "kind": "capture" })),
-        Ok(DeepLinkTarget::Daily(date)) => Some(serde_json::json!({
-            "kind": "daily",
-            "date": date.format("%Y-%m-%d").to_string(),
-        })),
-        Ok(DeepLinkTarget::Page(slug)) => Some(serde_json::json!({
-            "kind": "page",
-            "slug": slug,
-        })),
-        Err(err) => {
-            tracing::warn!("deep link ignored ({raw}): {err}");
-            None
-        }
-    }
-}
-
-/// Warm path: an `outl://` URL opened while the app is running. Emit the
-/// navigate event (the frontend listener is up) and focus the window.
-fn dispatch_deep_link(app: &tauri::AppHandle, raw: &str) {
-    let Some(payload) = deep_link_payload(raw) else {
-        return;
-    };
-    if let Err(err) = app.emit("deep-link://navigate", payload) {
-        tracing::warn!("deep link: failed to emit navigate event: {err}");
-    }
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.set_focus();
-    }
-}
 
 /// Repeat Rust's `SIG_IGN` for `SIGPIPE` so a library cannot restore the
 /// default and kill a GUI on the next write to a closed pipe.
@@ -334,6 +284,10 @@ pub fn run() {
             // matching the timezone line above and the TUI.
             let calendar_week_start = global_cfg.calendar.week_start;
 
+            // Repaint the native window from the theme on disk, before
+            // the webview draws. See `window_paint`.
+            window_paint::repaint_windows(app.handle(), &global_cfg.theme);
+
             let workspace: Arc<Mutex<Option<Workspace>>> = Arc::new(Mutex::new(None));
             let storage_root: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(None));
             // Cross-process workspace locks, held for as long as a
@@ -347,6 +301,7 @@ pub fn run() {
                 Arc::new(Mutex::new(None));
             let iroh_pairing: Arc<Mutex<Option<outl_sync_iroh::IrohSyncTransport>>> =
                 Arc::new(Mutex::new(None));
+            let (first_paint, workspace_ready) = workspace_open::start_boot_phase();
 
             if let Some(path) = last_workspace {
                 spawn_workspace_opener(
@@ -360,6 +315,8 @@ pub fn run() {
                     path,
                     hlc.clone(),
                     app.handle().clone(),
+                    first_paint.clone(),
+                    workspace_ready.clone(),
                 );
             }
 
@@ -390,6 +347,8 @@ pub fn run() {
                 history: Mutex::new(std::collections::HashMap::new()),
                 backlink_index: Arc::new(Mutex::new(None)),
                 projection_writer,
+                first_paint,
+                workspace_ready,
                 calendar_week_start,
             });
             app.manage(plugins);
@@ -441,6 +400,8 @@ pub fn run() {
             set_workspace,
             current_workspace,
             workspace_stats,
+            boot_mark,
+            wait_workspace_ready,
             reload_workspace,
             // Settings
             get_settings,
@@ -454,7 +415,9 @@ pub fn run() {
             get_telemetry_enabled,
             set_telemetry_enabled,
             // Theme
+            list_insert_commands,
             list_themes,
+            resolve_insert_command,
             get_theme,
             get_theme_config,
             // Shortcuts
@@ -468,6 +431,8 @@ pub fn run() {
             snooze_presets,
             clear_reminder_snooze,
             set_block_remind,
+            parse_remind_rule,
+            format_remind_rule,
             mark_block_done,
             set_block_property,
             deliver_due_reminders,
@@ -506,6 +471,8 @@ pub fn run() {
             date_title,
             resolve_ref,
             delete_page,
+            rename_page,
+            merge_pages,
             page_backlinks,
             set_backlinks_order,
             resolve_page_labels,
@@ -547,6 +514,7 @@ pub fn run() {
             run_code_block,
             run_auto_run_blocks,
             resolve_embeds,
+            resolve_page_embeds,
             // Peer / device management
             outl_peer_list,
             outl_peer_remove,

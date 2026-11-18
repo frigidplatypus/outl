@@ -124,6 +124,36 @@ agree with the op log.** A bare `apply_page_md_with_sidecar_guarded` is
 only correct when you can say which of the other four steps you are
 skipping and why — put that reason in a comment next to the call.
 
+### It times itself, because this is the path a keystroke waits on
+
+Every phase is measured and logged: `debug!("commit_page phases")` with
+`total_us` plus one field per step, and a `warn!` past
+`SLOW_COMMIT_US` (50ms) naming the same breakdown.
+
+`outl_core::boot_timing` covers the launch and nothing covered the edits
+after it — which is most of a session.
+"Creating a block feels slow" had no answer but a guess, on a path that
+touches five subsystems (a render for undo, the CRDT, an fsync, a peer
+announce and a projection), and the one that is slow is not knowable
+from the outside.
+
+Three decisions in it:
+
+- **`debug!`, not `info!`.** One line per keystroke at info level is a log
+  nobody reads; the GUI clients' default filter leaves this crate at
+  info, so collecting them means asking (`RUST_LOG=outl_actions=debug`).
+- **The slow line is a `warn!` and not a metric.** It fires on the
+  machine where it happened and says *which phase*, which is what a
+  maintainer reading a "it got slow" report needs first.
+  50ms is the budget a keystroke-to-paint window leaves for the whole
+  commit, the IPC hop and the render being the rest.
+- **Two `Instant` reads per phase is the whole cost**, and it is paid
+  whatever the log level, deliberately: a measurement behind a feature
+  flag is one nobody has when they need it.
+  Root [`CLAUDE.md`](../../CLAUDE.md#critical-invariants-never-violate)
+  invariant 15 is the rule this serves; [`docs/performance.md`](../../docs/performance.md)
+  is how to read it.
+
 ## The `tree → .md` executor
 
 `journal::survey_page_projections` is the **single owner** of "where does this page's `.md` stand relative to the op log", and `journal::reproject_stale_pages` is the executor built on it.
@@ -200,6 +230,23 @@ Its module doc owns the rest; three rules from it:
 - **A surface that re-lists after a failed restore leaves the mutation's error bare; a one-shot surface words it.** Both GUI clients refetch on purpose, so the way out reaches the row the sentence is about; `outl trash restore` has no listing to come back to.
 
 `TrashParentTrashed` is deliberately absent: "restore the ancestor first" works on every surface, since that ancestor is its own row in the same listing.
+
+## Text-inserting slash commands (`insert`)
+
+`insert.rs` is the catalog behind `/date-today`, `/time-now` and `/week-num`: nineteen entries, each a name, aliases, a description and the string it produces.
+`resolve` takes `now` rather than reading `clock` itself, so every case is testable against a fixed instant.
+
+It is here because it was in `outl-tui`, in nineteen `SlashCommand` structs, which made the terminal the owner of *what `/date-today` inserts*.
+A desktop user typing it got nothing, and the obvious repair was to write the nineteen strings again in TypeScript.
+Same shape as `outl_shortcuts::command_name`, one layer over: that one owns the **names**, this one owns the **text**.
+
+Three rules:
+
+- **A client renders the list and splices the answer.** It holds no date format of its own, and the `/date` usage line is the catalog's too, so a terminal and a webview refuse an unreadable argument in the same words.
+- **`needs_args` is a real filter, not a hint.** Only `/date` takes one, and a client whose `/` trigger closes on the first space (the desktop's) leaves it out rather than offering a command that can only fail.
+- **Aliases are part of the catalog.** The TUI's `:` palette has always taken `:dt` for `:date-today`; dropping them on the way through a shared catalog would be a silent regression in the client that had the feature.
+
+Surfaces: the TUI's `builtins/dates.rs` (wiring onto an `EditBuffer`), and `outl_tauri_shared::commands::insert` for both GUI clients.
 
 ## The capture inbox
 
@@ -303,6 +350,32 @@ It refuses a page that already has a title, and reports a slug two spellings cla
 
 `descendants` returns rows with `depth` and `label` already computed, so the TUI's `view/namespace.rs` and the desktop / mobile `<NestedPages />` render the same list without three copies of the split rule.
 Per-client coverage is recorded as `Capability::NestedPages` (the TUI lists them but has no cursor in the list).
+
+## Merging and renaming pages
+
+Single owners, [RFC 0557](../../docs/rfcs/0557-page-merge-and-rename.md):
+
+- `link_rewrite::rewrite_mentions` owns "what is a mention of page X, and how is it respelled".
+- `alias_conflicts::PageClaims::shadowed_by` owns "is this alias taken by another live page", for the backlink index and for `alias_conflicts`.
+- `merge_pages` and `rename_page` (`rename_or_merge` for the collision) own the actions, and neither projects.
+
+The caller runs `commit_page` over each of `touched_pages`, then removes the stale projection (`MergeReport::source`, `RenameReport::stale_projection`).
+The merge source is trashed, never left as a stub page: its slug and title become aliases of the target.
+A second page-name matcher, in any crate or client, is the thing to refuse in review.
+
+### `![[page]]` is a page reference ([#190](https://github.com/outlmd/outl/issues/190))
+
+Rendering expanded is the only way the page embed differs from `[[page]]`.
+It resolves a page by the same ladder, so it is a mention in both owners: `mentions::collect` pushes it to `refs` (a backlink), and `rewrite_mentions` respells it `![[old]]` → `![[new]]`.
+Both `match`es over `InlineTok` are exhaustive, which is what forced that verdict to be made; **do not add a `_ =>` arm to either**.
+
+Two details that corrupt text rather than failing loudly, both reasoned out where they live:
+the opener is **three** bytes, so `link_rewrite::RefForm` owns that width and the `!` the replacement carries back;
+and the replacement is round-tripped *in the form it will be written*, because `![[photo.png]]` is the image-embed spelling and `try_page_embed` refuses it.
+
+The same translation closed two separate gaps on the way in from a foreign graph.
+`outl-import` emitted a `[[Page]]` link plus a warning (now `ImportReport::embeds_page`, not a `*_fallback`);
+`paste::normalize::rewrite_embed` **deleted** the token, page name included, because nothing claimed it before the generic `{{…}}` strip.
 
 ## Opening an external file (`open_with`)
 

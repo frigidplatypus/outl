@@ -54,6 +54,7 @@ If a row below disagrees with what you observe in the app, **the code is right a
 | Quick switcher (fuzzy pages + journals) | `Ctrl+P` | `Cmd/Ctrl+P` _(pages, then blocks, then matching actions; type `>` for actions only)_ | tap toolbar |
 | Open today's **j**ournal | `t` / `g j` (chord) | `Cmd/Ctrl+J` | toolbar |
 | Cycle task state on focused or selected block — `(none) → TODO → DOING → DONE → (none)`, one stop per press (T for **t**ask) | `Ctrl+T` / `Ctrl+Enter` | `Cmd/Ctrl+T` / `Cmd/Ctrl+Enter` | tap checkbox |
+| Mark the focused or selected block **DONE** outright from any state, idempotent when already done (D for **d**one). TUI on a query-result embed row (`!((blk-…))`): resolves the handle and completes the *source* block; desktop refuses the row with a pointer to the source | `g D` (chord) | `g D` (Normal) | _(no chord — tap the checkbox through to DONE)_ |
 | Run code block under cursor / selected block (X for e**x**ecute). TUI: when the block isn't code, `g x` instead opens the markdown link `[text](url)` under the cursor — an asset link in the OS default app, anything else in the browser (issue #183) | `g x` chord / `:run` | `Cmd/Ctrl+Shift+X` (inside a textarea the Insert-mode strikethrough wins — commit first or use the Run button; plain `Cmd+X` is the OS cut / block cut) | tap "Run" button |
 | Previous journal day | `[` | `Cmd/Ctrl+[` | swipe right |
 | Next journal day | `]` | `Cmd/Ctrl+]` | swipe left |
@@ -68,6 +69,8 @@ If a row below disagrees with what you observe in the app, **the code is right a
 | Quit | `q q` (chord) / `Z Z` (vim alias) / `Ctrl+C` | `Cmd/Ctrl+Q` (OS) | — |
 
 > **Why `Cmd+J` and not `Cmd+T` for today's journal?** Every outliner ecosystem uses `T` for *task* / TODO — TUI's `Ctrl+T`, Logseq's `Cmd+T`, the universal Markdown checkbox shortcut. Re-training that muscle memory would be hostile. `J` for **journal** is unambiguous and lines up with the TUI's `g j` chord.
+
+> **`Ctrl+T` on a query-result row (TUI).** A [query](query.md) result is a block whose whole text is one `!((blk-…))` embed. Cycling it acts on the *source* block — never prefixing the token, which would destroy the reference — then re-runs the page's query so the list updates on the spot.
 
 **Defaults the user often asks about.**
 Both clients ship with **sidebar and backlinks panel HIDDEN** (`show_sidebar: false`, `show_backlinks: false`).
@@ -153,7 +156,7 @@ The TUI is vim-style by definition.
 | Yank block ref → clipboard (chord) | `y r` | — _(chord is in the catalog, no handler — [#parity](client-parity.md))_ | long-press → "Copy block ref" |
 | Enter Visual | `V` _(the catalog spells this `v`; the TUI binds `V` only — [known divergence](../crates/outl-shortcuts/tests/tui_catalog_divergence.rs))_ | `v` | — |
 | Open command palette | `:` | `:` / `Cmd/Ctrl+K` _(the quick switcher opened on `>`: actions with their chords)_ | — |
-| Open slash menu | `/` | `/` | `/` |
+| Open slash menu | `/` _(overlay)_ | — _(the desktop's slash menu is inline, inside a block — see Insert mode below)_ | — _([#parity](client-parity.md): `SlashCommandMenu`)_ |
 
 > **About `a` / `*` / `#` on the desktop.** The desktop's Normal mode has only a selected block id — no character cursor inside the block. So `a` collapses to `i` (the textarea's own caret takes over), and `*` / `#` seed the picker with the first few words of the selected block's text instead of doing a word-under-cursor search. The catalog still ships these chords so muscle memory from the TUI carries over.
 
@@ -203,7 +206,7 @@ The TUI ships it natively; the desktop has only a selected block id, so the char
 | Ref autocomplete | `[[` triggers picker | `[[` triggers picker | `[[` triggers picker |
 | Tag autocomplete | `#` triggers picker | `#` triggers picker | `#` triggers chip strip |
 | Block ref autocomplete | `((` triggers picker | `((` triggers picker | — |
-| Slash command autocomplete | `/` | `/` | — |
+| Slash command autocomplete | `/` _(word-initial)_ | `/` _(word-initial)_ | — _([#parity](client-parity.md): `SlashCommandMenu`)_ |
 | Cycle task state on current (`TODO` → `DOING` → `DONE` → none) | `Ctrl+T` / `Ctrl+Enter` | `Cmd/Ctrl+T` / `Cmd/Ctrl+Enter` | tap checkbox / long-press menu |
 | Cut / copy / paste **text** (native) | — | `Cmd/Ctrl+X` / `Cmd/Ctrl+C` / `Cmd/Ctrl+V` | native |
 | Run code block | `g x` chord | _(commit with `Esc`, then `Cmd/Ctrl+Shift+X`)_ | tap "Run" |

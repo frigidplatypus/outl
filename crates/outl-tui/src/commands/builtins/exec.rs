@@ -5,6 +5,7 @@
 //! `outl-exec`, or hot-swapping the palette.
 
 use anyhow::Result;
+use outl_shortcuts::{command_name, Action};
 
 use super::super::SlashCommand;
 use crate::state::App;
@@ -38,7 +39,7 @@ impl SlashCommand for SearchCommand {
 pub struct RunCommand;
 impl SlashCommand for RunCommand {
     fn name(&self) -> &'static str {
-        "run"
+        command_name(Action::RunCodeBlock)
     }
     fn description(&self) -> &'static str {
         "Run the code block under the cursor through outl-exec"
@@ -73,7 +74,7 @@ impl SlashCommand for ThemeCommand {
             return Ok(false);
         }
         if let Some(t) = theme::by_name(args) {
-            let name = t.name;
+            let name = t.name.clone();
             app.theme = t;
             app.status = format!("theme: {name}");
         } else {

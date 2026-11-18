@@ -241,6 +241,8 @@ export type Action =
   | { kind: "OpenSettings" }
   | { kind: "Quit" }
   | { kind: "OpenToday" }
+  | { kind: "OpenYesterday" }
+  | { kind: "OpenTomorrow" }
   | { kind: "PrevDay" }
   | { kind: "NextDay" }
   | { kind: "SelectionDown" }
@@ -281,6 +283,7 @@ export type Action =
   | { kind: "DeletePage" }
   | { kind: "ToggleCollapsed" }
   | { kind: "ToggleTodo" }
+  | { kind: "MarkDone" }
   | { kind: "CopyBlockRef" }
   | { kind: "CutBlock" }
   | { kind: "CopyBlock" }
@@ -338,6 +341,15 @@ export interface SupportDto {
 /** Per-client support for one action in the catalog. */
 export interface ActionSupport {
   action: Action;
+  /**
+   * What the user types to reach this action in the `/` menu.
+   *
+   * Comes from `outl_shortcuts::command_name`, never derived here:
+   * this client used to kebab-case the variant locally, which is how
+   * `/today` became `/open-today` on the desktop while the TUI kept
+   * calling it `today`.
+   */
+  command: string;
   tui: SupportDto;
   desktop: SupportDto;
   mobile: SupportDto;

@@ -213,6 +213,18 @@ macro_rules! exec_commands {
                     String,
                 >
                 => $crate::commands::exec::resolve_embeds;
+
+            /// Resolve `![[page]]` names to the target page's title and
+            /// top-level blocks.
+            async fn resolve_page_embeds(names: Vec<String>)
+                -> ::std::result::Result<
+                    ::std::collections::HashMap<
+                        String,
+                        $crate::commands::exec::PageEmbedContent,
+                    >,
+                    String,
+                >
+                => $crate::commands::exec::resolve_page_embeds;
         }
     };
 }
@@ -365,9 +377,14 @@ macro_rules! peer_commands {
             async fn outl_peer_remove(id: String) -> ::std::result::Result<bool, String>
                 => $crate::commands::peers::peer_remove;
 
-            /// Live reachability probe for every known peer. Polled every
-            /// 5s and reads the whole op log — never synchronous.
-            async fn outl_peer_status()
+            /// Live reachability for every known peer.
+            ///
+            /// `with_pending` asks for the `pending_ops` column too, which
+            /// is the only part that reads the op log. Reachability is an
+            /// in-memory snapshot of the transport's own dials, so a
+            /// status poll that leaves it `false` costs nothing. Never
+            /// synchronous either way.
+            async fn outl_peer_status(with_pending: bool)
                 -> ::std::result::Result<
                     ::std::vec::Vec<$crate::commands::peers::PeerStatusDto>,
                     String,
@@ -392,79 +409,6 @@ macro_rules! property_commands {
                     String,
                 >
                 => $crate::commands::property::known_property_keys;
-        }
-    };
-}
-
-/// `remind::` rules, snoozing, settings, and the property writers that
-/// grew out of them.
-///
-/// `deliver_due_reminders` is **not** here: it emits an OS notification
-/// through the client's `AppHandle`.
-#[macro_export]
-macro_rules! reminder_commands {
-    ($state:ty) => {
-        $crate::tauri_commands! {
-            state = $state;
-
-            /// Every block carrying a `remind::` rule, with its next fire.
-            fn list_reminders()
-                -> ::std::result::Result<
-                    ::std::vec::Vec<$crate::commands::reminders::ReminderDto>,
-                    String,
-                >
-                => $crate::commands::reminders::list_reminders;
-
-            /// Current reminder settings from `config.toml`.
-            fn reminder_settings() -> $crate::commands::reminders::ReminderSettingsDto
-                => plain $crate::commands::reminders::reminder_settings;
-
-            /// Write the two user-facing reminder settings back.
-            fn set_reminder_settings(enabled: bool, quiet_hours: String)
-                -> ::std::result::Result<
-                    $crate::commands::reminders::ReminderSettingsDto,
-                    String,
-                >
-                => plain $crate::commands::reminders::set_reminder_settings;
-
-            /// Snooze options in render order.
-            fn snooze_presets()
-                -> ::std::vec::Vec<$crate::commands::reminders::SnoozePresetDto>
-                => plain $crate::commands::reminders::snooze_presets;
-
-            /// Snooze a block's reminder by a preset id.
-            fn snooze_reminder(block_id: String, preset: String)
-                -> ::std::result::Result<(), String>
-                => $crate::commands::reminders::snooze_reminder;
-
-            /// Clear a snooze so the rule resumes its normal schedule.
-            fn clear_reminder_snooze(block_id: String)
-                -> ::std::result::Result<(), String>
-                => $crate::commands::reminders::clear_reminder_snooze;
-
-            /// Set (or clear, with an empty value) any property on a block.
-            fn set_block_property(
-                page_id: String,
-                block_id: String,
-                key: String,
-                value: String,
-            ) -> ::std::result::Result<$crate::state::PageView, String>
-                => $crate::commands::reminders::set_block_property;
-
-            /// Set (or clear) a property on the page itself.
-            fn set_page_property(page_id: String, key: String, value: String)
-                -> ::std::result::Result<$crate::state::PageView, String>
-                => $crate::commands::reminders::set_page_property;
-
-            /// Mark a block DONE, cancelling every pending fire.
-            fn mark_block_done(page_id: String, block_id: String)
-                -> ::std::result::Result<$crate::state::PageView, String>
-                => $crate::commands::reminders::mark_block_done;
-
-            /// Set (or clear) a block's `remind::` rule.
-            fn set_block_remind(page_id: String, block_id: String, rule: String)
-                -> ::std::result::Result<$crate::state::PageView, String>
-                => $crate::commands::reminders::set_block_remind;
         }
     };
 }

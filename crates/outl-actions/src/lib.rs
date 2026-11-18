@@ -50,6 +50,7 @@
 #![warn(missing_docs)]
 
 pub mod activity;
+pub mod alias_conflicts;
 pub mod asset;
 pub mod backlinks;
 pub mod backlinks_index;
@@ -70,14 +71,18 @@ pub mod exec;
 pub mod export_md;
 pub mod history;
 pub mod index;
+pub mod insert;
 pub mod journal;
+pub mod link_rewrite;
 pub mod mentions;
+pub mod merge_pages;
 pub mod merges;
 pub mod namespace;
 pub mod open_with;
 pub mod outline;
 pub mod page;
 pub mod page_merge;
+pub mod page_rename;
 pub mod page_repair_namespaces;
 pub mod page_repair_titles;
 mod page_revive;
@@ -100,6 +105,7 @@ pub mod trash;
 pub mod tree;
 
 pub use activity::{device_activity, ActorActivity, DeviceActivity};
+pub use alias_conflicts::{alias_conflicts, AliasConflict, ConflictingPage};
 pub use asset::{assets_dir, import_asset, import_asset_bytes, resolve_asset_path, ImportedAsset};
 pub use backlinks::{
     backlinks_for_page, backlinks_for_target, extract_refs, Backlink, BacklinkCrumb,
@@ -110,9 +116,9 @@ pub use backlinks_index::{
 pub use backlinks_sort::sort_backlinks;
 pub use block::{
     append_block, append_forest, append_tree, create_after, create_after_or_append, create_before,
-    create_before_or_append, create_under, delete, edit_text, indent, move_after, move_down,
-    move_under, move_up, outdent, split_block, toggle_quote, toggle_todo, BlockTreeOutcome,
-    BlockTreeSpec,
+    create_before_or_append, create_under, delete, edit_text, indent, mark_done, move_after,
+    move_down, move_under, move_up, outdent, split_block, toggle_quote, toggle_todo,
+    BlockTreeOutcome, BlockTreeSpec,
 };
 pub use clipboard::{copy_markdown, copy_markdown_nodes};
 pub use collapsed::{set_block_collapsed, toggle_block_collapsed};
@@ -136,12 +142,14 @@ pub use journal::{
     reproject_stale_md, sidecar_can_answer, sidecar_can_vouch_for, write_md_atomic,
     ProjectionFailure, ProjectionRefusal, ProjectionSweep,
 };
+pub use merge_pages::{merge_pages, MergeReport, PropertyConflict};
 pub use namespace::{descendants as namespace_descendants, NamespaceChild};
 pub use outl_md::parse::{ParseWarning, ParseWarningKind};
 pub use outline::{
     flat_index_for_block, flatten_subtree_paths, project_outline, project_outline_node,
-    project_parsed_subtree, read_page_outline, read_page_outline_with_workspace, read_page_view,
-    read_page_view_with_workspace, OutlineNode, PageOutline,
+    project_parsed_subtree, read_page_outline, read_page_outline_readonly,
+    read_page_outline_with_workspace, read_page_view, read_page_view_with_workspace, OutlineNode,
+    PageOutline,
 };
 pub use page::{
     delete as delete_page, find_by_slug, is_valid_slug, list_all as list_pages,
@@ -149,6 +157,7 @@ pub use page::{
     open_or_create as open_or_create_page, open_today, page_meta, read_text_prop, set_property,
     today, PageKind, PageMeta,
 };
+pub use page_rename::{rename_or_merge, rename_page, OnExisting, RenameOutcome, RenameReport};
 pub use page_repair_namespaces::{repair_namespaced_titles, NamespaceTitleRepair};
 pub use page_repair_titles::repair_doubled_journal_titles;
 pub use paste::{
@@ -171,7 +180,9 @@ pub use template::{
     TemplateEntry, FROM_TEMPLATE_KEY, JOURNAL_TEMPLATE_NAME, PARAMS_KEY, TEMPLATE_KEY,
 };
 pub use timeline::{block_timeline, page_timeline, Change, PageTimeline, TimelineEvent};
-pub use todo::{cycle_todo, split_todo, TodoState, DOING_PREFIX, DONE_PREFIX, TODO_PREFIX};
+pub use todo::{
+    cycle_todo, set_todo, split_todo, TodoState, DOING_PREFIX, DONE_PREFIX, TODO_PREFIX,
+};
 pub use tree::{
     children_of, enclosing_page_id, is_trashed, page_slug_of, position_after,
     position_for_new_last_child, walk_subtree,

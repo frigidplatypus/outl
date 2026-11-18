@@ -18,9 +18,11 @@
 
 pub(crate) mod asset;
 pub(crate) mod block;
+pub(crate) mod boot;
 pub(crate) mod capture;
 pub(crate) mod exec;
 pub(crate) mod history;
+pub(crate) mod insert;
 pub(crate) mod open_with;
 pub(crate) mod overview;
 pub(crate) mod page;
@@ -38,9 +40,11 @@ pub(crate) mod workspace;
 
 pub(crate) use asset::*;
 pub(crate) use block::*;
+pub(crate) use boot::*;
 pub(crate) use capture::*;
 pub(crate) use exec::*;
 pub(crate) use history::*;
+pub(crate) use insert::*;
 pub(crate) use open_with::*;
 pub(crate) use overview::*;
 pub(crate) use page::*;

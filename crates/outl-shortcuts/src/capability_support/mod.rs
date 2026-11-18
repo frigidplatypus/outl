@@ -78,6 +78,27 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
             mobile: Full,
         },
 
+        // Desktop and mobile both call `rename_page` (sidebar row
+        // action and page header on the desktop, the page switcher's
+        // long-press sheet on mobile). The TUI has no rename surface;
+        // the terminal route is `outl page rename`, which is also how
+        // a terminal user renames onto a taken name (`--merge`).
+        Capability::PageRename => ClientSupport {
+            tui: Missing(why::NO_TUI_PAGE_RENAME),
+            desktop: Full,
+            mobile: Full,
+        },
+
+        // Same two GUI surfaces as `PageRename`, started from the
+        // merge side (a target picker and a mandatory confirm). The
+        // TUI's `/merge <page>` (`commands::builtins::MergeCommand`,
+        // confirmed with y/n) runs the same `merge_pages`.
+        Capability::PageMerge => ClientSupport {
+            tui: Full,
+            desktop: Full,
+            mobile: Full,
+        },
+
         // Desktop `PluginMarketplace.tsx` and mobile `PluginSheet.tsx`
         // ("Browse" tab) both fetch the official registry and install
         // from it. The TUI's plugin settings overlay only configures
@@ -267,6 +288,23 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
             desktop: Full,
             mobile: Full,
         },
+        // The TUI's Insert-mode `/` (`detect_trigger` →
+        // `candidates_for_slash`) and the desktop's inline popup
+        // (`block-suggest.ts`) both answer the key: word-initial `/`,
+        // this client's own commands plus every plugin's, filtered as
+        // you type. Mobile has the *commands* — `PluginSheet`'s
+        // Commands tab, `TemplateSheet` — and no `/` in the editor, so
+        // the verdict is about the trigger, not about reach.
+        //
+        // `Missing`, not `NotApplicable`: a soft keyboard types `/`
+        // perfectly well, so this is a surface nobody built rather
+        // than a question the input device makes meaningless (the
+        // distinction `NO_SOFT_KEYBOARD_BAR` draws).
+        Capability::SlashCommandMenu => ClientSupport {
+            tui: Full,
+            desktop: Full,
+            mobile: Missing(why::NO_SLASH_MENU_ON_THE_PHONE),
+        },
         Capability::ToolbarOrderLock => ClientSupport {
             tui: NotApplicable(why::NO_SOFT_KEYBOARD_BAR),
             desktop: NotApplicable(why::NO_SOFT_KEYBOARD_BAR),
@@ -308,6 +346,47 @@ pub fn capability_support(cap: Capability) -> ClientSupport {
         // and a pull is not a disclosure.
         Capability::CrashReportingDisclosure => ClientSupport {
             tui: Missing(why::NO_PROACTIVE_NOTICE_IN_THE_TERMINAL),
+            desktop: Full,
+            mobile: Full,
+        },
+        // Desktop: the About window (`src-tauri/src/about.rs`, opened
+        // from the app menu) carries the running version, and the Help
+        // menu carries the three links, both built from one table so
+        // they cannot name the same destination differently.
+        //
+        // The TUI's reach is real and worth naming: it runs in a
+        // terminal, so the build number is one command away even
+        // though the TUI itself has no screen for it. Mobile has
+        // neither, which is why its sentence points at a browser
+        // instead of a command — there is no `outl` binary on a phone.
+        Capability::AboutAndSupport => ClientSupport {
+            tui: Missing(
+                "The terminal has no About screen. Run `outl --version` for the build you are \
+                 running, and the project, its issue tracker and its sponsor page are at \
+                 github.com/outlmd/outl.",
+            ),
+            desktop: Full,
+            mobile: Missing(
+                "The phone app doesn't show its version or link out yet. Check the build in \
+                 the App Store or TestFlight, and open github.com/outlmd/outl in a browser to \
+                 report something or support the project.",
+            ),
+        },
+        // All three expand `![[page]]`, with the four-level depth cap
+        // and the read-only projection they already share for
+        // `!((blk-…))`. The GUI clients resolve a name to the target
+        // page's blocks over `resolve_page_embeds`; the TUI resolves it
+        // against the workspace it already holds open.
+        //
+        // `Full` everywhere is why this row is easy to skip and
+        // exactly why it belongs here: the token is parsed in
+        // `outl-md`, so every client inherits *reading* `![[page]]`
+        // for free and nothing at all makes one render it. The
+        // difference would have shown up only on the page doing the
+        // embedding, as a line that reads like a link and was meant to
+        // be a page. Issue #190.
+        Capability::PageEmbed => ClientSupport {
+            tui: Full,
             desktop: Full,
             mobile: Full,
         },
@@ -364,7 +443,7 @@ mod tests {
                 let _ = s.get(client);
             }
         }
-        assert_eq!(Capability::ALL.len(), 19, "Capability::ALL changed size");
+        assert_eq!(Capability::ALL.len(), 24, "Capability::ALL changed size");
     }
 
     #[test]

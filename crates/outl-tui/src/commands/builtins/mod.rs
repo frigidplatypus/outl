@@ -4,7 +4,7 @@
 //! trait from the parent `commands` module. They're grouped into
 //! sibling modules by concern so this file stays a glance-able index:
 //!
-//! - `page` — block / page property mutations, including `pin`
+//! - `page`: block / page property mutations, including `pin`, and `merge`
 //! - `workspace` — navigation, save, reload, help, quit, open
 //! - `exec` — search overlay, code-block runner, theme swap
 //! - `dates` — date / time / ISO / week-tag inserters
@@ -35,15 +35,9 @@ mod workspace;
 use super::CommandRegistry;
 
 use asset::UploadCommand;
-use dates::{
-    DateCommand, DateLastWeekCommand, DateNextFridayCommand, DateNextMondayCommand,
-    DateNextSaturdayCommand, DateNextSundayCommand, DateNextThursdayCommand,
-    DateNextTuesdayCommand, DateNextWednesdayCommand, DateNextWeekCommand, DateTimeNowCommand,
-    DateTodayCommand, DateTomorrowCommand, DateYesterdayCommand, IsoDateTodayCommand,
-    IsoDateTomorrowCommand, IsoDateYesterdayCommand, TimeNowCommand, WeekNumCommand,
-};
+use dates::all as date_commands;
 use exec::{RunCommand, SearchCommand, ThemeCommand};
-use page::{PinCommand, PropBlockCommand, PropPageCommand};
+use page::{MergeCommand, PinCommand, PropBlockCommand, PropPageCommand};
 use refer::{ReferCommand, ReferEmbedCommand};
 use template::TemplateCommand;
 use workspace::{
@@ -53,10 +47,11 @@ use workspace::{
 
 /// Hook for `super::CommandRegistry::with_builtins`.
 pub(super) fn register_all(reg: &mut CommandRegistry) {
-    // page — properties and the pinned toggle
+    // page: properties, the pinned toggle and merge
     reg.register(PropBlockCommand);
     reg.register(PropPageCommand);
     reg.register(PinCommand);
+    reg.register(MergeCommand);
 
     // workspace — chrome verbs
     reg.register(TodayCommand);
@@ -84,26 +79,12 @@ pub(super) fn register_all(reg: &mut CommandRegistry) {
     // asset — upload a file and insert its link
     reg.register(UploadCommand);
 
-    // dates — Insert-mode inserters. The slash dispatcher uses
-    // `inserts_inline()` (set true in each command) to skip
+    // dates — Insert-mode inserters, one per `outl_actions::insert`
+    // entry. The catalog owns the names and the text they produce, so
+    // every client answers `/date-today` with the same string; the
+    // slash dispatcher reads `inserts_inline()` to skip
     // `commit_insert()` and write straight into the live buffer.
-    reg.register(DateTodayCommand);
-    reg.register(DateTomorrowCommand);
-    reg.register(DateYesterdayCommand);
-    reg.register(DateNextWeekCommand);
-    reg.register(DateLastWeekCommand);
-    reg.register(DateNextMondayCommand);
-    reg.register(DateNextTuesdayCommand);
-    reg.register(DateNextWednesdayCommand);
-    reg.register(DateNextThursdayCommand);
-    reg.register(DateNextFridayCommand);
-    reg.register(DateNextSaturdayCommand);
-    reg.register(DateNextSundayCommand);
-    reg.register(DateCommand);
-    reg.register(IsoDateTodayCommand);
-    reg.register(IsoDateTomorrowCommand);
-    reg.register(IsoDateYesterdayCommand);
-    reg.register(TimeNowCommand);
-    reg.register(DateTimeNowCommand);
-    reg.register(WeekNumCommand);
+    for command in date_commands() {
+        reg.register(command);
+    }
 }

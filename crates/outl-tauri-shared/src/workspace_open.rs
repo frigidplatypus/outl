@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 
 use outl_actions::backup::BackupRoot;
 use outl_actions::{migrate_legacy_into_today, open_today};
+use outl_core::boot_timing::BootTimer;
 use outl_core::device::DeviceStore;
 use outl_core::hlc::HlcGenerator;
 use outl_core::id::ActorId;
@@ -264,6 +265,10 @@ pub fn open_workspace_at(
     }
 
     backup_root.set(Some(path.to_path_buf()));
+    // The open just read the whole log, so the first poll after it has
+    // nothing to pick up. Without this the very first reload is a full
+    // rebuild of what boot already built (`ops_watermark`).
+    crate::ops_watermark::note_current(&path.join("ops"), actor);
     Ok(workspace)
 }
 
@@ -276,9 +281,16 @@ fn boot(
     path: &Path,
     lru_cap: usize,
 ) -> anyhow::Result<Workspace> {
+    // The open reports its own breakdown; see `boot_timing`. The phase
+    // names below are what a launch is actually spent on, and the two
+    // that dominate on a large workspace are the first two.
+    let mut timer = BootTimer::start();
+
     let storage = JsonlStorage::open(path.join("ops"), actor)?;
+    timer.phase("index");
     let mut workspace =
         Workspace::open_with_storage(actor, Box::new(storage), Some(path.to_path_buf()))?;
+    timer.phase("replay");
 
     // Register per-page shards + reboot BEFORE running boot helpers so
     // the materialized tree is complete (migrated workspaces have an
@@ -292,6 +304,7 @@ fn boot(
     if workspace.has_page_storages() {
         workspace.reboot_with_all_storages()?;
     }
+    timer.phase("shards");
 
     // Raise the generator above everything the log already holds, before
     // the boot helpers below emit their first op (see
@@ -306,10 +319,12 @@ fn boot(
     // storage read failing here says the boot that just succeeded cannot
     // be re-read a statement later.
     workspace.seed_clock(hlc)?;
+    timer.phase("seed_clock");
 
     if let Err(e) = migrate_legacy_into_today(&mut workspace, hlc) {
         warn!("legacy migration: {e}");
     }
+    timer.phase("migrate_legacy");
     // Repair split-brain page/journal roots (two roots sharing one slug, e.g. a
     // sidecar-less `.md` reconciled to a fresh id before the deterministic-id
     // fix). Merges every duplicate's children under the canonical root and
@@ -320,9 +335,11 @@ fn boot(
         Ok(n) => warn!("merged {n} duplicate slug root(s) on boot"),
         Err(e) => warn!("duplicate-slug-root repair: {e}"),
     }
+    timer.phase("merge_dupe_roots");
     if let Err(e) = open_today(&mut workspace, hlc) {
         warn!("could not pre-open today: {e}");
     }
+    timer.phase("open_today");
 
     // Shed cold history AFTER boot + helpers finish. Boot needs every
     // op in RAM to rebuild Yrs `Doc`s; afterwards cold ops come back
@@ -336,36 +353,83 @@ fn boot(
     let snap_cfg = outl_config::load().snapshot;
     workspace.set_snapshot_policy(snap_cfg.enabled, snap_cfg.op_threshold);
 
-    // Write-through snapshot after a cold full replay.
+    // **No snapshot write here.** It used to happen on this line, and the
+    // reasoning for writing one is unchanged and still correct:
     //
     // A receive-only device (mobile paired to a desktop) gets its ops from
     // sync ingest, which writes `ops-*.jsonl` straight to disk — never
     // through `Workspace::apply` — so the background snapshot writer (which
     // only fires from `apply` crossing the threshold) never runs. Every boot
     // then full-replays the entire log (200k+ ops → tens of seconds on a
-    // phone), and the post-`workspace-ready` reload replays it AGAIN.
-    // Persist one snapshot here, after the first replay that found none on
-    // disk, so the next boot and that reload are O(delta). Best-effort; a
-    // stale/corrupt snapshot is always safe — boot silently falls back to a
-    // full replay — so this can never corrupt state, only save work.
-    // Re-persist a fresh snapshot whenever this boot FULL-REPLAYED (snapshot
-    // absent, stale, or rejected by the convergence guard). A stale snapshot
-    // the guard keeps rejecting would otherwise full-replay on every open, and
-    // the resident 200k-op log is fine to render now (block_text is index-
-    // driven) — but the NEXT boot should adopt a snapshot instead of replaying.
-    // `save_snapshot` is O(log) now (the block-text index makes
-    // `force_materialize_pending` cheap), not the old O(blocks × log), so this
-    // is safe to do after a full replay.
-    if snap_cfg.enabled
-        && !workspace.booted_from_snapshot()
-        && workspace.log().len() as u32 >= snap_cfg.op_threshold
-    {
-        if let Err(e) = workspace.save_snapshot() {
-            warn!("boot: could not persist snapshot: {e}");
-        }
-    }
-
+    // phone), and the post-`workspace-ready` reload replays it AGAIN. One
+    // snapshot after that replay makes the next boot and that reload
+    // O(delta). `Workspace::snapshot_refresh_due` owns *whether* one is
+    // owed, on both arms (after a full replay, and after adopting one whose
+    // delta outgrew the threshold).
+    //
+    // What changed is **when**. `save_snapshot` is synchronous: a multi-MB
+    // postcard encode plus an `F_FULLFSYNC`, measured at 306 ms of a cold
+    // open on a 10k-page workspace — and it sat *in front of* the publish,
+    // so the user waited out a write that only the next launch reads.
+    // Nothing on screen depends on it, so nothing on screen waits for it:
+    // [`snapshot_after_first_paint`] runs it once the workspace is published
+    // and the client has reported a painted frame. The decision is still
+    // asked at that point, not cached here, because the delta can grow
+    // between the two (sync ingest lands ops without `apply`).
+    timer.finish(&format!(
+        "adopted={} delta_ops={} blocks_resident={} snapshot_deferred={}",
+        workspace.booted_from_snapshot(),
+        workspace.log().len(),
+        workspace.resident_text_count(),
+        workspace.snapshot_refresh_due(),
+    ));
     Ok(workspace)
+}
+
+/// Re-persist the snapshot once the first frame is on screen, if one is
+/// owed. Called by both GUI openers **after** publishing the workspace and
+/// emitting `workspace-ready`.
+///
+/// Three properties, each of which was the alternative:
+///
+/// - **It settles first, then asks under the lock, and writes off-thread.**
+///   `Workspace::refresh_snapshot_in_background` builds the body on this
+///   thread (it reads the tree) and hands the encode + fsync + rename to a
+///   worker. The build still needs the mutex, so it waits out the launch
+///   window rather than contending with the user's first keystrokes —
+///   see the sleep's own comment.
+/// - **It asks late, rather than carrying a verdict from `boot`.**
+///   Sync ingest appends to `ops-*.jsonl` without going through
+///   `Workspace::apply`, so the delta `snapshot_refresh_due` measures can
+///   grow between the open and the first paint. A boolean captured at boot
+///   would answer about a log that has since moved.
+/// - **A missing workspace is not an error.**
+///   The slot is empty when the open failed, and the opener has already
+///   reported that. A snapshot is a cache; there is nothing to say here.
+pub fn snapshot_after_first_paint(workspace: &Mutex<Option<Workspace>>) {
+    // Settle before taking the lock.
+    //
+    // Only the encode, the fsync and the rename moved off-thread;
+    // **building the body still runs under the workspace mutex**, and it
+    // drains every deferred and stale block through the per-node index
+    // (2,298 nodes on a real workspace). Before this change that hold
+    // sat inside `boot()`, in front of the publish, where no keystroke
+    // could contend with it. Firing on `first_content` moved the same
+    // hold into the one window where the journal is on screen and the
+    // user is typing into it, which is `UX.md`'s "never block a
+    // keystroke" with extra steps.
+    //
+    // The same answer `reconcile` gives its unchunkable phases: nothing
+    // here needs the first seconds of a launch. The snapshot is read by
+    // the *next* one.
+    std::thread::sleep(crate::reconcile::SETTLE_BEFORE_WHOLE_WORKSPACE);
+    let mut slot = workspace.lock();
+    let Some(ws) = slot.as_mut() else {
+        return;
+    };
+    if ws.refresh_snapshot_in_background() {
+        info!("boot: snapshot refresh queued after first paint");
+    }
 }
 
 /// Load (or generate-and-persist) the device's actor id.

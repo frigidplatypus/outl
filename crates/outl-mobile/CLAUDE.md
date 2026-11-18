@@ -5,12 +5,12 @@ Solid.js + Tailwind frontend, Rust backend that **must stay thin** — every wor
 
 ## Capture from outside the app (RFC 0363)
 
-Six entry points on two platforms, and none of them touches the workspace.
+Seven entry points on two platforms, and none of them touches the workspace.
 Each writes one `<ULID>.json` into an inbox, and `drain_capture_inbox` (`outl-tauri-shared/src/capture_inbox.rs` over `outl_actions::capture`) is the **only** path from there into the workspace — root invariant 7 holds because every capture becomes ops at that one place.
 
 | Platform | Entry points | Who writes the file |
 |---|---|---|
-| iOS | widget, "Add to today" App Intent, share extension | `OutlKit/Capture/CaptureInbox.swift`, into the App Group container |
+| iOS | widget, Control Center "Quick Add" control (iOS 18+), "Add to today" App Intent, share extension | `OutlKit/Capture/CaptureInbox.swift`, into the App Group container |
 | Android | share target, home screen widget, quick settings tile | `outl_actions::capture::write_capture` through JNI, into `filesDir/captures` |
 
 **The platforms differ on purpose, in exactly one place: who owns the file format.**
@@ -18,7 +18,7 @@ An iOS widget and share extension are separate processes under a memory ceiling 
 Android's components are this app, in this process, with the library already loaded — so Kotlin holds neither the format nor the "a share is one line" rule (`shared_line`), only the folder and the strings.
 `src-tauri/src/capture_jni.rs` is that boundary.
 
-The widget and the tile write nothing at all: they open `outl://capture`, which is why they can ship before an inbox exists (RFC 0363 step 1).
+The widget, the iOS 18 control and the tile write nothing at all: they open `outl://capture`, which is why they can ship before an inbox exists (RFC 0363 step 1).
 On Android that needs the `outl` scheme in `AndroidManifest.xml` — without it they open nothing.
 
 Targets, signing and what needs a Mac: `IOS-EXTENSIONS.md`.
@@ -28,7 +28,7 @@ Android components and why they need no "a capture arrived" notification: [`docs
 
 1,804 lines in one component, still 3x the `file-size-guard.sh` ceiling.
 The chrome came out first (`JournalChrome.tsx`), then the delete prompts (`JournalDeleteDialogs.tsx`) and the toolbar dispatch (`Journal.toolbar-dispatch.ts`); [issue 265](https://github.com/outlmd/outl/issues/265) phases 1-3 took the block ops, the selection state machine and the platform listeners out.
-Day navigation and wake-to-today live in `Journal.day-nav.ts`, quick capture in `Journal.capture.ts` (`outl://capture` opens its sheet through `openCapture` in `Journal.listeners.ts`), and the empty states and zoom bar in `JournalEmpty.tsx` and `JournalZoomBar.tsx`.
+Day navigation and wake-to-today live in `Journal.day-nav.ts` (the wake *rule* is `@outl/shared/journal`'s `shouldWakeToToday`, shared with the desktop's day clock; this file owns the navigation around it), quick capture in `Journal.capture.ts` (`outl://capture` opens its sheet through `openCapture` in `Journal.listeners.ts`), and the empty states and zoom bar in `JournalEmpty.tsx` and `JournalZoomBar.tsx`.
 The foreground pull and the capture inbox drain come from `@outl/shared/capture` (`installForegroundRefresh`), which the desktop uses too.
 The two workspace-open paths came out last, into `Journal.boot.ts`, together with every ticker in `Journal.polls.ts` — they went together because both open paths hold a user-visible gate (`loaded` gates the skeleton, `syncing` gates both refresh affordances), and a gate set on one path and cleared on another is how a stall becomes permanent.
 The remaining seams are in that issue, and the props rule an extraction must not break is in `outl-frontend-shared/CLAUDE.md`.
@@ -67,6 +67,8 @@ outl-mobile (this crate)
    ├── gen/apple/.../OutlBackgroundRefresh.swift  (BGTaskScheduler windows + the beginBackgroundTask flush)
    ├── gen/apple/.../OutlBonjour.swift            (NetService advertise + NetServiceBrowser resolve, the iOS mDNS path)
    ├── gen/android/.../MainActivity.kt            (load check, then NativeSetup.install + OutlBackgroundSync.install, before Tauri boots)
+   ├── gen/apple/.../OutlSafeArea.swift           (measures UIKit safeAreaInsets, pushes them to the page; see "Safe areas")
+   ├── gen/android/.../OutlSafeArea.kt            (system bars + cutout from WindowInsets, pushed to the page)
    ├── gen/android/.../OutlNativeLibrary.kt       (the one "did the .so load?" answer; logs ABI + page size)
    ├── gen/android/.../NativeLoadErrorActivity.kt (plain error screen instead of a crash when the .so will not load)
    ├── gen/android/.../NativeSync.kt              (external fun bindings for the bg_sync JNI symbols)
@@ -123,17 +125,33 @@ Ten pieces are now siblings, and new code of any of those shapes belongs there r
   The markup is one `<ConfirmDialog />` each and would not have earned a file on its own.
 
 - **`PageSections.tsx`** — everything below the outline, in order: the backlinks card (`<BacklinksSection />`) and the nested-pages list (`<NestedPages />` from `@outl/shared/namespace`, issue #275).
+  **It draws nothing while the outline is zoomed into a block** (`zoomed`, handed down from `Journal`'s `focusView()`), and `Journal` hides the page's own `key:: value` row on the same condition: the header is a *block* there, so the page's backlinks under it are a wrong answer rather than a noisy one.
+  Both facts live in `Journal.tsx`'s JSX, so `PageSections.test.tsx` pins them by reading the source, the way the `backlinks` prop's own contract already is.
   The twin of the desktop's `PageSections.tsx`, and the reason the two sections live in one component rather than one inside the other: they look alike and answer different questions — backlinks point *at* this page, nested pages live *under* its namespace.
   `Journal` keeps the navigation, passing a single `onOpenPage(slug, kind)` that both sections route through, so the journal-vs-page opener choice has one owner instead of one per section.
+That opener is `openView` (`Journal.navigation.ts`), not `applyView` — see that module's entry above.
+  **Nothing here draws until the scan answers for the page on screen** (`lateSectionVisible`, `@outl/shared/outline`).
+  `Journal` is what makes that true: `createResource` keeps its last value through a source change, so the raw accessor left the page the user just left answering for the one they opened, while the card said "No backlinks yet" over a scan still running.
 
 - **`Journal.boot.ts`** — `createJournalBoot`: the two workspace-open paths (`loadTodayWithRetry`, `pullAndReload`).
   Every await in here is capped. The open is the one the journal's skeleton waits on, so an uncapped call there is not a slow page, it is a page that never comes back.
 - **`Journal.polls.ts`** — `installJournalPolls`: the connectivity listeners and every ticker (peers 3s, reminders 30s).
   Armed in the body so `onCleanup` owns the right scope, started only after the boot load settles.
-- **`Journal.embeds.ts`** — `createEmbedResolver(slug)`: the `((blk-…))` resolve for the visible page, called from `applyView`.
-  It owns the signal too, so the component holds no state for it.
-  The skip rule is the part with a failure mode: a resolve is skipped only when the page **and** the handle set both match the last one.
+- **`Journal.navigation.ts`** — `createNavigation(deps)`: `openView` (a page the user asked for) and the `resetForNavigation` behind it.
+  Its own module because `applyView` cannot answer the question it asks. `applyView` compares slugs, which is the right net for "the page changed however it happened" and blind to the case that bit: **asking for the page you are already on.**
+  Today's journal is usually the open page, so the Today button, the week strip's current day, a `[[ref]]` pointing back here and a deep link to this page all resolved to the same slug, and the zoom they were supposed to leave stayed up with nothing on screen moving.
+  `Journal.day-nav.ts` and the deep-link listener take `openView` rather than `applyView` for that reason; a commit, a background poll, a peer reload and a capture into today keep `applyView` and keep the zoom.
+- **`Journal.remind.ts`** — `createRemindAuthoring(deps)`: which block the "Remind me…" sheet is open on, the rule it opened with, and the write back.
+  It owns the signal, like `Journal.embeds.ts`, so the component holds no state for the feature.
+  The order is the part with a failure mode.
+  The current rule is read **before** the sheet opens and carried as *text*, because a rule that does not parse still has to reach the user: opening a picker on a default would show them a time their block never said.
+- **`Journal.embeds.ts`** — `createEmbedResolver(slug)`: the `((blk-…))` / `!((blk-…))` and `![[page]]` resolves for the visible page, called from `applyView`.
+  It owns both signals too, so the component holds no state for either.
+  The skip rule is the part with a failure mode: a resolve is skipped only when the page **and** that kind's key both match the last one.
   Keyed on the slug alone, a newly typed ref keeps printing its raw handle until the user navigates away ([#16](https://github.com/outlmd/outl/issues/16)).
+  **The two kinds keep separate keys and separate generation counters**, which is the same bug one door along.
+  Share them and a newly typed `((blk-…))` cancels the page-embed reply already in flight; the key was recorded before the fetch, so nothing re-asks and the embed renders its literal `![[name]]` until the user navigates away.
+  `createMapResolver` is the one implementation of that rule, generic over the kind, so there is no second copy to get wrong.
 
 What is left is ~1,800 lines, almost all of it one `Journal()` function.
 That is real debt, not a finished job: what is left is a state/effects question (edit lifecycle, sync signals, the native bridges, the sheet stack), not a "move these functions" question — phases 1-3 were the movable half — and it wants its own plan.
@@ -176,6 +194,30 @@ That third step is the fix for [issue #488](https://github.com/outlmd/outl/issue
 The text and the caret come off `PasteReply` (`pasteEditorUpdate`, `@outl/shared/paste`), never recomputed as "where I pasted plus what I sent": the backend built the string and may have inserted a separating space.
 Writing it uses the `spliceText` + double `parkCaret` pattern `lib/textarea.ts` owns, and bails when `editingId()` moved during the round-trip.
 Regression net: `Journal.block-ops.test.ts` → "pasteMarkdownAt — #488".
+
+## What a launch waits for
+
+**The skeleton is replaced by today's journal, read off disk.**
+`Journal.tsx` subscribes to `onPagePreview` synchronously at mount (the event is emitted before the op log is opened) and renders `<PreviewOutline />` in the skeleton's place.
+The subscription is deliberately **unguarded**: the render is the only reader of that signal and already sits inside the load gate, so a preview arriving late is simply never shown — and reading the gate out there would put a read outside the outline section, which `Journal.load-gate.test.ts` pins against.
+The skeleton stays for a launch with nothing to preview (a fresh install, a day with no journal yet).
+
+The splash is dismissed by the app, not by a timer.
+The CSS version cost a **620 ms floor on every launch** (a 380 ms delay plus a 240 ms fade), paid whether the journal was ready in 180 ms or in four seconds, and it could not be shortened without risking the opposite failure.
+`lib/splash.ts`'s `dismissBootSplash` starts the fade when the first view is applied, **including on failure** (that state carries a Retry button, and a splash over it is a dead end) and from `App.tsx` on the first-run path, which has no journal to wait for.
+`index.html` keeps a 4 s failsafe animation as a backstop, never as the mechanism.
+
+`Journal.boot.ts` waits for the workspace instead of retrying it: `waitWorkspaceReady` replaced 50 attempts at 200 ms of backoff, so the load resolves when the opener publishes rather than on the next tick of its own interval.
+A rejection there means an older backend, and the open below it still answers `workspace_loading` while the opener runs.
+
+The orphan sweep, the snapshot refresh and **the signal that lets iroh bind** are registered on `outl_tauri_shared::FirstPaintGate` and released by the frontend's `first_content` mark.
+`run()` arms the gate's 6 s deadline, which is what keeps "deferred" from becoming "never" on a webview that fails to report.
+
+**The `open_done` channel is not replaced by the gate.**
+It is a memory gate rather than a readiness one (see "The workspace open and the first sync must not run at the same time" below) and it stays a channel because a channel cannot be missed.
+What changed is that the send now happens from inside the gate, so the first dial does not compete with the first paint either.
+
+Why each job waits, and the budgets: [`docs/boot-performance.md`](../../docs/boot-performance.md).
 
 ## The keyboard has to come up inside the tap
 
@@ -226,6 +268,11 @@ Two honest steps, no filler:
    Fully skippable.
 
 The onboarding **copy** lives in `@outl/shared/onboarding` (identical to desktop); the bottom-sheet chrome + haptics stay here.
+
+**A third first-run surface sits after both steps**: `<GuideSheet />`, which names this client's own chrome — the bottom bar, the `+`, the week strip, the long-press ([#574](https://github.com/outlmd/outl/issues/574)).
+It is not the 30-second outline tour (`firstRunTips`), which only ever draws on an empty page and names no buttons, so it carries its own dismissal key (`CHROME_TOUR_KEY`) rather than sharing `TIPS_KEY`.
+Sharing one would hide it from the user whose journal already has content, which is exactly who needs it.
+The rows are `lib/chrome-tour.ts` (mobile-only copy: every one names a control only this client has); the shared half is the "show it once, then remember" pair, which never becomes an Op.
 Pairing is **not** reimplemented — `Onboarding` opens the real `<DevicesSheet />`.
 
 **DEFERRED — native folder picker + security-scoped bookmark.**
@@ -316,12 +363,56 @@ The flag is held in `Journal.tsx`'s own `aheadOfLog` signal, **not** read off `v
 It is cleared by a reply carrying `md_ahead_of_log_checked` with no notice (the next open / refresh once the page is healthy again), so the banner can't outlive the condition — same rule as desktop.
 Convention: [`docs/clients.md` → Surfacing a page that stopped syncing](../../docs/clients.md#surfacing-a-page-that-stopped-syncing).
 
+## Page switcher: rename and merge (RFC 0557)
+
+A long-press on a **page** row (never a journal) opens the same menu component the block long-press uses, with three rows: **Rename page...**, **Merge into...**, **Delete page**.
+`PageSwitcher.tsx` keeps the search list and the wiring; everything one page can be asked to do lives in `PageSwitcher.page-actions.tsx` (`createPageActions`, the long-press recogniser, `<MergeBanner />`, `<PageActionOverlays />`), split out when the switcher would otherwise have crossed the 600-line ratchet.
+
+- **The flow is not written here.** `renameOrMerge` / `mergeInto` and every sentence (`nameTakenMessage`, `mergeConfirmMessage`, `renameSummary`, `mergeSummary`) come from `@outl/shared/pages/rename-merge`, so the desktop runs the same steps and says the same words.
+  This crate owns only the chrome: `PageNameSheet.tsx` (a prefilled one-line sheet, 48pt targets) for the name and `ConfirmDialog` for the question.
+- **A merge is never reached without a confirmation.** "Merge into..." turns the switcher's own list into a target picker (pages only, the source left out, no pin toggles, no long-press) and a tap on a row asks first.
+  Cancelling that question stays in the picker so another target can be chosen; the banner's Cancel leaves it.
+  A rename onto a taken name asks the same question, and any answer but "Merge" writes nothing.
+- **On success** the switcher navigates to the resulting page through `onPick` (delete does the same) and hands the summary to `onNotice`, which `Journal.tsx` routes into its toast.
+  A summary with several lines (a merge with property conflicts) makes `Toast.tsx` show every line and stay 12 s, because the conflict line is the one the user has to read.
+- **The `+` beside the search box starts a page**, name sheet → `openRef`, which is also the only reason `PageNameSheet` grew a `submitUnchanged` prop (a rename refuses a no-op name; a create prefilled from the search box must not).
+  Before it, a non-journal page could only be started by typing `[[` into a block ([#573](https://github.com/outlmd/outl/issues/573)) — the mechanism was fine, the discoverability was the bug.
+  `openRef` decides what a name means, so an existing name **opens** rather than duplicating; see [`docs/mobile-ux.md`](../../docs/mobile-ux.md#search-sheet--starting-a-page-that-is-not-a-daily-note).
+- Not done on mobile: a keyboard shortcut (there is no chord surface) and the optional alias-conflict warning.
+- Pinned by `PageSwitcher.page-actions.test.tsx` (the shared flow runs for real over stubbed `api/page-merge` commands) and `sheets.bounded.test.ts` (the name sheet declares its bound).
+
+## Safe areas: the native shell measures, the page applies
+
+`env(safe-area-inset-*)` is not trustworthy in either webview here: both shells are edge-to-edge (full-screen `WKWebView`; `enableEdgeToEdge()` in `MainActivity`), and with the inset reading 0 the header's `max(env(...), 12px)` fell to its floor and drew under the status bar.
+So there is one source: `OutlSafeArea.swift` (iOS, a probe view's `safeAreaInsetsDidChange`) and `OutlSafeArea.kt` (Android, the `WindowInsets` listener, system bars plus display cutout, IME excluded) push CSS-pixel values into the page, and `src/lib/safe-area.ts` writes them to `--safe-area-inset-*` on `:root`, installed once from `index.tsx`.
+`styles.css` declares those properties from `env(..., 0px)` as the fallback.
+**A component reads `var(--safe-area-inset-*)`, never `env()`**; `safe-area.css.test.ts` fails on a stray `env(safe-area-inset` and on a fallback without a length.
+Load order is covered both ways: native pushes on change and when the webview appears, the page pulls (iOS `outlSafeArea` message handler, Android `window.OutlSafeArea.get()`).
+Only a device can show the numbers, so check a notched iPhone in both orientations and an Android phone with gesture and three-button navigation before calling it done.
+
 ## Per-feature behaviour lives in `docs/mobile-ux.md`
 
 Nine sections moved out: how a ref that does not exist yet is opened, the page switcher's long-press delete, external links, blockquote chrome, zoom / focus, paste from external apps, the keyboard accessory bar, code execution, and template insertion.
 
 They are reference — you look one up when you touch that feature — and this file is loaded into context on every session in this crate, where the budget belongs to the rules you must not break.
 [`docs/mobile-ux.md`](../../docs/mobile-ux.md) is their owner now.
+
+## Properties are fields, not tags
+
+A pill is a **tag**: a flat label you tap to filter.
+A `key:: value` property is a **field**, a named attribute with a value, and this client drew one as the other — so two different things read as the same thing while behaving differently, and the tap a pill promises was not the tap it performed.
+
+The outline now draws **one attribute line** per block: key dim, value a step darker, `·` between, truncated, never more than a line, and past two fields the rest is `+N more`.
+Both the block row (`BlockBody.tsx`) and the page strip (`Journal.tsx`) are the same `<BlockProperties />` now — the strip was a second hand-written copy, which is how the same dead `text-[11px]` came to be written twice.
+`@outl/shared/markdown` owns the shape; what is left here is where the line sits and what a tap means.
+
+**Colour is spent only on a field that acts on the user.**
+`remind::` gets the accent and a bell because it will interrupt you; `auto-run::` runs code and stays quiet, because it does not. That criterion is *interruption*, not importance, and it is what stops the line from becoming decoration again.
+
+**Editing left the outline.**
+The line is one tap target that opens `<PropertiesSheet />`, which is a two-column field list (`PropertyFieldList.tsx`) in the shape of iOS Settings or Notion's property panel. A row that looks like a form row opens a form; a row that looked like a button did not.
+
+An importer's stamps (`created`, `edited`, `roam-uid`) render nowhere in an outline and are still listed in the sheet, dimmer and sorted last — you have to see one to delete it. The policy is `outl_actions::property::is_import_stamp`, mirrored in TS.
 
 ## Properties (`key:: value`) — the sheet (issue #13)
 
@@ -389,7 +480,9 @@ scope, the `[[` picker) and `lib/properties.test.ts`.
 
 The header capsule's gear opens `components/SettingsSheet.tsx`.
 It is the client's **only** preferences screen: every other sheet here (`DevicesSheet`, `TemplateSheet`, `RemindersSheet`, `PropertiesSheet`) shows workspace content, which is why the toolbar lock ([#271](https://github.com/outlmd/outl/issues/271)) had nowhere to live before it.
-Its first row is the exception, and it is navigation rather than a preference: **Devices and sync** hands over to `<DevicesSheet />` (closing this sheet first, since this one is `z-[55]` and that one `z-50`).
+Its first two rows are the exception, and both are navigation rather than preferences.
+**Devices and sync** hands over to `<DevicesSheet />`, closing this sheet first since this one is `z-[55]` and that one `z-50`.
+**What's what** re-opens `<GuideSheet />`, the chrome walkthrough that otherwise only appears once per device ([#574](https://github.com/outlmd/outl/issues/574)).
 It is here because pairing otherwise had no name anywhere on the phone — the sync dot's press-and-hold is a gesture nothing announces, and a user looking for P2P looks where the desktop keeps it, in Settings.
 The gesture stays as the shortcut.
 
@@ -414,9 +507,18 @@ Toolbar behaviour it controls (lock, reset, and why the row now only reshuffles 
 
 ## Reminders (`remind::`)
 
-The bottom bar's Reminders tab opens `<RemindersSheet />` (the header has no bell any more), a block long-press authors a rule via `set_block_remind`, and `Journal.tsx` polls `deliver_due_reminders` every 30s.
-Sheet wiring, why authoring is a prompt instead of a native time picker, and why both device-local settings live in the sheet: [`docs/reminders.md`](../../docs/reminders.md#mobile-outl-mobile).
-The one rule that matters here: **the schedule is never computed in TS** — `groupReminders` / `formatNextFire` only format what `outl_actions::reminders` decided.
+The bottom bar's Reminders tab opens `<RemindersSheet />` (the header has no bell any more), a block long-press authors a rule through `<RemindSheet />` → `set_block_remind`, and `Journal.tsx` polls `deliver_due_reminders` every 30s.
+Sheet wiring and why both device-local settings live in the list sheet: [`docs/reminders.md`](../../docs/reminders.md#mobile-outl-mobile).
+
+**Two rules, and neither is about the sheet's markup.**
+
+- **The schedule is never computed in TS** — `groupReminders` / `formatNextFire` only format what `outl_actions::reminders` decided.
+- **The rule text is never written in TS either.**
+  `<RemindSheet />` reads a rule with `parseRemindRule` and writes one with `formatRemindRule`, two commands over `outl_md::remind`'s `parse_remind` / `format_remind` pair, twice per session rather than per keystroke.
+  Authoring was a `window.prompt` for the grammar until [#572](https://github.com/outlmd/outl/issues/572).
+  The sheet keeps the whole grammar reachable through its **Edit as text** field, which is what stops a picker from quietly narrowing what a user can say.
+  `Journal.remind.ts` owns the target signal and the write, the way `Journal.embeds.ts` owns its own — the component holds no state for it.
+  Per-control decisions (a repeat the list does not offer, a seeded `until`) are `lib/remind-fields.ts`, unit-tested.
 
 ### Actionable banners (mobile only)
 
@@ -493,11 +595,12 @@ These are the **only** commands that touch `peers.json` directly instead of the 
 The header `<SyncDot>` and `PullToRefresh` reflect and drive the **iroh P2P transport** (outl's default sync), not the iCloud-era `navigator.onLine` signal they started on.
 
 - **Dot state.**
-  The PRIMARY input is iroh peer health, polled via `peerStatus()` → the shared `peersOnline()` helper (`@outl/shared/peers`) into a `peersUp` signal.
+  The PRIMARY input is iroh peer health, polled via `peerStatus()` into a `peers` signal (`PeerStatusDto[] | null`, `null` until the first probe answers — the absence of a measurement, which `[]` is not).
   The poll runs every 3s, and after each `peer-ops-changed` (the native ops bridge) plus after a force-sync.
   It is **armed** in the component body but **started** at the end of `onMount`, after the boot load settles (`Journal.polls.ts`): probing during render put a full workspace load in front of the first paint.
   `peer_status` is `async` now, so that load is off the iOS main thread, but it still reopens the op log per call — deferring the first probe stays right.
-  Derivation: a force-sync in flight → **syncing** (spinner); else `online() && peersUp()` → **synced** (green); else **offline** (orange).
+  **The derivation is not written here**: `JournalChrome` hands the list, `navigator.onLine` and the two in-flight flags to `syncState` (`@outl/shared/peers`), which answers `syncing` / `checking` / `online` / `offline` for this client and the desktop alike, and `<SyncDot>` paints it.
+  A pass in flight wins; no radio floors to offline; `null` is **checking** (dim), which is the bug the shared owner closed — this client used to start at `false` and claim offline on launch over a probe nobody had taken ([#575](https://github.com/outlmd/outl/issues/575)).
   `navigator.onLine` stays only as a secondary floor (truly no radio → orange regardless).
   Zero paired peers reads as offline — there's nothing to sync with.
 - **Refresh.**
@@ -513,7 +616,8 @@ The header `<SyncDot>` and `PullToRefresh` reflect and drive the **iroh P2P tran
   **Reload-ordering guard:** each `pullAndReload` captures a monotonic `reloadGen` at entry and applies only when still the latest, so a slow reload can't flip the page back to an older state.
   (The split-content flicker's real cause was a backend duplicate-slug-root bug, fixed in `outl-actions::merge_duplicate_slug_roots`; this is the frontend belt-and-suspenders.)
 
-`syncNow()` and `peersOnline()` both live in `@outl/shared` so mobile and desktop derive the dot + drive the refresh identically.
+`syncNow()`, `peersOnline()`, `syncState()` and `<SyncDot>` all live in `@outl/shared` so mobile and desktop derive the dot + drive the refresh identically.
+There is no `SyncDot.tsx` in this crate any more; the sync button's `aria-label` names the action only, because the shared dot is the live region that announces the state.
 See [`outl-sync-iroh/CLAUDE.md`](../outl-sync-iroh/CLAUDE.md) → "Force-sync trigger (`sync_now`)".
 
 ## Cross-runtime contracts (now in `@outl/shared`)
@@ -535,6 +639,11 @@ The week strip's selected day painted its accent tile and then rendered near-bla
 The `color` line is gone (Tailwind's preflight already sets it in `@layer base`, which beats the UA sheet and loses to a utility, which is the order you want).
 `font-family` / `font-size` are still unlayered there and still beat `text-[16px]` on a button — if you need a button's font size to take, that is why.
 Paint a fill with `bg-(--color-outl-accent)` and its text with `text-(--color-outl-accent-fg)`, never with `text-(--color-outl-bg)` (root `CLAUDE.md` invariant 13, and [`DESIGN.md`](../../DESIGN.md) owns the pairing).
+
+**So the property line sizes the row, not the chip inside it.**
+Both `key:: value` strips here carried a `text-[11px]` on a `<button>` that resolved to nothing: they painted at the body's 17px, centred (a `<button>` centres by UA default) and wrapping, so a Roam-imported block showed nine lines of grey chrome above one line of its own text.
+The size moved to the container — where `inherit` resolves — and `property-line.test.ts` pins both call sites, asserting the unlayered rule is still in `styles.css` so the pin retires with the trap rather than outliving it.
+**24 other `<button>` / `<input>` tags in this client still carry a dead `text-*`**, measured; clearing those means deleting the declaration and re-reading every sheet, which is the typography change the comment above defers.
 
 ## Logging (device console)
 
@@ -560,8 +669,12 @@ The two mandatory calls: [`docs/ios-platform.md`](../../docs/ios-platform.md#pee
 
 ## Bundle / signing
 
-Bundle id + iCloud container are **global** in the Apple Developer ecosystem, so changing either means updating five files in lockstep.
-Identifiers, team, entitlements and that checklist: [`docs/ios-platform.md`](../../docs/ios-platform.md#bundle--signing).
+`gen/apple/Outl.xcconfig` owns the app's identity (bundle id, App Group, URL scheme, capture notification, display name); Swift reads it back through `OutlKit`'s `OutlFlavor`.
+**Never write an identity literal into a plist, an entitlements file or a Swift file.**
+That is the ten-place lockstep this replaced.
+`tauri.conf.json` → `identifier` is the second owner (the CLI does not read an xcconfig) and has to agree.
+On a phone holding real notes run `scripts/ios-preview.sh <device>`, which installs beside the real app instead of over it.
+Identifiers, team, entitlements, the derivation table and the preview flow: [`docs/ios-platform.md`](../../docs/ios-platform.md#bundle--signing).
 
 ## Running
 
@@ -607,3 +720,39 @@ The two layers (Rust commands + storage, frontend pure logic), their tooling and
 - Focus mode is the capsule button between the sync dot and Settings, same as desktop. Header and `BottomBar` carry `outl-focus-hide` and fade to 0.18, never to 0, so the button stays tappable.
 - `PageSections` gets `blank` from `Journal` and shows `<FirstRunTips client="mobile" />`; `JournalEmpty` shows it on the start and empty-page states. The tip names the indent keys, never a swipe: a swipe deletes a row here.
 - Refs, tags and links in block text and backlinks use `MarkdownInline` `variant="inline"`, the same underlined look as desktop, not pills. The 44pt touch target comes from `.outl-ref::after` in `src/styles.css`; keep it if you touch either. The TODO box in `BlockMarkers` is a square (`rounded-[4px]`) inside a 44pt button, matching desktop.
+
+## The backend's log, and why it needed one
+
+`src-tauri/src/lib.rs` installs a `tracing` subscriber writing to stderr, with a comment saying that on iOS stderr "surfaces in idevicesyslog / Xcode".
+It does not.
+A release build on the simulator emits **nothing** to `simctl launch --console`, `--console-pty` or `log stream`; the only lines that arrive come from dylibs using `NSLog`, which goes through `os_log`.
+Rust's `io::stderr()` is not wired to anything on either simulator or device.
+
+So every `info!` / `warn!` the backend produced — the sync transport, the workspace opener, every boot repair, every projection refusal — was invisible on the one platform where the app is hardest to debug and where there is no `outl doctor` to fall back on.
+A blank-screen report could only be narrowed by elimination, which is exactly as slow as it sounds.
+
+`backend_log` is the sink: `$HOME/Library/Logs/outl-backend.log` inside the app sandbox, **truncated on every launch**, still mirrored to stderr so a desktop-style run is unchanged.
+Truncating rather than rotating is the right trade on a phone: what you want from a backend log there is "what did *this* launch do", and a file holding one launch cannot grow without bound on a device nobody prunes.
+
+`tauri_plugin_log` owns the `log` crate's slot and writes the **frontend's** lines to its own rotating file; our `tracing::` events deliberately bypass it (see `lib.rs` on why the two logger slots are kept apart), which is why they need a sink of their own.
+
+Read it with:
+
+```sh
+cat "$(xcrun simctl get_app_container <udid> app.outl.mobile-app data)/Library/Logs/outl-backend.log"
+```
+
+`outl_core::boot_timing` is what makes that worth reading on a launch: one line per workspace open, naming each phase plus the delta size and resident block count that explain them.
+
+## The workspace open and the first sync must not run at the same time
+
+`wire_iroh_transport` **builds** the transport during `setup` (identity + peer store, no socket) and hands it to `AppState`, but **starts** it only after the background opener signals through a `std::sync::mpsc` channel.
+
+Starting the transport binds the endpoint and immediately dials every known peer for an initial sync.
+On a device meeting a large history for the first time that dial pulls the op log while `spawn_workspace_opener` is replaying it, and both peak in the hundreds of MB.
+On a 723k-op workspace that killed the Android app with `Scudo ERROR: internal map failure` and a `SIGABRT` on a `tokio-rt-worker` — and the tell is that the launch had **no `boot phases:` line at all**, because the open never finished.
+
+It is a channel and not the `workspace-ready` event on purpose: a channel cannot be missed.
+The signal is buffered if the transport is not waiting on it yet (a small workspace opens faster than `setup` reaches the wiring), and a panicking opener drops the `Sender`, which wakes the waiter just the same rather than leaving the device with no sync at all.
+
+A transport that exists but has not started is an already-supported state — `sync_now()` is a no-op and `peer_health()` is empty until `start()` runs — so the only cost is inbound dials during the open, which peers retry.

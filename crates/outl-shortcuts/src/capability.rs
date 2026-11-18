@@ -31,6 +31,24 @@ pub enum Capability {
     /// `TimelinePanel`, the page header's `⏱` button). Read-only —
     /// it shows the past, it does not restore it.
     PageHistory,
+    /// Renaming a page from the app: a text prompt, every `[[old]]` and
+    /// `#old` mention respelled in the same batch, and a confirm to
+    /// merge when the new name already belongs to another page.
+    ///
+    /// The route is `outl_actions::rename_page`, shared by every
+    /// surface. A journal cannot be renamed on any client: its slug is
+    /// its date.
+    PageRename,
+    /// Merging one page into another: pick or type the target,
+    /// confirm, and the source's blocks move under it with its links
+    /// rewritten and a summary of what moved and what conflicted
+    /// (RFC 0557).
+    ///
+    /// Distinct from [`Capability::PageRename`], which only reaches a
+    /// merge when the new name is taken. This one starts from the
+    /// merge. The route is `outl_actions::merge_pages`. A journal
+    /// cannot be the source.
+    PageMerge,
     /// Browsing the official plugin registry and installing from it
     /// (as opposed to configuring an already-installed plugin, which
     /// every client can do).
@@ -159,6 +177,19 @@ pub enum Capability {
     /// on those two. The TUI has no diagram surface and keeps the
     /// fence as source either way.
     DiagramRendering,
+    /// Typing `/` inside a block to get a filterable list of commands,
+    /// and running one from there without leaving the keyboard.
+    ///
+    /// Distinct from whether the client can *run* the things that list
+    /// offers. [`Capability::Templates`] and [`Capability::Assets`] ask
+    /// that, and both are `Full` everywhere; a client can have every
+    /// command behind a sheet and still have no `/`. This row is only
+    /// whether the editor itself answers the key.
+    ///
+    /// It is also not the command palette. That has an
+    /// [`crate::Action`] (`OpenCommandPalette`) and is tracked there —
+    /// a second entry for one fact is the drift RFC 0253 prevents.
+    SlashCommandMenu,
     /// Turning crash reporting off.
     ///
     /// Reports are **on by default** (RFC 0377), so a client without
@@ -194,6 +225,41 @@ pub enum Capability {
     /// rather than `Full`. `docs/privacy.md` is disclosure too, and it
     /// is not in the product.
     CrashReportingDisclosure,
+    /// Knowing which build is running, and reaching the project
+    /// from inside the app: the source, the issue tracker, the
+    /// sponsor page.
+    ///
+    /// Two halves of one question, because a user who hits a bug
+    /// needs both at once — a report without a version number is a
+    /// report nobody can act on, and a version number with no
+    /// tracker is a fact with nowhere to go.
+    ///
+    /// Not the same as *shipping* an update: no client self-updates,
+    /// and a row every client lacks equally would say nothing. This
+    /// is only whether the app tells you where you stand.
+    AboutAndSupport,
+    /// Expanding `![[page]]` where it is written: the target page's
+    /// outline is rendered read-only under the block carrying the
+    /// token, four levels deep.
+    ///
+    /// Distinct from the block embed `!((blk-…))`, which expands one
+    /// block and the subtree below it. A page embed starts at the page
+    /// root, so what it pulls in is that page's top-level blocks — and
+    /// it names its target the way the user wrote it, so renaming the
+    /// page respells the token exactly as it respells a `[[page]]`
+    /// ref.
+    ///
+    /// Distinct from that plain `[[page]]` ref too, which links
+    /// without expanding. Both are page references and both produce
+    /// the same backlink, which is why this row has to exist: a client
+    /// that renders the link and not the expansion looks identical
+    /// from the target page's side, and the difference only shows on
+    /// the page doing the embedding.
+    ///
+    /// Not about editing through it — the expansion is read-only
+    /// everywhere, by design — and not about embedding part of a page,
+    /// which is what a block embed is for.
+    PageEmbed,
 }
 
 impl Capability {
@@ -207,6 +273,8 @@ impl Capability {
     /// list exists to close (see `Action::ALL`'s identical contract).
     pub const ALL: &'static [Capability] = &[
         Capability::PageHistory,
+        Capability::PageRename,
+        Capability::PageMerge,
         Capability::PluginMarketplace,
         Capability::Calendar,
         Capability::Templates,
@@ -223,8 +291,11 @@ impl Capability {
         Capability::CaptureOutsideTheApp,
         Capability::TaskList,
         Capability::DiagramRendering,
+        Capability::SlashCommandMenu,
         Capability::CrashReportingOptOut,
         Capability::CrashReportingDisclosure,
+        Capability::AboutAndSupport,
+        Capability::PageEmbed,
     ];
 }
 
@@ -236,11 +307,13 @@ mod tests {
     /// what makes forgetting impossible: it will not compile once a
     /// new variant exists until this function's `match` grows an arm
     /// for it too.
-    const EXPECTED_19: usize = 19;
+    const EXPECTED_24: usize = 24;
 
     fn name(cap: Capability) -> &'static str {
         match cap {
             Capability::PageHistory => "PageHistory",
+            Capability::PageRename => "PageRename",
+            Capability::PageMerge => "PageMerge",
             Capability::PluginMarketplace => "PluginMarketplace",
             Capability::Calendar => "Calendar",
             Capability::Templates => "Templates",
@@ -257,8 +330,11 @@ mod tests {
             Capability::CaptureOutsideTheApp => "CaptureOutsideTheApp",
             Capability::TaskList => "TaskList",
             Capability::DiagramRendering => "DiagramRendering",
+            Capability::SlashCommandMenu => "SlashCommandMenu",
             Capability::CrashReportingOptOut => "CrashReportingOptOut",
             Capability::CrashReportingDisclosure => "CrashReportingDisclosure",
+            Capability::AboutAndSupport => "AboutAndSupport",
+            Capability::PageEmbed => "PageEmbed",
         }
     }
 
@@ -275,9 +351,9 @@ mod tests {
         );
         assert_eq!(
             names.len(),
-            EXPECTED_19,
-            "Capability::ALL has {} entries but the enum has {EXPECTED_19} variants \
-             — add the new variant to Capability::ALL (and bump EXPECTED_19)",
+            EXPECTED_24,
+            "Capability::ALL has {} entries but the enum has {EXPECTED_24} variants \
+             : add the new variant to Capability::ALL (and bump EXPECTED_24)",
             names.len(),
         );
     }

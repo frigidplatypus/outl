@@ -1,6 +1,6 @@
 import { For, JSX, Show } from "solid-js";
 import type { BlockNode } from "@outl/shared/api/types";
-import type { EmbedMap } from "@outl/shared/markdown";
+import type { EmbedMap, PageEmbedMap } from "@outl/shared/markdown";
 import { rawTextWithTodo } from "@outl/shared/outline";
 import { createSettle } from "@outl/shared/polish";
 import { haptic } from "../lib/haptics";
@@ -48,17 +48,23 @@ interface BlockRowProps {
   onTagClick?: (tag: string) => void;
   /** External `[label](url)` link tap — opens in the system browser. */
   onLinkClick?: (href: string) => void;
-  /** Commit a `key:: value` property edit; empty value clears it. */
-  onSetProperty?: (blockId: string, key: string, value: string) => void;
+  /** Open the properties sheet on a block — the attribute line under
+   *  its text is the tap target. Editing a field is the sheet's job. */
+  onOpenProperties?: (blockId: string) => void;
   /**
    * Resolved `((blk-…))` / `!((blk-…))` sources, keyed by handle.
    * Handed straight to `MarkdownInline`, which prints the raw handle
    * when it has nothing to resolve against — the whole symptom in
    * [#16](https://github.com/outlmd/outl/issues/16). `Journal` fills it
    * with `resolveEmbeds` for the visible page, the way the desktop's
-   * `resolvePageEmbeds` does.
+   * `resolveTransclusions` does.
    */
   embeds?: EmbedMap;
+  /** Resolved `![[page]]` targets, keyed by the name as written. Same
+   *  contract as {@link embeds} one level up: the title renders from
+   *  it, and a block that is nothing but the embed expands the page's
+   *  top-level blocks under itself. */
+  pageEmbeds?: PageEmbedMap;
   onTextareaMount?: (el: HTMLTextAreaElement) => void;
   /**
    * Called when the user pastes outline-shaped markdown into this
@@ -160,8 +166,9 @@ export function BlockRow(props: BlockRowProps): JSX.Element {
           }
           onDraftChange={props.onDraftChange}
           onCommitEdit={props.onCommitEdit}
-          onSetProperty={props.onSetProperty}
+          onOpenProperties={props.onOpenProperties}
           embeds={props.embeds}
+          pageEmbeds={props.pageEmbeds}
           onDeleteEmpty={() => {
             // Backspace on an already-empty block (RFC 0254 phase 4b,
             // `DeleteEmptyBlock`) — same destructive haptic and the
@@ -238,8 +245,9 @@ export function BlockRow(props: BlockRowProps): JSX.Element {
                 onLinkClick={props.onLinkClick}
                 onTextareaMount={props.onTextareaMount}
                 onPasteMarkdown={props.onPasteMarkdown}
-                onSetProperty={props.onSetProperty}
+                onOpenProperties={props.onOpenProperties}
                 embeds={props.embeds}
+                pageEmbeds={props.pageEmbeds}
                 selectionMode={props.selectionMode}
                 selectionSet={props.selectionSet}
                 onSelectTap={props.onSelectTap}

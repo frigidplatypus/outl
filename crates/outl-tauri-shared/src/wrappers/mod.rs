@@ -143,8 +143,12 @@ macro_rules! __tauri_command_entry {
     };
 }
 
+pub mod boot;
 pub mod capture;
 pub mod catalog;
+pub mod insert;
 pub mod merges;
+pub mod page_merge;
+pub mod reminders;
 pub mod telemetry;
 pub mod trash;

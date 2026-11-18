@@ -112,7 +112,29 @@ The lease lives on the **endpoint thread**, not on the transport. Too late stran
 ## Status from the transport (`peer_health`)
 
 `IrohSyncTransport` tracks per-peer reachability in an `Arc<Mutex<HashMap<EndpointId, PeerHealth>>>` (the `health` module).
-The transport's own dials populate it: the **boot connect**, the **catch-up loop**, and **gossip-triggered sync** each record `record_success(nid, started)` / `record_failure(nid)` on their `delta_sync` outcome — no extra endpoint, no extra dials.
+**Contact is what it records, and exactly two places decide it.**
+`PeerConnections` (the connection pool) owns the outbound verdict, because connecting is the only step that answers "can this device be reached"; `SyncProtocolHandler::serve_exchange` owns the inbound one. Nothing else writes the map.
+
+| what happened | recorded |
+|---|---|
+| the dial never connected | `record_failure(nid)` — the only thing that means offline |
+| the connection opened, or a pooled one was reused | `record_reached(nid)` |
+| an approved device dialed **us** | `record_reached(remote)`, right after `authorize_or_close` |
+| the exchange completed | `record_success(nid, started)`, adding the measured rtt (`delta_sync`) |
+| the exchange broke after connecting | **nothing** — the peer was reached, a half-sent push does not unmake that |
+
+No extra endpoint and no extra dials in any of them.
+The inbound position is pinned from both sides: earlier would let a refused dialer mark itself reachable on this device's dot, and later ties the record to the rest of the exchange surviving — the first version recorded after the durable-ingest ack, where a `send.finish()` that errors on an initiator which already hung up skips it entirely.
+
+**Both halves were bugs, and they are the same bug.**
+Reachability is asymmetric and outl is built on that asymmetry: a phone behind carrier NAT is the side that dials, which is why mobile forces a pass every 3s rather than waiting to be reached.
+Recording only outbound dials meant a desktop logged nothing but failures against that phone while ingesting its ops, so the dot read "no peer reachable" one line above "Last synced just now".
+Recording only *completed* exchanges meant the same dot flickered: a real log carries an inbound serve from a peer at 19:38:30 and that same peer's outbound dial failing on `send our ops blob` at 19:38:34, and a first sync or a 500k-op gap resend takes minutes to finish.
+[#575](https://github.com/outlmd/outl/issues/575).
+
+**The map is not threaded through the call graph.**
+It used to be a parameter on `run_catch_up`, `force_sync_all`, `GossipCtx`, the pairing drain and the boot connect — five places that knew whether the *pass* worked and nothing about whether the device answered. Putting it on the pool deleted all five.
+Regression net: `tests/health.rs` — an inbound serve marks the dialer, a dialer `authz` refuses is never marked, an exchange that breaks after connecting stays reachable, and a dial that never connects reads offline.
 
 `SyncTransport::peer_health()` (a trait method in `outl-actions`, default `Vec::new()`) returns the snapshot as `Vec<outl_actions::PeerHealthSnapshot>` (`node_id`, `reachable`, `last_rtt_ms`).
 `FileSyncTransport` uses the default (no peers).
@@ -201,6 +223,35 @@ The outbound set therefore stays inside `run_iroh`, unreachable from outside, so
 
 Which file owns what, and why each split happened: [`docs/iroh-internals.md` → Module layout](../../docs/iroh-internals.md#module-layout).
 
+**`oplog_census.rs` and `oplog_select.rs` are two questions, not one file split for size.**
+The census answers *what do we hold* — per-actor distinct HLCs, read off the op log's offset index with no op parsed.
+The selection answers *what do we send*, and every bound in it exists because an unbounded answer killed something.
+The per-exchange budget (an Android phone, 253 MB first sync), the rotating gap window (a 164 MB frame the reading side refused, stalling a workspace for eleven hours), and the byte guard that makes a built frame always a readable one.
+A caller that wants a clock reaches for the first; a caller deciding what crosses the wire reaches for the second.
+`oplog_select/tests.rs` is a sibling for the same reason `outl-md`'s `parse/tests.rs` is.
+
+**One `Census` per exchange, and it carries the byte offsets.**
+`Census::read` is one pass over `JsonlStorage::actor_offset_indexes`, and the three questions an exchange asks all come out of it: the clock (`vector_clock`), the selection (`ops_missing_for` ranges over the same indexes) and the op bodies (the offsets, spent by `JsonlStorage::read_ops_at_offsets`).
+
+Each of those used to re-read the census from scratch, and the third additionally called `JsonlStorage::open`.
+Counted on a real 748,684-op / 23-actor workspace: **six censuses and two full opens per exchange**, ~710 ms of CPU per peer, every 8 s, to move zero ops on a converged device — 160 MB of resident index per open, several concurrent, which is what took the desktop to 131 % of a core at peak and stopped the window taking keystrokes.
+Reducing the read's constant was the *previous* round of this fix (342 ms → 100 ms, the iOS watchdog); what was left was the shape.
+
+Three rules follow, and each is load-bearing:
+
+- **The responder shares one census between its clock and its selection.**
+  Nothing mutates the op log between those steps (the initiator's ops are ingested afterwards), so a second read re-derives the same answer at `O(total ops)`.
+- **The initiator deliberately does not.**
+  Its `ingest_received_ops` runs in between, so the step-1 census describes a log that no longer exists; the selection has to range over what we hold *now*, or an op that arrived from a third peer via this one waits for the next exchange.
+- **`ops_missing_for` never opens storage, on any branch.**
+  The guard that existed covered only `picks.is_empty()`, so the fast path was the idle device and a busy one paid the full index load.
+  `a_selection_with_ops_to_send_still_costs_no_open` and `a_gap_resend_also_costs_no_open` delete the sidecars and fail if either comes back; the pre-existing `a_peer_that_is_current_costs_no_op_read` passed throughout the incident, because it only ever reached the early return.
+
+The ingest's census (`oplog.rs`'s `write_deduped_batch`) is read **under** the append flock and must stay there: taken before the lock, it could miss a concurrent writer's op and let the batch append it twice.
+That makes its cost every other op-log writer's problem on the device, which is a reason to keep it cheap rather than a reason to move it.
+
+Root [`CLAUDE.md`](../../CLAUDE.md#critical-invariants-never-violate) invariant 15 is the rule; [`docs/performance.md`](../../docs/performance.md) has the measurements, the rejected cache design and the per-client checklist.
+
 The **gossip supervisor** lives in `engine_gossip.rs` (`run_gossip` + `GossipCtx`).
 It is one task that `select!`s over the op-announce drain, the periodic membership broadcast, the inbound gossip stream, AND the `wid_changed` signal — re-subscribing to the new topic on an id change (see "Gossip re-subscribes on id change").
 It runs even with zero peers at boot, so a device that pairs later still gets a live subscription via the id-change path (the old inline block only subscribed when boot-time peers existed).
@@ -283,9 +334,46 @@ In all three, **deny cases outnumber allow cases on purpose**, and the allows ar
 - On reconnect: bidirectional vector-clock delta sync.
   Both sides exchange a per-actor `ActorClock { max: Hlc, count: u64 }` — max + DISTINCT-op count — and stream missing ops.
   `oplog_census` owns every answer to "which ops do we hold" (clock, delta, ingest dedup) off `outl_core`'s offset index — **never route one back through `open` + `all_ops`**, see [Module layout](../../docs/iroh-internals.md#module-layout).
+- **One exchange carries a bounded delta, and the bound cuts oldest-first.**
+  `ops_missing_for` caps its selection at `MAX_OPS_PER_EXCHANGE` (20,000 ops, ~7 MB on the reference workspace) and reads only those ops through `JsonlStorage::read_ops_at`, off the offset index.
+  It used to ship the whole missing set as one frame and `all_ops` its way to the selection, so a first sync cost the entire log in memory on **both** ends.
+  On a real 723k-op workspace that is 719,785 ops / 253 MB against a (then) 256 MB frame ceiling: it cleared the guard by 1.2% and killed an Android phone instead of being refused, on every launch, because the ingest lands on disk before the process dies.
+  The cut is oldest-first for a reason that is not aesthetic: sorting the selection by HLC leaves every actor with a **contiguous prefix** of what it owed, so the receiver's `count` stays equal to what it holds below its own `max` and the next exchange reads as a fast path rather than provoking the very gap check below.
+  Regressions: `a_first_sync_is_capped_so_one_exchange_cannot_exhaust_memory`, `a_capped_first_sync_still_converges_over_repeated_exchanges`.
+
+- **A gap resend obeys the budget too, through a window that rotates.**
+  It used to cross whole, on reasoning that was right up to its last step.
+  A budget cuts the oldest ops, and a gap resend exists because we cannot tell which ops below the peer's watermark are missing, so a blind cut can send a slice the peer already holds and make no progress.
+  All true. What does not follow is "therefore send everything", because an oversized resend is **refused by `MAX_FRAME_BODY` on the reading side** — the same non-convergence, minus the repair, and it takes the whole exchange with it.
+
+  Measured on the maintainer's workspace: an actor holding 508,421 ops / 164 MB against the 64 MB cap.
+  Every exchange ingested the peer's ops (step 3 of `delta_sync`), built that frame (step 4), had it refused, and never reached the durable-ingest ack (step 5).
+  So `pending::pushed` never ran, **no** actor's ops crossed outward, and the device went eleven hours with a green sync dot and a phone a day behind.
+  One actor with a gap took the entire workspace down, in one direction, silently.
+
+  `gap_resend_window` is the fix.
+  It opens at `count - 1`, where a peer holding a prefix plus the watermark is first missing something — the shape an interrupted ingest leaves.
+  When a window comes back having taught the peer nothing, **the next one starts where that one ended and wraps**.
+  An unchanged `(max, count)` is exactly the signal that the window missed, so rotation is driven by the peer's own clock; a full rotation covers every op we hold, so progress is guaranteed for any subset, prefix-shaped or not.
+  The cursor is per process, in memory, keyed by the clock it answered — a restart costs one extra rotation, and persisting it would be sync state about a peer living outside the op log (root `CLAUDE.md` invariant 9) to save exactly that.
+
+  **A non-prefix subset is not hypothetical**, which is what the first version of this window got wrong.
+  `full_actor_resend_converges_and_dedups` holds the *newest* ops and none of the oldest, and a window opening near `count` handed it ops it already had.
+  That integration test caught it; the unit tests, written around the old "send everything", could not.
+
+  `fit_in_frame` is the other half, and it is what makes "the frame we build is always one the peer can read" true regardless of the selection.
+  The count budget bounds how **many** ops cross and nothing bounds how **big** one is (a pasted document is a single `Op::Edit`), so the encoded selection is trimmed from the end to `MAX_FRAME_BODY` before it is returned.
+
+  **"The peer has never heard of this actor" is still NOT the same case**: a peer holding zero ops cannot already have the slice we cut, so an oldest-first prefix always lands and no rotation is needed.
+  The two stay in separate piles in `ops_missing_for_capped`.
+  Regressions: `a_gap_resend_obeys_the_budget_so_the_frame_is_always_sendable`, `the_window_opens_on_the_ops_the_peer_is_actually_missing`,
+  `a_budgeted_gap_resend_converges_over_repeated_exchanges`, `a_window_that_teaches_the_peer_nothing_moves_on`,
+  `an_oversized_selection_is_cut_to_what_a_frame_can_carry`, `the_byte_guard_never_returns_an_empty_selection`.
+
 - **Gap detection (v2).**
   A bare max-HLC watermark assumes gapless delivery; an op landing ahead of a pending backlog made everything below the watermark permanently invisible (the Mac↔iPhone non-convergence).
-  If the sender holds more distinct ops `<= max_r` than the receiver's `count`, it resends that actor's FULL log; the receiver's ingest dedup (present-set read under the append locks) absorbs the overlap and never appends an op twice.
+  If the sender holds more distinct ops `<= max_r` than the receiver's `count`, that actor is resent from below its watermark — a rotating window, see above; it used to be the full log.
+  The receiver's ingest dedup (present-set read under the append locks) absorbs the overlap and never appends an op twice.
   Accepted limit: equal counts over different subsets are indistinguishable — convergence still lands via each op's origin device, which always holds its own actor's complete log.
 - Ops from actor C received via peer B are stored as `ops-<C>.jsonl` locally.
   A can get C's ops via A↔B sync even if A never connects to C directly.

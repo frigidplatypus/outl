@@ -59,6 +59,8 @@ It is the string the client shows when the user reaches for the action, so it is
 | `ToggleFocusMode` | ✅ | ✅ | ✅ |
 | `Quit` | ✅ | ✅ | — _Mobile apps are backgrounded by the OS, not quit from inside._ |
 | `OpenToday` | ✅ | ✅ | ✅ |
+| `OpenYesterday` | ✅ | ✅ | ✅ |
+| `OpenTomorrow` | ✅ | ✅ | ✅ |
 | `PrevDay` | ✅ | ✅ | ✅ |
 | `NextDay` | ✅ | ✅ | ✅ |
 | `SelectionDown` | ✅ | ✅ | — _Not on mobile — tap the block you want instead of moving a selection._ |
@@ -98,6 +100,7 @@ It is the string the client shows when the user reaches for the action, so it is
 | `DeleteBlock` | ✅ | ✅ | ✅ |
 | `ToggleCollapsed` | ✅ | ✅ | ✅ |
 | `ToggleTodo` | ✅ | ✅ | ✅ |
+| `MarkDone` | ✅ | ✅ | ❌ A one-tap finish isn't wired on mobile yet — tap the checkbox through to DONE instead. |
 | `CopyBlockRef` | ✅ | ❌ Copying a block ref isn't on the desktop yet — open the block's properties, or copy the handle from the TUI with `y r`. | ✅ |
 | `DeletePage` | ✅ | ✅ | ✅ |
 | `InsertRemind` | ✅ | ✅ | ✅ |
@@ -161,6 +164,8 @@ the drift this RFC exists to prevent.
 | Capability | TUI | Desktop | Mobile |
 |---|---|---|---|
 | `PageHistory` | ❌ Page history isn't in the TUI — open the same page in the desktop app and use the ⏱ button to see what the op log recorded. | ✅ | ✅ |
+| `PageRename` | ❌ Renaming a page isn't in the TUI yet. Run `outl page rename <old> <new>` from a terminal, or rename it in the desktop or mobile app. Links to the page follow the new name. | ✅ | ✅ |
+| `PageMerge` | ✅ | ✅ | ✅ |
 | `PluginMarketplace` | ❌ Browsing and installing plugins from a marketplace isn't in the TUI — install by id from a terminal with `outl plugin install <id>`, or use the desktop or mobile app. | ✅ | ✅ |
 | `Calendar` | ⚠️ The TUI's month grid shows which days have journals but can't open one — press `[` / `]` to step a day, or open the quick switcher (Ctrl+P) and type the date (YYYY-MM-DD) to jump straight there. | ✅ | ✅ |
 | `Templates` | ✅ | ✅ | ✅ |
@@ -177,8 +182,11 @@ the drift this RFC exists to prevent.
 | `CaptureOutsideTheApp` | ⚠️ A line captured with `outl capture` lands the next time you start outl here — the desktop and phone apps pick one up while they're running. | ⚠️ Capturing from outside the app runs `outl capture "your line"` — wire it to a Shortcut, a macOS Service or a hotkey and it lands here on the next window focus. | ✅ |
 | `TaskList` | ❌ There's no task list here yet. Add a `query` code block with `status: open` to any page and it lists every open task in the workspace. | ✅ | ✅ |
 | `DiagramRendering` | ❌ The terminal keeps a mermaid fence as source. Open the page in the desktop or mobile app to see the diagram. | ✅ | ✅ |
+| `SlashCommandMenu` | ✅ | ✅ | ❌ Typing `/` doesn't open a command list on the phone yet — plugin commands are behind the plugins button in the top bar, and templates are under "Insert template" when you long-press a block. |
 | `CrashReportingOptOut` | ❌ Crash reporting is switched from the terminal here — run `outl telemetry off` to stop sending reports, or `outl telemetry status` to see where it stands. | ✅ | ✅ |
 | `CrashReportingDisclosure` | ❌ Crash reporting is on, and the terminal does not announce it the way the apps do — run `outl telemetry status` to see where it stands, or read the full list of what a report carries at outl.app/privacy. | ✅ | ✅ |
+| `AboutAndSupport` | ❌ The terminal has no About screen. Run `outl --version` for the build you are running, and the project, its issue tracker and its sponsor page are at github.com/outlmd/outl. | ✅ | ❌ The phone app doesn't show its version or link out yet. Check the build in the App Store or TestFlight, and open github.com/outlmd/outl in a browser to report something or support the project. |
+| `PageEmbed` | ✅ | ✅ | ✅ |
 <!-- END GENERATED: capability-parity -->
 
 ## What this table does not cover

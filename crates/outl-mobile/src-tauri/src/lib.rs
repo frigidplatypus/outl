@@ -39,6 +39,7 @@
 mod android_globals;
 #[cfg(target_os = "android")]
 mod android_jni;
+mod backend_log;
 mod bg_sync;
 #[cfg(test)]
 mod capability_parity;
@@ -67,37 +68,38 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tracing::info;
 
 use crate::commands::{
-    add_block, attach_asset, copy_block_markdown, copy_block_ref, copy_markdown, create_block,
-    cut_block, date_title, delete_block, delete_page, edit_block, get_editor_diagrams,
-    get_telemetry_enabled, get_theme, get_theme_config, import_asset_file, indent_block,
-    instantiate_template_at, list_all_pages, list_outline, list_templates_cmd, list_themes,
-    move_block_after, move_block_down, move_block_up, next_day, open_asset, open_external_file,
-    open_journal_for, open_page_by_slug, open_ref, open_today_journal, outdent_block,
-    outl_emoji_search, outl_peer_list, outl_peer_pair_host, outl_peer_pair_join, outl_peer_remove,
-    outl_peer_status, outl_sync_now, page_backlinks, paste_block_after, paste_markdown_at,
-    paste_plain_at, plugin_config_set, plugin_install_official, plugin_list, plugin_registry_list,
-    plugin_run, plugin_secret_remove, plugin_secret_set, plugin_set_enabled,
-    plugin_settings_describe, plugin_sync_hooks, plugin_toolbar, plugin_transform,
-    plugin_transformers, plugin_uninstall, previous_day, read_asset_data_url, redo_page,
-    reload_workspace, resolve_page_labels, resolve_ref, search_blocks, search_pages,
-    search_persons, set_backlinks_order, set_block_collapsed, set_editor_diagrams,
-    set_telemetry_enabled, split_block, today_slug_cmd, toggle_pin, toggle_quote, toggle_todo,
-    undo_page, workspace_stats,
+    add_block, attach_asset, boot_mark, copy_block_markdown, copy_block_ref, copy_markdown,
+    create_block, cut_block, date_title, delete_block, delete_page, edit_block,
+    get_editor_diagrams, get_telemetry_enabled, get_theme, get_theme_config, import_asset_file,
+    indent_block, instantiate_template_at, list_all_pages, list_outline, list_templates_cmd,
+    list_themes, merge_pages, move_block_after, move_block_down, move_block_up, next_day,
+    open_asset, open_external_file, open_journal_for, open_page_by_slug, open_ref,
+    open_today_journal, outdent_block, outl_emoji_search, outl_peer_list, outl_peer_pair_host,
+    outl_peer_pair_join, outl_peer_remove, outl_peer_status, outl_sync_now, page_backlinks,
+    paste_block_after, paste_markdown_at, paste_plain_at, plugin_config_set,
+    plugin_install_official, plugin_list, plugin_registry_list, plugin_run, plugin_secret_remove,
+    plugin_secret_set, plugin_set_enabled, plugin_settings_describe, plugin_sync_hooks,
+    plugin_toolbar, plugin_transform, plugin_transformers, plugin_uninstall, previous_day,
+    read_asset_data_url, redo_page, reload_workspace, rename_page, resolve_page_labels,
+    resolve_ref, search_blocks, search_pages, search_persons, set_backlinks_order,
+    set_block_collapsed, set_editor_diagrams, set_telemetry_enabled, split_block, today_slug_cmd,
+    toggle_pin, toggle_quote, toggle_todo, undo_page, wait_workspace_ready, workspace_stats,
 };
 // Registered on mobile for the first time by the shared command catalog
 // (`outl_tauri_shared::wrappers`): the bodies always existed, only the
 // wrappers were missing, so the features were absent by omission rather
 // than by decision.
 use crate::commands::{
-    clear_reminder_snooze, deliver_due_reminders, known_property_keys, list_reminders,
-    mark_block_done, reminder_action_catalog, reminder_settings, set_block_property,
-    set_block_remind, set_page_property, set_reminder_settings, snooze_presets, snooze_reminder,
+    clear_reminder_snooze, deliver_due_reminders, format_remind_rule, known_property_keys,
+    list_reminders, mark_block_done, parse_remind_rule, reminder_action_catalog, reminder_settings,
+    set_block_property, set_block_remind, set_page_property, set_reminder_settings, snooze_presets,
+    snooze_reminder,
 };
 use crate::commands::{
     device_activity, drain_capture_inbox, export_markdown, journal_days_with_content,
-    list_action_support, list_open_tasks, list_shortcut_bindings, list_trash, merged_edits,
-    page_timeline, resolve_embeds, restore_trash_entry, run_auto_run_blocks, run_code_block,
-    undo_merged_edit,
+    list_action_support, list_insert_commands, list_open_tasks, list_shortcut_bindings, list_trash,
+    merged_edits, page_timeline, resolve_embeds, resolve_insert_command, resolve_page_embeds,
+    restore_trash_entry, run_auto_run_blocks, run_code_block, undo_merged_edit,
 };
 use crate::plugin_service::spawn_plugin_service;
 use crate::state::AppState;
@@ -207,13 +209,17 @@ pub fn run() {
     // leaves the `log` crate's slot free for the plugin, which owns the
     // frontend + file/webview targets. A double-init just returns `Err`, so
     // `.ok()` keeps it a no-op.
+    let backend_log_file = backend_log::open();
     let subscriber = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                 tracing_subscriber::EnvFilter::new("info,outl_sync_iroh=debug,iroh=info")
             }),
         )
-        .with_writer(outl_telemetry::lossy_stderr)
+        // stderr **and** a file in the sandbox. On iOS stderr reaches
+        // nothing a developer can read — see `backend_log`, which is
+        // where that was measured and why the sink exists.
+        .with_writer(move || backend_log::Tee::for_event(backend_log_file.as_ref()))
         .log_internal_errors(false)
         .finish();
     let _ = tracing::subscriber::set_global_default(subscriber);
@@ -313,6 +319,17 @@ pub fn run() {
                 global_cfg.backup.interval_minutes,
             );
 
+            // The interactive phase: the orphan sweep, the snapshot
+            // refresh and the signal that lets iroh bind all wait for the
+            // frontend's `first_content` mark. The deadline that bounds
+            // that wait is armed by the opener, once the jobs exist —
+            // armed here it would race the *open* instead of the paint.
+            // See `workspace_open::FIRST_PAINT_DEADLINE`.
+            let first_paint = outl_tauri_shared::FirstPaintGate::new();
+            let workspace_ready = Arc::new(outl_tauri_shared::WorkspaceReady::new());
+
+            // Gate on the opener finishing: see `iroh_sync::wire_iroh_transport`.
+            let (open_done_tx, open_done_rx) = std::sync::mpsc::channel();
             spawn_workspace_opener(
                 workspace.clone(),
                 workspace_guards.clone(),
@@ -320,6 +337,9 @@ pub fn run() {
                 storage_root.clone(),
                 hlc.clone(),
                 app.handle().clone(),
+                open_done_tx,
+                first_paint.clone(),
+                workspace_ready.clone(),
             );
 
             let registry = Arc::new(RuntimeRegistry::with_builtins());
@@ -331,8 +351,12 @@ pub fn run() {
             // `transport = "file"`. A bind/identity failure logs and
             // returns `None` — the app still runs on the native iCloud
             // watcher, so iroh trouble never blocks startup.
-            let iroh =
-                iroh_sync::wire_iroh_transport(&app.handle().clone(), storage_root.clone(), actor);
+            let iroh = iroh_sync::wire_iroh_transport(
+                &app.handle().clone(),
+                storage_root.clone(),
+                actor,
+                open_done_rx,
+            );
 
             // Plugin host runs on its own thread (Boa `Context` is
             // `!Send`, so it can't live in `AppState`). It shares the same
@@ -372,6 +396,8 @@ pub fn run() {
                 history: Mutex::new(std::collections::HashMap::new()),
                 backlink_index: Arc::new(Mutex::new(None)),
                 projection_writer,
+                first_paint,
+                workspace_ready,
                 calendar_week_start,
             });
             app.manage(plugins);
@@ -411,6 +437,8 @@ pub fn run() {
             snooze_presets,
             clear_reminder_snooze,
             set_block_remind,
+            parse_remind_rule,
+            format_remind_rule,
             mark_block_done,
             set_block_property,
             // Properties (key catalogue + page-level writer)
@@ -437,6 +465,8 @@ pub fn run() {
             today_slug_cmd,
             date_title,
             workspace_stats,
+            boot_mark,
+            wait_workspace_ready,
             resolve_ref,
             // Shortcuts + the per-client support matrix (invariant 12).
             // New on mobile: the help surface can only say *where* an
@@ -459,10 +489,14 @@ pub fn run() {
             get_telemetry_enabled,
             set_telemetry_enabled,
             // Theme
+            list_insert_commands,
             list_themes,
+            resolve_insert_command,
             get_theme,
             get_theme_config,
             delete_page,
+            rename_page,
+            merge_pages,
             page_backlinks,
             set_backlinks_order,
             resolve_page_labels,
@@ -533,6 +567,7 @@ pub fn run() {
             run_code_block,
             run_auto_run_blocks,
             resolve_embeds,
+            resolve_page_embeds,
             // Legacy
             list_outline,
             add_block,

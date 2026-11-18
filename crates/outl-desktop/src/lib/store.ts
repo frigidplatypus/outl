@@ -8,9 +8,11 @@
  * because the chrome diverges; only pure helpers and DTOs go through
  * `@outl/shared`.
  */
+import { focusSubtree } from "@outl/shared/outline";
 import { createSavedMarks } from "@outl/shared/trust";
 import { createStore, reconcile } from "solid-js/store";
 
+import type { FocusView } from "@outl/shared/outline";
 import type {
   Backlink,
   BacklinksOrder,
@@ -18,6 +20,7 @@ import type {
   MdAheadOfLog,
   NamespaceChild,
   PageBacklinks,
+  PageEmbedContent,
   ParseWarning,
   PageMeta,
   ResolvedBlock,
@@ -83,6 +86,12 @@ export interface AppStateShape {
    *  refs and `!((blk-…))` embeds on the current page. Inline refs render
    *  `text`; embeds also expand `children` as a subtree. */
   embeds: Record<string, ResolvedBlock>;
+  /** Resolved pages keyed by the name inside `![[page]]`, for the page
+   *  embeds on the current page. The inline token renders `title`; a
+   *  block that is nothing but the embed also expands `blocks` as a
+   *  read-only subtree. Twin of {@link AppStateShape.embeds}, filled by
+   *  the same resolve pass in `<OutlineView />`. */
+  pageEmbeds: Record<string, PageEmbedContent>;
   /** DFS path of the selected block, or `null` for no selection. */
   selectedPath: number[] | null;
   /**
@@ -293,12 +302,32 @@ export interface AppStateShape {
    * an Op.
    */
   dropTargetBlockId: string | null;
+  /**
+   * Today's journal slug, from the backend's `today_slug` (configured
+   * timezone, never the browser clock). `null` until it answers.
+   *
+   * One owner, because a window left open overnight used to carry two
+   * stale copies of this fact: the header's own `createResource` keyed
+   * on the page slug, which only re-ran on navigation, and the sidebar
+   * calendar's `new Date()`, frozen at mount *and* on the wrong clock.
+   * `<AppShell />` wires `createDayClock` (`@outl/shared/journal`) to
+   * this field; nothing else writes it.
+   */
+  todaySlug: string | null;
   /** Last error surfaced to the user (status line). */
   lastError: string | null;
+  /**
+   * What a page rename / merge did, one line per fact (blocks moved,
+   * links updated, each property conflict). Read by `<NoticeToast />`
+   * only; written by `lib/page-actions.ts`. A property conflict is data
+   * the user chose to drop without seeing it, so it has to be on screen.
+   */
+  notice: string[] | null;
 }
 
 const [state, setState] = createStore<AppStateShape>({
   workspace: null,
+  todaySlug: null,
   page: null,
   outline: [],
   backlinks: [],
@@ -310,6 +339,7 @@ const [state, setState] = createStore<AppStateShape>({
   pageProperties: [],
   addPropertyBlockId: null,
   embeds: {},
+  pageEmbeds: {},
   selectedPath: null,
   selectedBlockId: null,
   selectedBacklinkBlockId: null,
@@ -336,6 +366,7 @@ const [state, setState] = createStore<AppStateShape>({
   focusBlockId: null,
   dropTargetBlockId: null,
   lastError: null,
+  notice: null,
 });
 
 export { state as appState, setState as setAppState };
@@ -435,6 +466,44 @@ export function trackBacklinks(reply: Promise<PageBacklinks>): Promise<void> {
     .then((r) => setState(backlinksState(r)))
     .catch(() => {})
     .finally(() => setState("backlinksLoading", false));
+}
+
+/**
+ * The zoom, resolved against the live outline: the focused block's
+ * subtree plus its ancestor breadcrumb, or `null` when there is no zoom
+ * **or** the focused block has left the page (a peer deleted it, a move
+ * took it elsewhere).
+ *
+ * The single owner of "is this window zoomed, and into what", because
+ * three surfaces have to agree on it and they used to each resolve it
+ * themselves: what the outline body renders, where `j` / `k` may go,
+ * and whether the page's own sections are on screen. A stale id read as
+ * "zoomed" by one of them and as "not zoomed" by another is a cursor
+ * walking into a section that is not drawn.
+ *
+ * Reads the store, so calling it inside a memo / JSX keeps the
+ * reactivity — `<OutlineView />` wraps it in a `createMemo` so the walk
+ * runs once per render rather than once per reader.
+ */
+export function zoomView(): FocusView | null {
+  const id = state.focusBlockId;
+  if (!id) return null;
+  return focusSubtree(state.outline, id);
+}
+
+/**
+ * The blocks on screen: the zoom's children when zoomed, the whole page
+ * otherwise.
+ *
+ * One function because the body renders them and the cursor walks them,
+ * and those two must not disagree — `navBlocks()` used to carry a
+ * comment saying it matched `<OutlineView />`, which is a parity claim
+ * nothing could fail. A stale zoom target falls back to the full page
+ * here, so neither caller has to ask twice.
+ */
+export function visibleRoots(): BlockNode[] {
+  const fv = zoomView();
+  return fv ? fv.root.children : state.outline;
 }
 
 /**

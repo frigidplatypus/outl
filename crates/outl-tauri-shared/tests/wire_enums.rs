@@ -49,6 +49,7 @@
 //!   at all -> `assert_union_tags` / `assert_union_variant_tags`
 
 mod ts_parser;
+mod wire_fixtures;
 mod wire_pin;
 
 use std::collections::BTreeSet;
@@ -208,6 +209,7 @@ fn inline_token_matches_its_union() {
         T::Tag { .. } => T::Tag { value: "#infra".into() },
         T::BlockRef { .. } => T::BlockRef { value: "blk-abc123".into() },
         T::Embed { .. } => T::Embed { value: "blk-abc123".into() },
+        T::PageEmbed { .. } => T::PageEmbed { value: "infra".into() },
         T::Emoji { .. } => T::Emoji { shortcode: "tada".into(), glyph: "🎉".into() },
     );
     assert_tagged_enum(&variants, "InlineToken", "kind");
@@ -228,6 +230,26 @@ fn sync_progress_matches_its_union() {
         P::Failed { .. } => P::Failed { peer: peer(), error: "boom".into() },
     );
     assert_tagged_enum(&variants, "SyncProgress", "phase");
+}
+
+/// `rename_page` answers two outcomes through one command, so the client
+/// narrows on `status`. `Exists` carries only `existing`; `Renamed` carries
+/// the refreshed page and the counts. A variant the union forgets is a
+/// reply the client's `switch` silently falls through.
+#[test]
+fn rename_page_reply_matches_its_union() {
+    use outl_tauri_shared::commands::page_merge::{RenamePageReply as R, RenamePageReport};
+    let report = || RenamePageReport {
+        old_slug: "alpha".into(),
+        old_title: "Alpha".into(),
+        rewritten_blocks: 3,
+        skipped_namespace_refs: 1,
+    };
+    let variants = wire_variants!(R;
+        R::Renamed { .. } => R::Renamed { view: Box::new(wire_fixtures::page_view()), report: report() },
+        R::Exists { .. } => R::Exists { existing: wire_fixtures::page_meta() },
+    );
+    assert_tagged_enum(&variants, "RenamePageReply", "status");
 }
 
 /// `Key` is `#[serde(tag = "kind", content = "value")]`, so a

@@ -25,6 +25,22 @@ Tapping a tab closes the other sheets.
 The sheets cover the bar, so the lit tab is only visible for Journal.
 The bar hides while a block is edited or a range is selected, because the keyboard toolbar owns that space.
 
+## What's what — the first-run walkthrough
+
+One sheet naming the bottom bar, the `+`, the week strip, the month label and the block long-press ([issue #574](https://github.com/outlmd/outl/issues/574)).
+It opens once per device on a first launch and is re-openable from **Settings → What's what**.
+
+It is not the 30-second tour (`firstRunTips`, `@outl/shared/polish`), and the split is the point.
+That one teaches the **outline** (every line is a block, `[[` links a page) and only ever appears on an empty page, so a user whose journal already has content never sees it — and it names no chrome in any case.
+Hence a key of its own (`CHROME_TOUR_KEY`); sharing `TIPS_KEY` would hide this from exactly the person who has been tapping unlabelled buttons for a week.
+
+Two rules it keeps:
+
+- **Nothing in it has to be completed before writing.** No steps, no next, no progress. The backdrop, the drag handle and the button all close it.
+- **Any way out counts as read.** Someone who swiped it away has read as much of it as they intend to, and showing it again next launch would be the app not listening.
+
+The copy is mobile-only (`lib/chrome-tour.ts`) because every row names a control that exists on this client; what is shared is the "show it once, then remember" mechanism, which never becomes an Op.
+
 ## Opening a ref that may not exist yet
 
 `[[avelino/outl]]`, `[[2026-06-04]]`, `#code-review`, picker entries — every "tap a ref → see a page" path on the frontend goes through **one** Tauri command, `open_ref(target)`, which wraps `outl_actions::page::open_or_create_by_ref`.
@@ -79,6 +95,27 @@ Both backends are debounced at 150 ms off one timer: `search_blocks` rebuilds th
 An empty query loads immediately, since there are no keystrokes behind it to coalesce.
 Blocks additionally wait for the query to reach `BLOCK_QUERY_MIN`.
 
+## Search sheet — starting a page that is not a daily note
+
+The `+` beside the search box opens a name sheet and `openRef`s whatever is typed.
+
+It exists because there was no "New page" control at all ([issue #573](https://github.com/outlmd/outl/issues/573)).
+Named pages have always worked.
+The only way to *start* one was to type `[[` into a block and tap the link, which a phone-only user has no reason to know.
+So writing in the journal every day led to the reasonable conclusion that every note has to live on a day.
+
+Three things it does not do, each deliberate:
+
+- **It does not decide what the name means.**
+  `openRef` runs the canonical tree — a date → that journal, an existing literal / slugified / title match → that page, otherwise a new page titled with what was typed.
+  So **a name that already exists opens that page** rather than making a second one.
+  Branching on the shape in TypeScript first is the regex-vs-parser drift that command exists to remove.
+- **It does not leave a `[[link]]` on today.** Opening the page is the whole v1; a page reachable only by search is a real concern, and it is the one `[[` already answers for anyone who wants the backlink.
+- **It is hidden while the list is picking a merge target.** There is nothing to merge a page into that does not exist yet.
+
+The sheet is `PageNameSheet` with `submitUnchanged`, the one prop this flow added.
+A rename refuses a name equal to what it opened with, because that write does nothing; a create prefilled from the search box is exactly the case where submitting it unchanged is the point.
+
 ## Page switcher — long-press to delete
 
 `PageSwitcher.tsx` renders each page as a row button; spreading `longPressHandlers(p)` arms a 500 ms sustained-touch detector (canceled if the finger moves more than 10 px).
@@ -89,6 +126,27 @@ The backend command is the shared `outl_tauri_shared::commands::page::delete_pag
 
 `BacklinksSection.tsx`'s `order`/`onToggleOrder` flips order via `setBacklinksOrder` (returns `PageBacklinks`); backlinks are lazy in `Journal.tsx` via `createResource(slug, pageBacklinks)` since `PageView.backlinks` is empty.
 
+**Every section below the outline stays blank until the scan answers for the page on screen.**
+The backlinks card used to mount immediately on a regular page and say "Linked from 0" / "No backlinks yet" while the scan ran, then contradict itself — `0` is a wrong answer, not a pending one.
+A navigation showed the page the user just left answering for the one they opened, because Solid's `createResource` keeps its last value through a source change; `Journal.tsx` blanks it while `loading` for that reason.
+Once the scan replies, a regular page keeps the empty box (a newcomer discovers that pages can cite each other) and a journal stays hidden.
+`lateSectionVisible` (`@outl/shared/outline`) owns the rule; `PageSections.test.tsx` is the net.
+
+## Page switcher - rename and merge
+
+The long-press sheet that offers delete also offers **Rename page** and **Merge into...**, for regular pages only: journals are excluded, because a journal's slug is its date.
+The commands are the shared `rename_page` / `merge_pages` bodies, so every link to the page is rewritten in the same batch ([RFC 0557](rfcs/0557-page-merge-and-rename.md)).
+
+- **Rename** opens a text prompt prefilled with the current title.
+  When the new name already belongs to another page, nothing is written and a confirm asks "A page named X already exists. Merge this page into X?".
+  Accepting runs the merge, cancelling leaves both pages as they were.
+- **Merge into...** opens a page picker without the source page, and always asks for a confirmation before writing.
+- **Afterwards** the app opens the resulting page (renamed, or the merge target) and shows a summary with blocks moved, links updated and any property conflicts (the target's value is kept, the dropped one is named).
+
+There is no undo for either action, and a merge does not come apart: see "The opposite direction" in the RFC.
+Neither has a keyboard chord, so the long-press sheet is the only trigger on touch devices.
+`Capability::PageRename` and `Capability::PageMerge` record the verdicts in [client-parity.md](client-parity.md).
+
 ## Opening an external `[label](url)` link
 
 Tapping an external link opens it in the system browser via **`tauri-plugin-opener`** (registered in `lib.rs`, capability `opener:allow-open-url` for `http(s)`/`mailto`).
@@ -98,6 +156,39 @@ An `assets/…` link routes instead (via `isAssetLink`) to `openAsset` — `open
 The block long-press **Attach file** action picks a file (`@tauri-apps/plugin-dialog`) → `attachAsset` (shared `commands::asset`).
 On iPad, dragging a file onto a block imports it the same way via the shared `installFileDrop` + `importAssetFile` (`@outl/shared/drag-drop`), best-effort — iPhone rarely delivers a webview drop, so long-press stays the only import path there.
 `[[ref]]`/`#tag` taps still route through `openRef`; backlink rows stay inert.
+
+## Properties (`key:: value`) on a block
+
+A block's properties render as **one attribute line** under its text: key in a dim grey, value a step darker, `·` between fields, truncated, never more than a line.
+Past two fields the rest reads `+N more`.
+
+Tapping anywhere on the line opens the properties sheet for that block; the page's own properties sit in the same kind of line above the outline and open the sheet on its Page side.
+There is no inline editing in the outline — the sheet is a two-column field list, and a row that looks like a form row is the one that opens a form.
+
+**Only a field that acts on you gets colour.**
+Today that is `remind::`, which shows a bell and the accent and drops its key, since the icon already says what it is.
+`auto-run::` runs code and still renders quiet: the criterion is whether it will interrupt you, not whether it matters.
+
+**An importer's stamps do not render here at all.**
+`created`, `edited` and `roam-uid` arrive from `outl import` and are on essentially every block of a migrated graph.
+They are still in the `.md` and still listed in the sheet — dimmer, and below what you wrote — because deleting one means seeing it first.
+A `created:: by Roberta` you typed yourself is not a stamp and renders normally; only an ISO-8601 value counts.
+
+## Remind me — authoring a `remind::` rule
+
+A long-press offers **Remind me…**, which opens `<RemindSheet />` rather than the `window.prompt` it used to ([issue #572](https://github.com/outlmd/outl/issues/572)).
+Time, repeat, an "until" that only appears for a rule that repeats, and an **Edit as text** field holding the rule verbatim.
+Why both halves exist, and why the text field is what keeps the picker honest: [`docs/reminders.md` → Mobile](reminders.md#mobile-outl-mobile).
+
+What is decided in this client, and nowhere else:
+
+- **The rule text is never written here.** `parseRemindRule` on open, `formatRemindRule` on save, both over `outl_md::remind`. Two round-trips per session, not per keystroke.
+- **A rule that does not parse opens in the text field**, carrying what the block actually says. Dropping the user into the controls would show them a 09:00 that has nothing to do with their rule.
+- **An interval the list does not offer keeps its own label** (`Every 45min`), because a list with nothing selected reads as "Once" and silently drops the repeat on the next save.
+- **Switching the "until" clause seeds it** — a time one hour past the anchor (a stop at or before it is a clause the parser drops), or today's date — so Save is never a button that fails on a half-filled field.
+- **Remove is a button**, not an empty value the user has to discover. It is the only way to stop a block nagging without deleting it.
+
+The Reminders tab's empty state names this gesture, so opening the tab with nothing scheduled is not a dead end.
 
 ## Blockquote chrome
 
@@ -114,6 +205,11 @@ Convention (three-surface parity): [`docs/clients.md` → Blockquote convention]
 Tap a block's plain bullet dot to zoom in — it becomes the outline root (Roam/Workflowy focus); `← Back` + breadcrumb zoom out.
 Local view state (`focusBlockId` in `Journal.tsx`), never a Tauri round-trip; the shared `focusSubtree` (`@outl/shared/outline`) does the subtree + breadcrumb.
 Mobile owns only the touch chrome: the bullet tap moves mark-as-TODO to the long-press menu; checkbox + `<CollapseTriangle>` untouched.
+
+**Nothing that belongs to the page is on screen while zoomed**: the backlinks card, the nested-pages list, the namespace mentions and the page's own `key:: value` row all go, because the header is a *block* there.
+**Opening a page leaves the zoom, including the page already open** — Today, the week strip, the calendar, a tap on a `[[ref]]`, the page switcher, a deep link and wake-to-today.
+A commit, a background poll, a peer reload and a capture into today keep it: none of those is the user asking to go somewhere.
+
 Convention: [`docs/clients.md` → Zoom / focus on a block](clients.md#zoom--focus-on-a-block-roamworkflowy).
 
 ## Paste from external apps

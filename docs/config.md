@@ -37,7 +37,7 @@ managed = false
 last = "/Users/me/iCloud/outl"
 
 [theme]
-# Palette preset names from `outl_theme::PRESETS`. A fresh config uses
+# Palette preset names (`outl theme list`). A fresh config uses
 # this light/dark pair; an older config with only `preset` keeps that
 # preset on both sides.
 preset = "outl-light"
@@ -186,8 +186,15 @@ That is a one-time, behaviour-preserving change to the file, since `ThemeCfg::da
 
 `outl doctor` warns when a configured pair has two light or two dark sides (e.g. `mode = "light"` naming a dark preset) — a misconfigured pair, not a resolution bug.
 
-Available presets: `outl`, `outl-light`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`, `gruvbox`, `gruvbox-light`.
+Available presets: `outl`, `outl-light`, `ansi`, `ansi-light`, `logseq-light`, `dracula`, `solarized`, `nord`, `monokai`, `gruvbox`, `gruvbox-light`.
+`outl theme list` prints them, including any of your own.
 See [theming.md](theming.md) for the look of each.
+
+Every preset also answers to `<name>-dark` / `<name>-light`, and the four pre-0.14 spellings still resolve: `default-dark` and `dark` → `ansi`, `light` → `ansi-light`, `default` → `outl`.
+An existing `config.toml` needs no edit.
+
+**Your own presets** go in `~/.config/outl/themes/<name>.toml` and are usable anywhere a preset name is — see [theming.md → Your own theme](theming.md#your-own-theme).
+`outl doctor` warns about any file there that fails to load.
 
 #### `[editor]`
 
@@ -208,7 +215,7 @@ See [theming.md](theming.md) for the look of each.
 
 | Field | Type | Default | Read by | Effect |
 |---|---|---|---|---|
-| `enabled` | bool | `true` | TUI / desktop / mobile | Master switch for materialised-state snapshots on disk. The CLI ignores this (always off — its work is ephemeral). When `true`, `Workspace::apply` writes a snapshot every `op_threshold` ops so the next boot skips the full op-log replay. |
+| `enabled` | bool | `true` | TUI / desktop / mobile | Master switch for materialised-state snapshots on disk. A **writing** CLI command honours it (`outl block append`, `outl batch`, …); a read (`outl page get`, `outl workspace info`) never writes one whatever this says. When `true`, `Workspace::apply` writes a snapshot every `op_threshold` ops so the next boot skips the full op-log replay. |
 | `op_threshold` | integer (ops) | `10_000` | TUI / desktop / mobile | How many ops between snapshot writes. Lower = faster boot, more disk churn; higher = less churn, slower boot. |
 
 #### `[storage]`

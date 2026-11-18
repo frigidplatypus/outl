@@ -63,8 +63,11 @@ It takes the shared workspace lock, reports the device actor, and mints nothing,
 `commit` refuses, and so does an append that goes around it.
 
 **Snapshot policy.**
-`open()` defaults to the short-lived contract: snapshots are read at boot, never written, because a snapshot write from a transient process races with the long-lived app that owns the workspace.
-A resident embedder (a daemon that stays open) should opt in, or its boot cost on a large workspace regresses to full log replay:
+`open()` defaults to the short-lived contract: snapshots are read at boot, never written.
+The original reason was that a write from a transient process races the long-lived app that owns the workspace; that race was fixed in the writer (`snapshot::write_to_disk` composes in a per-write scratch and publishes by `rename`), so it is no longer what the default protects.
+What it protects now is the **cost**: writing one is a multi-MB encode plus an fsync, and a short-lived process paying it is paying for whoever runs next.
+So opt in when that trade makes sense — a resident embedder (a daemon that stays open), or a process that already writes ops and would otherwise leave a terminal-only machine full-replaying forever (which is what `outl`'s own writing commands now do).
+Without it, boot cost on a large workspace regresses to full log replay:
 
 ```rust
 let opts = outl_ws::OpenOptions {
@@ -151,6 +154,7 @@ Practical consequences:
   That is normal, not an error.
   (The device actor itself comes from the device store outside the workspace, not from `.outl/config.toml` — see [storage.md](storage.md#where-the-actor-id-lives--outside-the-workspace).)
 - Ops you write while a long-lived outl process runs (a GUI, the TUI, `outl mcp serve`, `outl serve`) are picked up by its poller and shipped to peers by its transport.
+  An agent on the same machine no longer needs its own process: `outl serve` serves MCP over a local socket and `outl mcp serve` bridges to it (see [MCP](mcp.md#running-beside-outl-serve)).
   `outl serve --no-watch` is the headless case: it has a transport and no file watcher, and the transport is the half that ships your ops.
 - Ops written while nothing else runs sit on disk until any long-lived surface opens, then converge.
 - Reads see whatever the log held when you called `open`.

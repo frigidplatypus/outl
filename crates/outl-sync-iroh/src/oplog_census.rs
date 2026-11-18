@@ -21,137 +21,105 @@
 //! received batch *while holding the device-wide append flock*, so every
 //! other sync write on the machine queued behind a workspace load.
 //!
-//! [`actor_census`] is the single owner of the answer, and it delegates to
-//! `outl_core::storage::JsonlStorage::actor_timestamps`, which is the single
-//! owner of reading it off disk.
+//! [`Census`] is the single owner of the answer, and it delegates to
+//! `outl_core::storage::JsonlStorage::actor_offset_indexes`, which is the
+//! single owner of reading it off disk.
+//!
+//! **Those three callers now ask once per exchange, not once per
+//! question.** Reducing the constant was not enough: the read was
+//! `O(total ops)` whatever it cost, and an exchange asked for it six times
+//! (plus two `JsonlStorage::open`s) with the same answer every time. A
+//! [`Census`] is read once and carries the offsets, so the clock, the
+//! selection and the op bodies all come out of it. On the reference
+//! 748,684-op workspace that is ~710 ms per exchange down to ~38 ms, and
+//! the 160 MB of index the two opens allocated is not allocated at all.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use outl_core::hlc::Hlc;
 use outl_core::id::ActorId;
-use outl_core::storage::{JsonlStorage, Storage};
-use outl_core::LogOp;
-use tracing::info;
+use outl_core::storage::{JsonlStorage, OffsetIndex};
 
 use crate::protocol::ActorClock;
 
-/// Per-actor census of the local op log: the set of DISTINCT HLCs held for
-/// each actor. Distinct because historic unsynchronized concurrent pulls left
-/// duplicated append lines on real disks — a raw line count would inflate the
-/// `count` and mask a genuine gap on the advertising side. The reference
-/// workspace carries 148 such duplicates among 222,536 lines.
+/// Per-actor census of the local op log: for each actor, every DISTINCT HLC
+/// this device holds **and the byte offset of the op behind it**.
 ///
-/// Read from the op log's offset index, never from the ops. See this module's
-/// header for what that replaced and why.
-pub(crate) fn actor_census(ops_dir: &std::path::Path) -> Result<HashMap<ActorId, BTreeSet<Hlc>>> {
-    JsonlStorage::actor_timestamps(ops_dir).context("read the actor census from the op-log index")
+/// Distinct because historic unsynchronized concurrent pulls left duplicated
+/// append lines on real disks — a raw line count would inflate the `count`
+/// and mask a genuine gap on the advertising side. The reference workspace
+/// carries 148 such duplicates among 222,536 lines.
+///
+/// Read from the op log's offset index, never from the ops. See this
+/// module's header for what that replaced and why.
+///
+/// **One read answers all three questions an exchange asks**, and that is
+/// the point of carrying the offsets rather than just the HLCs:
+///
+/// - *what do we hold* → [`Self::vector_clock`];
+/// - *what does this peer lack* → [`crate::oplog_select::ops_missing_for`],
+///   which ranges over the same indexes;
+/// - *where are those ops on disk* → the offsets, spent by
+///   `JsonlStorage::read_ops_at_offsets`.
+///
+/// Each of those used to re-read the whole census from disk, and the third
+/// additionally called `JsonlStorage::open` — a full load of both index
+/// sidecars for every actor. Measured on a real 748,684-op / 23-actor
+/// workspace: six censuses plus two opens per exchange, ~710 ms of CPU, to
+/// move ops that are usually zero in number. The catch-up loop runs that
+/// per peer every 8 s, so the device never left it.
+pub(crate) struct Census {
+    by_actor: HashMap<ActorId, OffsetIndex>,
 }
 
-/// Compute our vector clock (per-actor max HLC + distinct-op count) from the
-/// local op log. Max + count both fall out of the same census pass.
+impl Census {
+    /// Read the census off the op log's offset index.
+    pub(crate) fn read(ops_dir: &std::path::Path) -> Result<Self> {
+        Ok(Self {
+            by_actor: JsonlStorage::actor_offset_indexes(ops_dir)
+                .context("read the actor census from the op-log index")?,
+        })
+    }
+
+    /// Our vector clock: per-actor max HLC + distinct-op count. Both fall
+    /// out of the index this census already holds.
+    pub(crate) fn vector_clock(&self) -> HashMap<ActorId, ActorClock> {
+        self.by_actor
+            .iter()
+            .filter_map(|(actor_id, index)| {
+                Some((
+                    *actor_id,
+                    ActorClock {
+                        max: index.last_ts()?,
+                        count: index.len() as u64,
+                    },
+                ))
+            })
+            .collect()
+    }
+
+    /// Every actor this device holds ops for, with its index.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&ActorId, &OffsetIndex)> {
+        self.by_actor.iter()
+    }
+
+    /// Every distinct HLC in the census, regardless of actor — the
+    /// present-set the ingest dedups a received batch against.
+    pub(crate) fn all_timestamps(&self) -> impl Iterator<Item = &Hlc> {
+        self.by_actor.values().flat_map(|index| index.timestamps())
+    }
+}
+
+/// Compute our vector clock from the local op log, for a caller that needs
+/// nothing else from the census.
+///
+/// Prefer [`Census::read`] + [`Census::vector_clock`] wherever the same
+/// exchange also asks what to send: that is one disk read instead of two.
 pub(crate) fn local_vector_clock(
     ops_dir: &std::path::Path,
 ) -> Result<HashMap<ActorId, ActorClock>> {
-    Ok(actor_census(ops_dir)?
-        .into_iter()
-        .filter_map(|(actor_id, hlcs)| {
-            let max = *hlcs.last()?;
-            Some((
-                actor_id,
-                ActorClock {
-                    max,
-                    count: hlcs.len() as u64,
-                },
-            ))
-        })
-        .collect())
-}
-
-/// Collect the ops the peer is missing, given the peer's vector clock.
-///
-/// Per actor in OUR log:
-/// - peer has no entry → send everything we hold for that actor;
-/// - peer has `(max_r, count_r)` → let `below` = how many DISTINCT ops of
-///   that actor we hold with `ts <= max_r`. If `below > count_r` the peer
-///   has a GAP below its own watermark (an op landed ahead of a pending
-///   backlog, so the bare max lies about what's underneath) → send the
-///   actor's FULL log; the receiver's ingest dedup absorbs the overlap.
-///   Otherwise → fast path, send only `ts > max_r`.
-///
-/// Theoretical limitation (accepted): two replicas holding EQUAL counts of
-/// DIFFERENT subsets below the same max are indistinguishable to this check,
-/// so the fast path under-sends between them. Convergence is still
-/// guaranteed via the origin: each op's authoring device holds its own
-/// actor's complete log, so any replica with a partial subset trips the
-/// `below > count` check the next time it syncs (directly or transitively)
-/// with the origin's full prefix.
-pub(crate) fn ops_missing_for(
-    ops_dir: &std::path::Path,
-    actor: ActorId,
-    peer_clock: &HashMap<ActorId, ActorClock>,
-) -> Result<Vec<LogOp>> {
-    let census = actor_census(ops_dir)?;
-
-    // Actors whose FULL log must cross (unknown to the peer, or gap detected
-    // below the peer's watermark).
-    let full_resend: HashSet<ActorId> = census
-        .iter()
-        .filter_map(|(actor_id, hlcs)| match peer_clock.get(actor_id) {
-            None => Some(*actor_id),
-            Some(peer) => {
-                let below = hlcs.range(..=peer.max).count() as u64;
-                (below > peer.count).then(|| {
-                    info!(
-                        actor = %actor_id,
-                        below,
-                        peer_count = peer.count,
-                        "gap below peer watermark detected; resending full actor log"
-                    );
-                    *actor_id
-                })
-            }
-        })
-        .collect();
-
-    // Nothing to send? Then read nothing. The census already answers the
-    // question per actor — its sets are ordered, so "do we hold anything
-    // above the peer's max" is one comparison against the last element — and
-    // "nothing" is the answer on a converged workspace, which is the state
-    // the catch-up loop asks about every 8s per peer and `sync_now` asks
-    // about on every pull-to-refresh. Reading the whole log into a
-    // `Vec<LogOp>` and filtering it down to empty is the standing cost of a
-    // quiet device.
-    let sends_anything = census.iter().any(|(actor_id, hlcs)| match hlcs.last() {
-        None => false,
-        Some(max) => {
-            full_resend.contains(actor_id)
-                || peer_clock.get(actor_id).is_none_or(|peer| *max > peer.max)
-        }
-    });
-    if !sends_anything {
-        return Ok(Vec::new());
-    }
-
-    let storage =
-        JsonlStorage::open(ops_dir.to_path_buf(), actor).context("open storage for delta")?;
-    let all_ops = storage.all_ops().context("load all ops")?;
-    Ok(all_ops
-        .into_iter()
-        .filter(|op| {
-            // `op.ts.actor`, not `op.actor`: the same value (`LogOp::actor`
-            // is documented as "also embedded inside `ts`"), but the census
-            // above can only see the one inside the HLC, and the early-out
-            // is only sound if both sides key on the same field.
-            if full_resend.contains(&op.ts.actor) {
-                return true;
-            }
-            match peer_clock.get(&op.ts.actor) {
-                None => true,
-                Some(peer) => op.ts > peer.max,
-            }
-        })
-        .collect())
+    Ok(Census::read(ops_dir)?.vector_clock())
 }
 
 #[cfg(test)]
@@ -163,6 +131,7 @@ mod tests {
     use outl_core::op::Op;
     use outl_core::storage::sidecar::{self, SidecarKind};
     use outl_core::storage::PageScope;
+    use outl_core::LogOp;
     use std::path::{Path, PathBuf};
 
     /// Write one actor's `ops-<actor>.jsonl` by hand, returning its ops.
@@ -225,81 +194,5 @@ mod tests {
                 path.display()
             );
         }
-    }
-
-    /// The catch-up loop asks "what does this peer still need" every 8s per
-    /// peer, and on a converged workspace the answer is always "nothing".
-    /// Reading the whole log to filter it down to empty is the standing cost
-    /// of a quiet device, so the census answers first.
-    #[test]
-    fn a_peer_that_is_current_costs_no_op_read() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let ops_dir = tmp.path().join("ops");
-        let actor = ActorId::new();
-        write_log(&ops_dir, actor, 6);
-
-        let theirs = local_vector_clock(&ops_dir).expect("clock");
-        assert!(ops_missing_for(&ops_dir, actor, &theirs)
-            .expect("delta")
-            .is_empty());
-        for path in sidecars(&ops_dir, actor) {
-            assert!(
-                !path.exists(),
-                "{} means the ops were read; a peer holding our clock needs nothing",
-                path.display()
-            );
-        }
-    }
-
-    /// The allow case, and it is the load-bearing one: an early-out that
-    /// refuses everything passes every "sent nothing" assertion ever
-    /// written.
-    #[test]
-    fn a_peer_behind_us_still_gets_every_op_it_lacks() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let ops_dir = tmp.path().join("ops");
-        let (a, b) = (ActorId::new(), ActorId::new());
-        let ops_a = write_log(&ops_dir, a, 6);
-        let ops_b = write_log(&ops_dir, b, 3);
-
-        // The peer holds the first two of A's ops and has never heard of B.
-        let peer_clock: HashMap<ActorId, ActorClock> = [(
-            a,
-            ActorClock {
-                max: ops_a[1].ts,
-                count: 2,
-            },
-        )]
-        .into_iter()
-        .collect();
-
-        let sent = ops_missing_for(&ops_dir, a, &peer_clock).expect("delta");
-        let sent_ts: BTreeSet<Hlc> = sent.iter().map(|op| op.ts).collect();
-        let expected: BTreeSet<Hlc> = ops_a[2..].iter().chain(&ops_b).map(|op| op.ts).collect();
-        assert_eq!(sent_ts, expected);
-    }
-
-    /// A peer whose count is short of what we hold below its own watermark
-    /// has a gap underneath it, so its actor's FULL log crosses — and the
-    /// early-out must not swallow that, since nothing sits above the max.
-    #[test]
-    fn a_gap_below_the_peers_watermark_still_resends_the_full_log() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let ops_dir = tmp.path().join("ops");
-        let actor = ActorId::new();
-        let ops = write_log(&ops_dir, actor, 5);
-
-        let peer_clock: HashMap<ActorId, ActorClock> = [(
-            actor,
-            ActorClock {
-                max: ops.last().expect("op").ts,
-                count: 2,
-            },
-        )]
-        .into_iter()
-        .collect();
-
-        let sent = ops_missing_for(&ops_dir, actor, &peer_clock).expect("delta");
-        assert_eq!(sent.len(), ops.len(), "the whole actor log must cross");
     }
 }

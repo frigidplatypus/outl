@@ -15,6 +15,11 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 
+// First, and `macro_use`: its `print!` / `println!` shadow the prelude's in
+// every module below.
+#[macro_use]
+mod stdout;
+
 mod cli;
 mod cmd;
 mod human;
@@ -109,9 +114,10 @@ fn main() -> Result<()> {
             once,
             no_watch,
             no_sync,
+            no_mcp,
         }) => {
             let p = resolve_path(cli.workspace.as_ref(), path.as_ref())?;
-            cmd::serve::run(&p, once, !no_watch, !no_sync)
+            cmd::serve::run(&p, once, !no_watch, !no_sync, !no_mcp)
         }
         Some(Command::Doctor {
             path,
@@ -245,9 +251,9 @@ fn main() -> Result<()> {
             }
         }
         Some(Command::Mcp { sub }) => match sub {
-            McpSubcommand::Serve {} => {
+            McpSubcommand::Serve { standalone } => {
                 let p = resolve_path(cli.workspace.as_ref(), None)?;
-                mcp::serve(p)
+                mcp::serve(p, standalone)
             }
         },
         Some(Command::Peer { cmd }) => {

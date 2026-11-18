@@ -63,11 +63,16 @@
 
 ## Project
 
+* [The reasoning invariants](invariants.md)
 * [Development guide](development.md)
+* [Performance](performance.md)
+* [Boot performance](boot-performance.md)
 * [CI and release](ci-and-release.md)
+* [Discussions mirror to Discord](discussions-discord.md)
 * [Desktop UX behaviour](desktop-ux.md)
 * [Mobile UX behaviour](mobile-ux.md)
 * [iOS platform integration](ios-platform.md)
+* [iOS App Store review notes](app-store/review-notes.md)
 * [Android platform integration](android-platform.md)
 * [Contributing & code review](contributing.md)
 
@@ -108,3 +113,4 @@
   * [0362: The journal is a stream of days, and each day keeps its own undo](rfcs/0362-journal-stream.md)
   * [0363: Capture from outside the iOS app lands through an inbox the app drains](rfcs/0363-ios-quick-capture.md)
   * [0377: Crash reporting that is on by default and cannot see your notes](rfcs/0377-crash-reporting.md)
+  * [0557: Merging pages: move the blocks, trash the source, leave its names behind as aliases](rfcs/0557-page-merge-and-rename.md)

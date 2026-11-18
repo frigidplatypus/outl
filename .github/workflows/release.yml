@@ -1579,7 +1579,7 @@ jobs:
           rustup target list --installed
 
       - name: Set up JDK 17
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: "17"
@@ -1951,6 +1951,28 @@ jobs:
           gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --notes-file body.md
           cat gap.md >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
+      # A release is the moment the people who use outl are paying attention,
+      # so the body ends with how to fund it. It runs after the gap note so it
+      # stays last. A retried job may have appended another gap note below an
+      # earlier footer, so any existing copy is removed and the footer is
+      # re-appended: exactly one, always at the end.
+      - name: Ask for sponsors in the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          FOOTER: "outl is built by one person and funded by the people who use it. If it saves you time, [sponsor it](https://github.com/sponsors/avelino)."
+        run: |
+          set -euo pipefail
+          gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json body --jq .body > body.md
+          python3 - <<'PY'
+          import os, pathlib, re
+          footer = os.environ["FOOTER"]
+          path = pathlib.Path("body.md")
+          body = re.sub(r"\n*---\n+" + re.escape(footer) + r"\n*", "\n\n", path.read_text())
+          path.write_text(f"{body.rstrip()}\n\n---\n\n{footer}\n")
+          PY
+          gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --notes-file body.md
+
       - name: Flip draft to published
         env:
           GH_TOKEN: ${{ github.token }}
@@ -2100,16 +2122,28 @@ jobs:
         run: |
           set -euo pipefail
           # `jq`, not `sed`: the manifest is JSON, so there is a parser for
-          # it and no anchor comments are needed. The urls carry `$version`
-          # and Scoop substitutes it, so only the version and the two
-          # digests move.
+          # it and no anchor comments are needed.
+          #
+          # The urls move too. Scoop substitutes `$version` only inside
+          # `autoupdate` — that block is the one a bucket maintainer runs —
+          # so a client reads `architecture.*.url` verbatim and a literal
+          # token there 404s on every install (issue #498). Each concrete
+          # url is DERIVED from its `autoupdate` template rather than
+          # written again here, so the url shape keeps one owner instead of
+          # two copies that drift. `check-release-assets.py --manifest`
+          # pins that the two `architecture` key sets match, which is what
+          # makes the derivation total.
           B=bucket/outl-beta.json
           X64=$(awk '{print $1}' shas/outl-windows-x64.zip.sha256)
           ARM64=$(awk '{print $1}' shas/outl-windows-arm64.zip.sha256)
           jq --arg v "$VERSION" --arg x64 "$X64" --arg arm64 "$ARM64" \
             '.version = $v
              | .architecture["64bit"].hash = $x64
-             | .architecture["arm64"].hash = $arm64' \
+             | .architecture["arm64"].hash = $arm64
+             | .autoupdate.architecture as $tpl
+             | .architecture |= with_entries(
+                 .value.url = ($tpl[.key].url | sub("\\$version"; $v))
+               )' \
             "$B" > "$B.tmp"
           mv "$B.tmp" "$B"
           python3 -c "import json;json.load(open('$B'))"

@@ -21,6 +21,7 @@ use crate::storage::sidecar::{self, SidecarKind};
 use crate::storage::{NodeIndex, OffsetIndex, PageScope, StorageError};
 
 use super::census::{self, Coverage};
+use super::index_load;
 use super::{
     parse_actor_from_ops_filename, parse_log_line, read_log_record, JsonlStorage, RecordRead,
 };
@@ -54,17 +55,7 @@ impl JsonlStorage {
     fn read_op_at(&self, actor: ActorId, ts: Hlc) -> Option<LogOp> {
         let offset = self.index.get(actor, ts)?;
         let path = self.ops_path_for_actor(actor)?;
-        let mut file = File::open(&path).ok()?;
-        file.seek(SeekFrom::Start(offset)).ok()?;
-        let mut line = String::new();
-        BufReader::new(file).read_line(&mut line).ok()?;
-        if line.is_empty() {
-            return None;
-        }
-        // A glued line yields multiple ops; pick the one whose HLC
-        // matches (same recovery semantics as the boot path).
-        let ops = parse_log_line(line.trim()).ok()?;
-        ops.into_iter().find(|o| o.ts == ts)
+        super::read_at::read_op_at_offset(&path, ts, offset)
     }
 
     /// Read one op, preferring a warm LRU entry over a disk seek.
@@ -147,6 +138,9 @@ impl JsonlStorage {
 
     fn reload_global(&mut self) -> Result<(), StorageError> {
         let mut per_file: Vec<(String, u64, usize, usize)> = Vec::new();
+        // Collected first, loaded below: the scan is a readdir, the load
+        // is 169 MB on a real workspace and is what gets parallelized.
+        let mut jobs: Vec<index_load::IndexJob> = Vec::new();
         let dir = std::fs::read_dir(&self.ops_dir)
             .map_err(|e| StorageError::Backend(format!("read {}: {e}", self.ops_dir.display())))?;
 
@@ -192,23 +186,15 @@ impl JsonlStorage {
                     continue;
                 }
             };
+            jobs.push((name, path, file_actor, file_size));
+        }
 
-            // Load the persisted sidecars when they exactly cover the
-            // `.jsonl`; rebuild via parse-lite otherwise. The `.idx` bytes are
-            // the ~4.3s reload win — we skip re-tokenizing every `text_op`.
-            let hlc_path = sidecar::path_for(
-                &self.ops_dir,
-                file_actor,
-                &PageScope::Global,
-                SidecarKind::Offset,
-            );
-            let node_path = sidecar::path_for(
-                &self.ops_dir,
-                file_actor,
-                &PageScope::Global,
-                SidecarKind::Node,
-            );
-            let (hlc_idx, node_idx) = Self::load_actor_indexes(&path, &hlc_path, &node_path);
+        // One actor's sidecar pair says nothing about another's, so
+        // they load in parallel. See `index_load` for the measurement
+        // that made this worth doing, and for its ceiling.
+        let loaded = index_load::load_in_parallel(&self.ops_dir, &jobs);
+
+        for (name, file_size, file_actor, hlc_idx, node_idx) in loaded {
             let ops_indexed = hlc_idx.len();
             seen_hlc.insert(file_actor, hlc_idx);
             seen_node.insert(file_actor, node_idx);
@@ -293,7 +279,7 @@ impl JsonlStorage {
     /// the metadata-only read ([`Self::actor_timestamps`]) asks the same
     /// question and a second opinion about what a sidecar covers is how a
     /// stale index turns into a wrong read.
-    fn load_actor_indexes(
+    pub(super) fn load_actor_indexes(
         jsonl_path: &Path,
         idx_path: &Path,
         node_idx_path: &Path,
@@ -315,6 +301,29 @@ impl JsonlStorage {
         idx_path: &Path,
         node_idx_path: &Path,
     ) -> Option<(OffsetIndex, NodeIndex)> {
+        let (mut offset_index, mut node_index, grew) =
+            Self::load_unpersisted_indexes(jsonl_path, idx_path, node_idx_path)?;
+        if grew {
+            // Persist so the next boot is byte-exact fresh.
+            Self::persist_indexes_locked(
+                jsonl_path,
+                idx_path,
+                node_idx_path,
+                &mut offset_index,
+                &mut node_index,
+            );
+        }
+        Some((offset_index, node_index))
+    }
+
+    /// [`Self::try_fresh_actor_indexes`] minus the persist: load, index any
+    /// grown tail in memory (flag = it grew), write nothing. Split so a test
+    /// can interleave a writer before the persist.
+    pub(super) fn load_unpersisted_indexes(
+        jsonl_path: &Path,
+        idx_path: &Path,
+        node_idx_path: &Path,
+    ) -> Option<(OffsetIndex, NodeIndex, bool)> {
         // Both sidecars must load cleanly. A `None` (missing / corrupt) or a
         // real I/O `Err` on either side falls through to a full rebuild.
         let mut node_index = NodeIndex::load(node_idx_path).ok().flatten()?;
@@ -332,7 +341,7 @@ impl JsonlStorage {
         let Coverage::Grew { tail_from } = coverage else {
             // Byte-exact coverage. Use the pair as-is, no reparse — this is
             // the whole point of the optimization.
-            return Some((offset_index, node_index));
+            return Some((offset_index, node_index, false));
         };
 
         // Grew: the log appended since the sidecars were last written. The
@@ -344,17 +353,7 @@ impl JsonlStorage {
             &mut offset_index,
             Some(&mut node_index),
         )?;
-        // Persist the extended sidecars so the next boot is byte-exact fresh.
-        if let Err(e) = offset_index.save(idx_path) {
-            warn!("could not persist index {}: {e}", idx_path.display());
-        }
-        if let Err(e) = node_index.save(node_idx_path) {
-            warn!(
-                "could not persist node index {}: {e}",
-                node_idx_path.display()
-            );
-        }
-        Some((offset_index, node_index))
+        Some((offset_index, node_index, true))
     }
 
     /// Read the single record starting at `offset` in the `.jsonl`, returning
@@ -372,45 +371,6 @@ impl JsonlStorage {
             // says an op lives is suspicious → rebuild.
             RecordRead::Skip { .. } | RecordRead::Eof => None,
         }
-    }
-
-    /// Index the tail of a `.jsonl` starting at `start_offset` into the given
-    /// (already-loaded) indexes, using the same parse-lite pass and offset
-    /// accounting as a full rebuild. `None` on a hard I/O error (caller
-    /// rebuilds). Malformed lines are skipped exactly as the rebuild does.
-    ///
-    /// `node_index` is optional because the metadata-only read
-    /// ([`Self::actor_timestamps`]) wants the HLCs and has no use for the
-    /// node map.
-    pub(super) fn reindex_tail(
-        path: &Path,
-        start_offset: u64,
-        offset_index: &mut OffsetIndex,
-        mut node_index: Option<&mut NodeIndex>,
-    ) -> Option<()> {
-        let mut file = File::open(path).ok()?;
-        file.seek(SeekFrom::Start(start_offset)).ok()?;
-        let mut reader = BufReader::new(file);
-        let mut buf: Vec<u8> = Vec::new();
-        let mut offset = start_offset;
-        loop {
-            let start = offset;
-            let record = read_log_record(&mut reader, &mut buf).ok()?;
-            match record {
-                RecordRead::Eof => break,
-                RecordRead::Skip { consumed, .. } => offset += consumed,
-                RecordRead::Ops { consumed, ops } => {
-                    for (ts, node) in &ops {
-                        offset_index.insert(*ts, start);
-                        if let (Some(node), Some(index)) = (node, node_index.as_deref_mut()) {
-                            index.insert(*node, *ts, start);
-                        }
-                    }
-                    offset += consumed;
-                }
-            }
-        }
-        Some(())
     }
 
     /// Rebuild both indexes from scratch by streaming the `.jsonl` once with
@@ -476,15 +436,7 @@ impl JsonlStorage {
             return (hlc, node);
         }
 
-        if let Err(e) = hlc.save(idx_path) {
-            warn!("could not persist index {}: {e}", idx_path.display());
-        }
-        if let Err(e) = node.save(node_idx_path) {
-            warn!(
-                "could not persist node index {}: {e}",
-                node_idx_path.display()
-            );
-        }
+        Self::persist_indexes_locked(jsonl_path, idx_path, node_idx_path, &mut hlc, &mut node);
         (hlc, node)
     }
 

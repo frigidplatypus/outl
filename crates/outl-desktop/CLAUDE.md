@@ -74,6 +74,14 @@ The siblings are in the [layout tree](../../docs/development.md#desktop-crate-la
 `outline-structure.ts` (`createStructureOps`) re-selects and re-edits a block on itself after `indent_block` / `outdent_block`; see "Block-editor chords" below ([#477](https://github.com/outlmd/outl/issues/477)).
 Five of those boundaries rest on a rule, not a preference.
 `BlockBody.tsx`'s read-mode branches are flat and mutually exclusive because a table has no cell editor and a fence has no fence editor, by design ([#329](https://github.com/outlmd/outl/issues/329)).
+It is also where a transclusion expands: a block whose whole text is `!((blk-X))` (`embedOnlyHandle`) or `![[page]]` (`pageEmbedOnlyName`) appends the borrowed rows *below* its own content, through the shared read-only `<EmbeddedSubtree />`.
+**Both expansions draw nothing until their resolve answers with rows, and that is not an optimisation.**
+The resolve lands a round-trip after the first paint, in a block the user may be typing in.
+A placeholder that reserves vertical space and then releases it moves every row below the caret — so this is `lateSectionVisible`'s rule ("a first load draws nothing") reduced to `count > 0`, an embed having no empty state worth keeping.
+The maps come from `appState.embeds` / `appState.pageEmbeds`, both filled by `<OutlineView />`'s `resolveTransclusions` (one skip key per kind, so a newly typed `[[ref]]` does not invalidate the page-embed answer).
+**Each is read through an accessor, never a `const` in the component body.**
+A body runs once and is not a tracking scope, so `const x = appState.embeds[h]` captures what the map held at mount.
+The resolve lands a round-trip after the page is on screen and `setOutline` reconciles on id, so the expansion showed up only when the map happened to be warm already.
 `BlockEditor.tsx` is mounted only while editing, which is why focus and pending caret intent are `onMount` and not an effect on an `editing` flag.
 `block-suggest.ts` is one module because **only one popup is ever open at a time** is the invariant all of it rests on; detection and span replacement stay in `@outl/shared/autocomplete`.
 `CodeFenceView.tsx`'s `RichFenceFrame` iframe is sandboxed `allow-scripts`, never `allow-same-origin`.
@@ -109,12 +117,25 @@ Folding the toggles together would hide one when the user muted the other.
 `g d` routes through `DeletePage`, which runs the same `window.confirm` + `deletePage(slug)` path as the sidebar row's hover `×` ([gesture](../../docs/desktop-ux.md#sidebar--hover--to-delete-a-page)).
 Journals are refused, and the body is the shared `outl_tauri_shared::commands::page::delete_page` — no desktop logic on either door.
 
+**Rename and merge are the same two doors, and the same flow.**
+The sidebar row's hover `✎` (rename) and `⇥` (merge into) sit beside the `×`; journals get none of the three.
+Both open `PageActionDialog.tsx` (a name field prefilled with the title, or a page search that leaves the source out), because the webview has no `window.prompt`; the questions that follow are `window.confirm`, like delete.
+The flow itself is `@outl/shared/pages/rename-merge` (a taken name asks before merging, a merge **always** asks, the wording is owned there), wrapped by `lib/page-actions.ts`, which only adds the confirm, the toast and the error surface.
+Declining a confirm writes nothing and leaves the dialog open; the outcome (blocks moved, links updated, every property conflict) goes to `<NoticeToast />` via `appState.notice`, because a dropped property value the user never saw is the failure the report exists to prevent.
+There is no chord and no menu entry: delete has none in `menu.rs` either, so these did not get one.
+The sidebar list is keyed on the page id **and** slug and title, since a rename keeps the id.
+
 `OutlineView.tsx` refetches backlinks via `createEffect(on(slug, …))` — per navigation, not per commit (the "Esc is slow" fix).
 All three fetch sites (that effect, `AppShell::refreshActivePage`, `toggleBacklinkTodo`) go through `trackBacklinks` in `lib/store.ts`, none of them awaited on a render or keystroke path.
 It owns `appState.backlinksLoading`, which `<InlineBacklinks />` is the **only** reader of.
-The scan is `O(blocks-in-workspace)`, so the section carries its own `loading…` mark and placeholder rows while the outline keeps the caret.
-A page-wide load state here is the regression [`UX.md` → Never block a keystroke](../../UX.md#2-never-block-a-keystroke) now names; `InlineBacklinks.test.tsx` → "backlinks load behind the page" is the net.
-A refetch keeps the rows it already has — blanking them reads as "this page lost its references" — so only a first load shows the placeholder.
+A page-wide load state here is the regression [`UX.md` → Never block a keystroke](../../UX.md#2-never-block-a-keystroke) names; `InlineBacklinks.test.tsx` → "backlinks load behind the page" is the net.
+
+**The section's own pending state had the mirror defect, and reserving space is not the fix.**
+It mounted a 95px header + skeleton when the scan started and unmounted it when the answer came back empty — on a workspace where most journal days have no backlinks, a blink on most journal days, re-armed by every peer refresh.
+A reservation that collapses still blinks, and one that does not is permanent dead space under every page.
+`lateSectionVisible` (`@outl/shared/outline`) owns the rule and the measurement: a **first load draws nothing**.
+A **refetch** keeps its rows — blanking them reads as "this page lost its references" — and is the one case that still shows the `loading…` mark.
+Net: "the backlinks section never appears and then disappears" (`InlineBacklinks.test.tsx`).
 
 **Toggling a task from a backlink row (issue #144)** mutates the *source* page, and the backlink effect is keyed on the slug, which didn't change.
 So `toggleBacklinkTodo` refetches `pageBacklinks(currentSlug)` itself — the exception that effect's comment calls out.
@@ -152,6 +173,15 @@ Three things a contributor should not undo:
 The fetch is gated on `timelineOpen && appState.page`: the read walks every block in the page under the workspace lock, which is not something to do on every navigation on the chance the user might open the panel.
 No chord yet — a global binding means an entry in `outl-shortcuts`, which every client consumes, and the TUI has no timeline surface to bind it to.
 
+## Applying a `PageView` — `lib/page-view.ts`
+
+`applyPageState(view)` is the **single writer** of what a reply says about the page: `page`, `pageProperties`, `parseWarnings`, the sticky `mdAheadOfLog`, the outline and a `projection_error`.
+There used to be two `applyView`s, and the shell's wrote only `page` + outline.
+That one is every page opened from the chrome (sidebar, picker, Today, a task row, a deep link), so each kept the previous page's property chips and its "this page isn't syncing" banner.
+A caller adds only what is its own: cursor repair in the shell, auto-run and embeds in the outline.
+The module doc owns the rest, including why the write order is load-bearing.
+Net: `lib/page-view.test.ts`, which also pins by source-read that neither component writes those fields again.
+
 ## "This page isn't syncing" banner
 
 `<PageAheadOfLogBanner client="desktop" />` (`@outl/shared/warnings`) renders above the outline when `PageView.md_ahead_of_log` comes back set.
@@ -160,6 +190,52 @@ What the condition means and why it has to reach the user: [`docs/clients.md` �
 
 `appState.mdAheadOfLog` is sticky per page (`stickyAheadOfLog`), because only the open commands carry the flag — a mutation reply would otherwise clear the banner on the user's first edit, the very action it warns against.
 Sticky stops at `PageView.md_ahead_of_log_checked`: a reply that ran the check is authoritative both ways, so the next open after a reconcile clears the banner instead of leaving a healthy page marked broken.
+
+## Which day it is
+
+`<AppShell />` wires `createDayClock` (`@outl/shared/journal`) into `appState.todaySlug`, and **every surface that names a day reads that field**: `<PageTitle />`, the sidebar calendar's today ring, `<TasksPanel />`'s journal headings.
+
+It exists because the desktop held two frozen copies of the day instead.
+`<PageTitle />` had a `createResource` keyed on the page slug, so it re-asked on navigation and never otherwise; the sidebar calendar had a `new Date()` in a component body, read once at mount **and** on the browser clock rather than the configured `[calendar] timezone`.
+A window left open overnight therefore called yesterday "Today" in the header, in the accent colour, over the page the user was about to write into, and ringed yesterday on the calendar.
+
+Three rules a contributor will trip on:
+
+- **The day comes from the backend, the schedule comes from the browser.**
+  `today_slug` resolves in `outl_actions::clock`'s timezone; `nextDayCheckDelay` only decides *when to ask*, and is capped at an hour precisely because that schedule can be wrong.
+  A `new Date()` used as the answer is the bug, not a shortcut.
+- **Midnight relabels; it does not navigate.**
+  The user may be looking at the window. Returning to today happens on the way *back* in (`focus` / `visibilitychange`), under `shouldWakeToToday` — the same rule the phone uses, so the two clients cannot disagree about when a session counts as "opening the app".
+- **The clock is created in the component body**, not in `AppShell`'s `async onMount`: it registers an `onCleanup`, and the owner is gone once that body awaits.
+
+Net: `PageTitle.test.tsx` → "stops calling it Today once the day rolls over under an untouched window", plus `day-clock.test.ts` in `@outl/shared`.
+
+## What a launch waits for
+
+**The loading screen paints today's journal, not a spinner.**
+`App.tsx` subscribes to `onPagePreview` before any `await` (the backend emits it before it opens the op log, so a listener armed after the theme round-trip would miss it on a fast workspace) and renders `<PreviewOutline />` in place of "Opening your workspace…".
+The spinner stays as the fallback for a launch with nothing to preview, and a small line above the content is what stops the read-only state reading as a frozen app.
+Rules the preview carries: [`docs/boot-performance.md`](../../docs/boot-performance.md).
+
+The boot opener publishes the workspace, emits `workspace-ready`, latches `WorkspaceReady`, and stops.
+The filesystem watcher, the iroh transport, the orphan reconcile and the snapshot refresh are registered on `outl_tauri_shared::FirstPaintGate` and start when the frontend reports `first_content`.
+
+`workspace_open::spawn_interactive_phase` is where that registration lives, and [`docs/boot-performance.md`](../../docs/boot-performance.md) owns why each one waits.
+
+Four things in this crate that are easy to undo:
+
+- **`setup` arms the gate's deadline (4 s), and must keep doing so.**
+  The painted signal comes over IPC; a webview that fails to load leaves it unsent, and without the deadline this window would sync with nobody and say nothing.
+- **Deferring the watcher opens a window, and the fix is to ask the log, not to start earlier.**
+  A watcher only reports what happens after it starts, so the `fs_watcher` job asks `ops_watermark::read_needed` once it is up and emits a single `peer-ops-changed` when a peer appended in between.
+- **`App.tsx` waits instead of polling.**
+  The 500 ms `setInterval` is gone; `waitWorkspaceReady` resolves when the opener publishes. The loop around it keeps the old ~20 s budget and still calls `refresh()`, because a rejected wait (an older backend) has to fall back to asking.
+- **`window_paint::window_background` repaints the native window from the theme on disk.**
+  `tauri.conf.json`'s static `backgroundColor` covers the brand default; this is what stops a light-theme user opening outl with a dark rectangle. It **cannot** resolve `mode = "auto"` (the OS appearance setting is the webview's question), so `auto` takes the dark side and `index.html`'s cached-palette script corrects it one frame later.
+  **`tauri.windows.conf.json` mirrors the window entry**, and `webview_boot`'s parity test fails when it does not.
+
+The four marks the frontend reports (`html_parsed` in `index.tsx`, `theme_applied` after `installTheme`, `first_content` off whichever cold-start target won, `interactive` at the end of `AppShell`'s mount) are `@outl/shared/boot`'s.
+`first_content` rides the deep-link and open-file paths too, and fires even when the target **failed**: the shell is mounted and the error is on screen, so holding the mark back would hold sync behind a state nothing resolves on its own.
 
 ## Theme tokens
 
@@ -259,6 +335,8 @@ Load-bearing notes a contributor needs:
   That holds whether the move landed, was a backend no-op (`indent_block` / `outdent_block` swallow `NoPreviousSibling` / `AlreadyAtRoot`), or the command rejected outright.
   The caret survives the remount through `appState.caretIntent`, widened from the `"end"` / `"start"` sentinels to also carry a codepoint offset.
   The Tab handler captures it before `commit()` runs; the fresh `<BlockEditor />` applies it on mount and clears it, the same contract `EnterInsertAtEnd` already had.
+  **The handler calls `stopImmediatePropagation`, and removing it moves the block twice** — the editor unmounts itself mid-dispatch, so `window` then resolves the same keystroke as the catalog's Normal row.
+  The handler's comment carries the mechanism; `BlockRow.tab-dispatch.test.tsx` is the net, in both directions.
 - `Cmd/Ctrl+X` (cut) and `Cmd/Ctrl+Z` (undo) deliberately fall through to the webview — no catalog binding matches inside a textarea.
   Native per-keystroke undo is still broken: the controlled `value={draft()}` binding resets the textarea's undo stack on every keystroke (issue #80).
 - Bracket auto-pairing lives in `@outl/shared/autocomplete` (`autoPairBracket` / `autoDeletePair`, TUI parity), never here.
@@ -266,6 +344,16 @@ Load-bearing notes a contributor needs:
   `Shift+Tab` outdents on every popup now (the page-ref one used to accept it).
 - What each popup is triggered by and inserts: [`docs/desktop-ux.md`](../../docs/desktop-ux.md#inline-autocomplete-popups).
   How a clicked `[label](url)` or `assets/…` link is routed (scheme guard, OS default app, the two import paths): [same page](../../docs/desktop-ux.md#opening-an-external-labelurl-link).
+- **The `/` menu lists this client's own actions, plus `/upload`, the workspace's templates and every plugin command.**
+  Without the native half it was only those last three, so a workspace with no templates and no plugins opened a **one-row** popup while the TUI's `/` listed 31 built-ins.
+  The rows come from `paletteActions` (`lib/palette-results.ts`) — the `Cmd+K` palette's own list, so "what can this client run" is answered once.
+  **The name on each row is `outl_shortcuts::command_name`, read off `ActionSupportDto.command`, never derived here.**
+  This client kebab-cased the variant (`/open-today`) while the TUI carried its own literal (`today`); two of 66 names coincided.
+  An action the catalog did not name is **dropped** rather than named locally — the variant is not typeable after a `/`, so a fallback row would be visible and unreachable.
+  **A native pick runs through `runNativeSlashCommand` (`lib/shortcuts.ts`), never a dispatcher of its own**, so a command cannot mean one thing from a chord and another from the menu.
+  `installShortcuts` publishes that list and drops it on teardown, for the reason `loadPluginBindings` is not module-cached: a workspace swap brings a new handler map.
+  Only the plugin / template half is cached in `block-suggest.ts` — an empty native list cached before the dispatcher installed would leave the menu short forever.
+  Net: `BlockRow.slash-menu.test.tsx`, a real `<BlockRow />` against a real dispatcher.
 
 ### Vim parity (Normal + Visual)
 
@@ -310,8 +398,22 @@ Why diverge from the TUI: it has a char cursor, so "open the ref under cursor" i
 
 The chrome (page-like header, zoom path, which blocks render) is in [`docs/desktop-ux.md`](../../docs/desktop-ux.md#zoom--focus-on-a-block), the cross-client contract in [`docs/clients.md`](../../docs/clients.md#zoom--focus-on-a-block-roamworkflowy).
 
-Three decisions beyond that contract:
+Five decisions beyond that contract:
 
+- **`zoomView()` (`lib/store.ts`) is the one owner of "is this window zoomed, and into what".**
+  Three surfaces have to agree — what the body renders, where `j` / `k` may go, and whether the page's own sections are drawn — and each used to resolve `focusBlockId` against the outline itself.
+  A stale id read as zoomed by one and unzoomed by another is a cursor walking into a section nothing painted, which is exactly what `backlinkBlockIds()` did.
+  `<OutlineView />` wraps it in the `focus()` memo so the walk runs once per render, and passes the answer down as `<PageSections zoomed>` rather than letting that component ask a second time.
+- **Nothing belonging to the page renders while zoomed.**
+  `<PageSections />` draws nothing (backlinks, nested pages, namespace mentions), the page-property row is already hidden, and `backlinkBlockIds()` returns `[]` so `j` clamps at the zoom's last row.
+  The reason is the one the property row carries: the header is a *block* there, so the page's references under a block title are a wrong answer, not merely a distraction.
+  Net: `PageSections.test.tsx`, plus "j stays inside the zoom instead of entering the page's backlinks" (`action-handlers.zoom.test.ts`).
+- **`resetForNavigation()` (`lib/page-change.ts`) is what a navigation drops, and it has two callers on purpose.**
+  `installPageChangeEffect` only notices a page *id* change, so it cannot see the user asking for the page they are already on — `Cmd+J` while zoomed into a block of today's journal navigated to today and left the zoom standing, so the chord looked dead.
+  The handlers go through `ctx.navigateTo` (`handler-context.ts`) and the shell's chrome through `AppShell`'s `openView`; both are `applyView` plus that reset, and **a failed open resets nothing**.
+  `applyView` stays the one for everything that is not a navigation: a commit, a batch op, `refreshActivePage` (a peer reload keeps the page *and* the user's zoom), a quick capture into today, and a timeline restore.
+  `RemindersPanel` calls the reset inside its own `jumpTo`, because one `applyView` prop cannot answer for both that and `markDone`.
+  Net: "OpenToday leaves a zoom held on today's journal" and "a failed OpenToday keeps the zoom".
 - **No zoom stack:** `ZoomOut` reads the current focus's breadcrumb — last crumb is the parent, empty breadcrumb means top-level so it exits to the full page.
 - **Bullet gesture split**, so zoom cannot collide with task state: a `•` bullet zooms via `onFocusBlock`, a `▢` / `▨` / `▣` checkbox keeps its one-stop-per-click toggle, and the fold **chevron** stays collapse.
   DOING shares TODO's colour and is told apart by the half-filled glyph; only DONE strikes the body.
@@ -385,6 +487,9 @@ What that pass actually does: [`outl-sync-iroh/CLAUDE.md`](../outl-sync-iroh/CLA
 
 The always-visible capsule dot ([states](../../docs/desktop-ux.md#sync-status-dot)) and the panel's derive reachability from the same `peersOnline` (`@outl/shared/peers`) mobile uses.
 **Do not add a second reachability path**; `peersOnline` is the one owner.
+The same module owns the state built on top of it — `syncState` (checking / online / offline / syncing), `syncStateLabel`, `syncStateColor` and the `<SyncDot>` glyph — because it did not, and the two clients had already drifted: this one started dim on `null` and mobile started orange on `false`, so a phone claimed "offline" over a probe that had not answered yet ([#575](https://github.com/outlmd/outl/issues/575)).
+`<SyncIndicator />` keeps only the chrome: the button, the click-to-sync pass, the right-click into Settings, and the "last synced" half of the tooltip.
+**The button's `aria-label` says what pressing it does, never what the dot shows** — `<SyncDot>` is the live region that announces the state, and putting it in both reads it out twice on every change.
 When adding a control to the top-right capsule, keep it in the same order as mobile's top bar.
 
 ### When this window does not hold the device endpoint
@@ -411,6 +516,7 @@ Only `P2pDisabled` refuses to pair; collapsing the others into it told a user wh
 **Still missing:** the status dot cannot tell "every device is offline" from "another local process holds the endpoint".
 Teaching it that state means changing `PeerStatusDto` in [`outl-tauri-shared`](../outl-tauri-shared/CLAUDE.md), not a desktop-local patch, because `peersOnline` is the one owner of reachability on both clients.
 Until then the Refresh error is the only surface that explains it.
+Note this is **not** what kept the dot orange on a window that did hold the endpoint: that was the responder recording nothing, fixed in `outl-sync-iroh` ([#575](https://github.com/outlmd/outl/issues/575)).
 
 ### `reload_workspace` offloads the replay off the IPC thread
 
@@ -456,6 +562,25 @@ Behaviour and the frontend half: [`docs/desktop-ux.md`](../../docs/desktop-ux.md
   The hint must not mention a File menu off macOS.
 - **No chord, no palette row.**
   Either needs an `Action`, and an `Action` needs a verdict from every client in `outl_shortcuts::support`.
+- **A click resolves to a `MenuAction` and nothing else happens in `menu.rs`.**
+  `Emit` hands off to the frontend, `ShowAbout` to `about.rs`, `OpenUrl` to the opener plugin.
+  `action_for`'s tests are what stop a new item shipping as an enabled row that does nothing.
+
+### About window and the Help menu
+
+Both macOS-only; what they show is [`docs/desktop-ux.md`](../../docs/desktop-ux.md#about-window-and-the-help-menu-macos), and the gap on the other clients is `Capability::AboutAndSupport`.
+
+- **`src-tauri/src/links.rs` owns the project's outbound links** (id, label, URL).
+  The Help items are built from it, a click resolves back through it, and `src/lib/links.ts` is a mirror pinned by `the_frontend_mirror_matches_this_table`.
+  Never write a URL or a label in a component: About and Help are two surfaces for one fact.
+- **About is a window, not a modal, and not `PredefinedMenuItem::about`.**
+  The predefined item opens AppKit's panel, where no link is clickable.
+  A modal is the smaller change and the wrong one: `<AppShell />` mounts only once a workspace is open, so About would be dead during the boot replay and on the first-run picker.
+- **`src/index.tsx` branches on `?view=about` first, and reports no boot mark.**
+  The four marks measure the app's cold start; a second window reporting `html_parsed` lands in that budget as a launch nobody made.
+- **`capabilities/about.json` is scoped to the window by label**, narrower than the main window's on purpose.
+  A label that stops matching `ABOUT_WINDOW_LABEL` is silent: every command the window calls is denied, which reads as an About screen stuck loading.
+  `the_capability_file_scopes_this_window` is the net.
 
 ## Capture from outside the app (RFC 0363)
 
@@ -468,6 +593,7 @@ The capture is in the op log either way, so the next refresh shows it ([`UX.md` 
 ## Deep links (`outl://`)
 
 The scheme contract, the shared `outl_actions::parse_deep_link` parser, and this client's warm / cold wiring live in [`docs/deep-links.md`](../../docs/deep-links.md#desktop-wiring-outl-desktop).
+The cold-start buffer, the parse and the warm dispatch are `src-tauri/src/deep_link.rs` (lifted out of `lib.rs` unchanged when that file crossed the size ratchet).
 One thing bites every time, and it applies to "Open With" too: **testing on macOS needs a bundled, installed app**.
 LaunchServices only registers `outl://` and reads `CFBundleDocumentTypes` from the built bundle, so `cargo tauri dev` never sees either.
 

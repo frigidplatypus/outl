@@ -45,9 +45,36 @@ use crate::storage::StorageError;
 /// One indexed entry: the HLC of an op + its byte offset inside the
 /// `.jsonl` for that op's actor.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-struct IndexEntry {
+pub(crate) struct IndexEntry {
     ts: Hlc,
     offset: u64,
+}
+
+impl OffsetIndex {
+    /// Bytes one persisted entry occupies. Exposed so a test can count
+    /// records without restating the layout.
+    #[cfg(test)]
+    pub(crate) const RECORD_WIDTH: usize = <IndexEntry as sidecar::Record>::WIDTH;
+}
+
+impl sidecar::Record for IndexEntry {
+    const WIDTH: usize = sidecar::wire::HLC + 8;
+
+    fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    fn encode(&self, out: &mut Vec<u8>) {
+        sidecar::wire::put_hlc(out, &self.ts);
+        sidecar::wire::put_u64(out, self.offset);
+    }
+
+    fn decode(b: &[u8]) -> Self {
+        Self {
+            ts: sidecar::wire::get_hlc(&b[..sidecar::wire::HLC]),
+            offset: sidecar::wire::get_u64(&b[sidecar::wire::HLC..]),
+        }
+    }
 }
 
 /// In-memory offset index for a single actor's `.jsonl`.
@@ -88,6 +115,45 @@ impl OffsetIndex {
     /// Number of indexed ops.
     pub fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    /// How many indexed HLCs sort at or below `watermark`.
+    ///
+    /// The sync gap check's half of a vector-clock comparison: "do we hold
+    /// more distinct ops below this peer's max than its count claims". It
+    /// lives here rather than at the call site because the caller used to
+    /// get it from a `BTreeSet<Hlc>` built alongside this index — a second
+    /// copy of every HLC in the workspace, materialized per call.
+    ///
+    /// Inclusive of the bound, matching the `..=max` range it replaces.
+    pub fn count_up_to(&self, watermark: Hlc) -> usize {
+        self.entries
+            .range((
+                std::ops::Bound::Unbounded,
+                std::ops::Bound::Included(watermark),
+            ))
+            .count()
+    }
+
+    /// Every `(ts, offset)` pair, in ascending HLC order.
+    ///
+    /// The offsets are what let a reader address an op without opening a
+    /// [`crate::storage::JsonlStorage`]; see
+    /// `JsonlStorage::read_ops_at_offsets`.
+    pub fn entries(&self) -> impl Iterator<Item = (&Hlc, &u64)> {
+        self.entries.iter()
+    }
+
+    /// Every `(ts, offset)` at or below `watermark`, in ascending HLC order.
+    ///
+    /// The gap-resend selection's range: the ops a peer *should* already
+    /// hold but, by its own count, does not. [`Self::count_up_to`] is the
+    /// same range counted rather than walked.
+    pub fn entries_up_to(&self, watermark: Hlc) -> impl Iterator<Item = (&Hlc, &u64)> {
+        self.entries.range((
+            std::ops::Bound::Unbounded,
+            std::ops::Bound::Included(watermark),
+        ))
     }
 
     /// The most recent HLC in this actor's index, or `None` when empty.

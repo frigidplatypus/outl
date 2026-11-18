@@ -103,7 +103,9 @@ crates/outl-desktop/
     └── src/                   # main.rs, lib.rs (run() registers all commands),
                               #   settings.rs, state.rs, helpers.rs, workspace_open.rs,
                               #   plugin_service.rs, fs_watcher.rs,
-                              #   menu.rs (native menu, emits menu://switch-workspace),
+                              #   menu.rs (native menu: Switch Workspace, About, Help),
+                              #   links.rs (the project's outbound links, one table),
+                              #   about.rs (the About window), deep_link.rs (outl://),
                               #   commands/ (thin shims over outl_tauri_shared::commands)
 ```
 
@@ -178,14 +180,18 @@ cd crates/outl-mobile
 # iOS simulator
 cargo tauri ios dev "iPhone 17 Pro outl"
 
-# Physical device (Mac + iPhone on the same WiFi)
+# Physical device, as a SECOND app beside the real one (preferred)
+scripts/ios-preview.sh "<device-name>"
+
+# Physical device, over the real app (Mac + iPhone on the same WiFi)
 cargo tauri ios dev "<device-name>" --host
 
 # Release archive for TestFlight (local smoke test only — CI ships)
 cargo tauri ios build
 ```
 
-After the first run, the iCloud capability must be confirmed in Xcode (Signing & Capabilities → iCloud → Containers → `iCloud.app.outl.mobile-app`).
+The bare `ios dev` installs over the app from TestFlight, taking its bundle id, container and graph with it.
+`scripts/ios-preview.sh` installs **outl Preview** beside it instead: [`ios-platform.md` → Bundle / signing](ios-platform.md#bundle--signing).
 
 #### Why the mobile crate has native Swift / ObjC code
 
@@ -199,6 +205,7 @@ What it does **not** give you is direct access to the iOS platform APIs that out
 | `UIInputAccessoryView` (`OutlToolbar.swift`) | The formatting toolbar must be UIKit — a WebView toolbar has input-focus latency and the keyboard re-anchors when the toolbar mounts. |
 | Native suggest overlay (`OutlSuggestOverlay.swift`, `OutlSuggestView.swift`) | Autocomplete chips anchored to the caret without the keyboard jumping or the WebView reflowing. |
 | Method swizzle + brand chrome (`OutlSwizzle.swift`, `OutlBrandChrome.swift`) | Splash, status-bar, and a few UIKit hooks the WebView doesn't expose. |
+| `safeAreaInsets` probe (`OutlSafeArea.swift`, registered from `main.mm`) | The `WKWebView` is full-screen and does not publish truthful `env(safe-area-inset-*)` values, so the header drew under the status bar. A touch-transparent probe view reports UIKit's `safeAreaInsets` on every `safeAreaInsetsDidChange` and pushes them to the page as `--safe-area-inset-*`; the page can also pull through the `outlSafeArea` message handler. Android's twin is `OutlSafeArea.kt`. See [`outl-mobile/CLAUDE.md` → Safe areas](../crates/outl-mobile/CLAUDE.md#safe-areas-the-native-shell-measures-the-page-applies). |
 
 The native code is split into **two tiers** with different test contracts:
 
@@ -207,7 +214,7 @@ The native code is split into **two tiers** with different test contracts:
   **Has unit tests** under `swift/OutlKit/Tests/OutlKitTests/`.
   Run with `swift test` from `swift/OutlKit/` or via `mobile.yml` in CI.
 - **`crates/outl-mobile/src-tauri/gen/apple/Sources/outl-mobile/`** — Tauri-generated iOS shell + outl-specific UIKit / Foundation bridges.
-  Files: `main.mm`, `OutlOpsWatcher.swift`, `OutlBackgroundRefresh.swift`, `OutlToolbar.swift`, `OutlSuggestOverlay.swift`, `OutlSuggestView.swift`, `OutlSwizzle.swift`, `OutlBrandChrome.swift`.
+  Files: `main.mm`, `OutlOpsWatcher.swift`, `OutlBackgroundRefresh.swift`, `OutlToolbar.swift`, `OutlSuggestOverlay.swift`, `OutlSuggestView.swift`, `OutlSwizzle.swift`, `OutlBrandChrome.swift`, `OutlSafeArea.swift`.
   **No unit tests** — observed via `NSLog` probes printed on app boot.
   Run on a real device or simulator to exercise.
 
@@ -461,10 +468,11 @@ Fix: drop the brackets, keep the backticks.
 | Integration | `crates/*/tests/*.rs` | Public surface of one crate. Real `MemoryStorage` (or `tempfile` + `JsonlStorage`). |
 | CRDT invariants | `crates/outl-core/tests/crdt_*.rs` | Convergence, idempotency, cycle no-op, replay determinism. |
 | Roundtrip | `crates/outl-md/tests/roundtrip_*.rs` | `md → parse → render → md` is byte-stable. `md → ops → md` preserves ids via sidecar. |
-| Bench | `crates/outl-md/benches/*.rs` (criterion) + `xtask/src/bin/gen-10k.rs` for CLI hyperfine | Hot-path regression detection. Run weekly + per PR via `bench.yml`. |
+| Bench | `crates/outl-md/benches/*.rs` + `crates/outl-core/benches/*.rs` (criterion) + `xtask/src/bin/gen-10k.rs` for CLI hyperfine | Hot-path regression detection. Run weekly + per PR via `bench.yml`. `outl-core`'s `boot` is the one a user feels; budgets in [boot performance](boot-performance.md). |
 | Frontend | `crates/outl-mobile/src/**/*.test.ts`, `crates/outl-desktop/src/**/*.test.ts`, `crates/outl-frontend-shared/**/*.test.ts` (`bun run test`) | Pure helpers and DTO conversions. |
 | Swift (`OutlKit`) | `crates/outl-mobile/swift/OutlKit/Tests/OutlKitTests/` (`swift test`) | Pure native helpers — brand color, suggester chip parser, toolbar MFU, peer-file predicates, JS escape. **Required** for new pure Swift logic. |
 | Native iOS bridges (`gen/apple/.../*.swift`, `main.mm`) | None (yet) — observed via `NSLog` probes on boot | UIKit / Foundation glue that needs the iOS runtime. If you add a piece that *can* be tested without UIKit, extract it into `OutlKit` first. |
+| Safe-area bridge (`OutlSafeArea.swift`, `OutlSafeArea.kt`) | Page side only: `src/lib/safe-area.test.ts` + `safe-area.css.test.ts` (Vitest). The native measurement is **device-only** | The numbers exist only on hardware: check a notched iPhone in portrait and both landscape orientations, and an Android phone with gesture and three-button navigation, before calling a change done. |
 
 ### Per-client test suites
 
@@ -478,7 +486,7 @@ Two layers cover each GUI client.
 
 Every bug fixed in a pure helper (the tokenize duplicate, refs/tags extraction, fuzzy matching) must land with a unit test before merge so it never regresses.
 
-Native bits (`main.mm` swizzle, BGTaskScheduler, NSMetadataQuery) are not covered by unit tests yet — they're observed via the NSLog probes shown on app boot.
+Native bits (`main.mm` swizzle, BGTaskScheduler, NSMetadataQuery, the `OutlSafeArea` probe) are not covered by unit tests yet — they're observed via the NSLog probes shown on app boot.
 If we add Swift Tests later they belong next to `main.mm` in `gen/apple/Tests/`.
 
 `outl-desktop`:
@@ -639,6 +647,10 @@ The iCloud peer-file watcher is the canonical pattern: predicate logic lives in 
 
 Always re-read `crates/outl-mobile/CLAUDE.md` § "Peer-file materialisation" before touching `main.mm` or the watcher — that section spells out the iCloud race that two lines of code prevent.
 
+Touching `OutlSafeArea.swift` (or a component's top / side padding) means re-reading `crates/outl-mobile/CLAUDE.md` § "Safe areas" first.
+Components read `var(--safe-area-inset-*)`, never `env()`, and `safe-area.css.test.ts` fails on a stray `env(safe-area-inset`.
+The probe has no unit test and the simulator does not prove it: validate on a notched iPhone in portrait and both landscape orientations (the cutout moves to a side inset, top drops to 0), and mirror any contract change in Android's `OutlSafeArea.kt`.
+
 ### Add a code-block runtime (`outl-exec`)
 
 1. Add a `lang-<name>` feature in `crates/outl-exec/Cargo.toml`.
@@ -718,7 +730,16 @@ Anything outside those is a correctness conversation, not a perf one.
 
 ### Running benches locally
 
-The criterion suite lives under `crates/outl-md/benches/`:
+The criterion suite lives under `crates/outl-md/benches/` and `crates/outl-core/benches/`:
+
+```bash
+# Boot — the latency a user actually waits on. Four modes
+# (replay_memory / replay_cold / replay_warm_index / snapshot) at
+# three sizes; `10k` is what CI runs per PR.
+cargo bench -p outl-core --bench boot
+cargo bench -p outl-core --bench boot -- "10k"
+```
+
 
 ```bash
 # Whole suite (small + medium + large fixtures, sub-second each):

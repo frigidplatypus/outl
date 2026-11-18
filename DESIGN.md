@@ -558,19 +558,31 @@ scrolls instead of the column. **Exactly one element opts into scrolling, explic
 
 ### Safe areas (mobile only)
 
-Every bottom-anchored surface reserves the home indicator, with a floor so it is never flush on a device
-that has no inset:
+Both mobile shells are edge-to-edge, so the status bar, notch and home indicator sit on top of the page, and
+neither webview publishes them reliably through `env(safe-area-inset-*)`.
+The native side therefore measures the insets (iOS `safeAreaInsets`, Android system bars plus display cutout)
+and `crates/outl-mobile/src/lib/safe-area.ts` applies them as `--safe-area-inset-top|right|bottom|left` on
+`:root`, once, at boot.
+`styles.css` declares the same four properties from `env(safe-area-inset-*, 0px)` as the fallback for a browser
+or a platform that never reports.
+**Components read the variable, never `env()`**, and the fallback always carries a length: a unitless one makes
+`max(var(...), 12px)` invalid and drops the whole declaration.
+Never hard-code a device's status-bar height; the value is whatever the system reports for that device and
+orientation.
+
+Every edge-anchored surface reserves its inset, with a floor so it is never flush on a device that has none.
+The canvas and the header background still run edge-to-edge: the inset is padding on the chrome, not a margin.
 
 ```tsx
-style={{ bottom: "max(env(safe-area-inset-bottom), 16px)" }}   // SelectionToolbar.tsx
-style="padding-top: max(env(safe-area-inset-top), 12px);"      // JournalChrome.tsx
+style={{ bottom: "max(var(--safe-area-inset-bottom), 16px)" }}   // SelectionToolbar.tsx
+style="padding-top: max(var(--safe-area-inset-top), 12px);"      // JournalChrome.tsx
 ```
 
 ## Elevation & Depth
 
 **There is exactly one elevation step.** `bg` is the canvas; `bg_elev` is everything that floats.
 A third level would need a field every one of the ten presets — including `nord`, `monokai`,
-`solarized-dark` — has to answer honestly, and a terminal has no answer for "two steps above the canvas".
+`solarized` — has to answer honestly, and a terminal has no answer for "two steps above the canvas".
 
 Depth is carried by **border + shadow + translucency**, never by a second background hue:
 
@@ -637,7 +649,7 @@ takes the grab handle with it, so the sheet cannot even be dragged shut.
 *How* it is bounded follows from where the shape puts the card.
 An inset card sits inside a transparent positioned wrapper, so the wrapper takes `max-h-dvh` plus a top
 safe-area padding, which costs nothing while the sheet is short.
-An edge-to-edge sheet *is* the card, so it takes `max-height: calc(100dvh - max(env(safe-area-inset-top),
+An edge-to-edge sheet *is* the card, so it takes `max-height: calc(100dvh - max(var(--safe-area-inset-top),
 12px))` instead: a padding there would open a gap above the handle on every portrait phone, where nothing
 was wrong.
 A sheet pinned by both `top` and `bottom-0` is already bounded by the gap between them.
@@ -774,6 +786,30 @@ rhythm (`--outl-read-leading: 1.6`, `--outl-read-measure: 68ch`), the block lead
 treatment, and the first-run tips card. Treat a `--outl-*` name there the way you treat a `--color-outl-*`
 name: one owner, one meaning, both clients.
 
+#### Transclusion — one rail, not a glyph per row
+
+`EmbeddedSubtree.tsx` draws what `!((blk-XXXXXX))` and `![[page]]` pull in. The region carries a single
+continuous `border-l-[3px] border-(--color-outl-accent)/25` with `pl-[10px]`, drawn **only by the
+outermost call**; rows inside step at the standard 22px and open with a `·` in `fg_dimmer`.
+
+It replaced a `↳` on every row. That glyph is the TUI's answer and the right one there — a terminal has
+no hairline to draw — but in a webview it repeated "this row is nested", which the indentation already
+says, while nothing carried the fact a reader cannot infer: that the rows came from another page. One
+rail says that once, for the region it is true of.
+
+**The 25 % is the whole reason it reads as a region and not as a cursor.** The selected block's rail is
+solid `accent` at 3px (see "The two odd numbers"), and the hue is shared on purpose — both mean "outl is
+marking this". What tells them apart is weight and length: a cursor is one row and solid, a transclusion
+is many rows and faint. A solid rail here makes a page with an embed look permanently selected.
+
+No fill, no card, no shadow. `bg_elev` is the only elevation colour in the product and it belongs to
+things that float; an embed sits *in* the page, so it gets a margin and a line.
+
+The title above the rail is weight plus `ref_link_fg`, with **no marker glyph**. An icon was tried: an
+`<svg>` is an atomic inline box whose height enters the line box, and that line swaps content a round
+trip after first paint, inside a block the user may be typing in. `PageEmbed.test.tsx` refuses any such
+box there.
+
 ### Desktop (`crates/outl-desktop/src/components/`)
 
 Three-pane chrome, mouse + keyboard. `AppShell` (the grid), `Sidebar` (page list + month calendar),
@@ -888,9 +924,11 @@ The TUI declares the gap rather than guessing — a permanent behaviour, recorde
 
 ## App icon
 
-One master, `assets/source-icon.png`, and one generator, `scripts/gen-icons.py`.
-Everything else under `assets/` is generated from it: the inset macOS master, the opaque square iOS and
-the App Store take, and the monochrome variant.
+The source is the geometry of the outl mark: `MARK_BODY` and `MARK_TIP` on a 91x128 grid in `scripts/gen-icons.py`.
+Every master is drawn from it as SVG and rasterised with resvg: `assets/source-icon.png`, `assets/logo.png`,
+`assets/app-store-icon-1024.png`, `assets/macos-icon-1024.png` and `assets/icon-mono-1024.png`.
+`assets/brand/` exports the same geometry as plain SVG for use outside the repo.
+The site keeps the same numbers in `src/lib/brand.js` of outlmd/outl-site.
 
 The platforms do not want the same picture, which is the reason a generator exists rather than a copy.
 macOS draws app icons on a 1024 canvas where the tile occupies 824 and the rest is transparent margin, so
@@ -903,6 +941,14 @@ bleed.
 iOS and the App Store take an opaque square with no alpha channel at all, because the OS applies its own
 mask and an icon that arrives pre-rounded gets rounded twice.
 
+Android takes an adaptive icon: a gradient background layer and the white mark as the foreground layer.
+The mark is sized to stay inside the 66dp guaranteed area of the 108dp canvas.
+A monochrome layer is added, which Android 13+ tints for themed icons.
+The legacy `ic_launcher` and `ic_launcher_round` bitmaps remain for launchers older than Android 8.
+All of it, including the XML layers, is written by the generator.
+
+To regenerate, run `uv run --with pillow --with resvg-py scripts/gen-icons.py`, then `python3 scripts/check-icons.py`.
+
 **The generated sets stay inside the client that ships them**, and the duplication is deliberate rather
 than unresolved.
 The two Tauri sets are byte-identical and `scripts/check-icons.py` fails in CI if they stop being, which
@@ -913,7 +959,7 @@ these files are consumed by Xcode (`Assets.xcassets`), Gradle (`mipmap-*`), a we
 (`outl-mobile/public/`) and the README, none of which can reference a Rust crate's directory.
 The masters already live one level broader than that, at the repo root, which is the scope that covers
 every consumer.
-Two copies of a generated artifact with a check on them is not two sources of truth; the master is, and
+Two copies of a generated artifact with a check on them is not two sources of truth; the mark's geometry is, and
 there is one.
 
 ## Platform divergence, and why each one exists
@@ -924,7 +970,7 @@ backups on iOS — is [`UX.md` → What each client can do](UX.md#what-each-clie
 
 | Divergence | Why |
 |---|---|
-| `default-dark` and `light` bypass the RGB path and build on ANSI named colours (`Color::Reset`, `Color::DarkGray`) | So the user's own terminal palette shows through. That is the point of those two presets, not a gap. |
+| `ansi` and `ansi-light` bypass the RGB path and build on ANSI named colours (`Color::Reset`, `Color::DarkGray`) | So the user's own terminal palette shows through. That is the point of those two presets, not a gap. |
 | GUI clients reference 29 of the 45 colour fields | The other 16 — `hint`, `bold_fg`, `italic_fg`, `strike_fg`, `todo_done_body_fg`, `property_key_fg`, `property_value_fg`, `heading_fg`, `dim_fg`, `selected_bullet_bg` / `_fg`, `cursor_block_bg` / `_fg`, `cursor_caret_fg`, `list_selected_bg` / `_fg` — are consumed by the TUI only. The GUI expresses those distinctions with weight (`font-semibold`), style (`italic`), opacity (`line-through opacity-70`) and the native caret. The fields stay in `Palette` because the TUI is a first-class client, not a fallback. Measured as the distinct `--color-outl-*` names in the three client crates' non-test source; one of the 29, `code_fg`, appears only as a boot value in the two `@theme` blocks and is painted by nothing. |
 | Only the desktop resolves keystrokes through `outl_shortcuts::lookup()` | The TUI still dispatches Normal mode from its own `match` in `input/normal.rs`. Finishing that migration is open work, not a settled decision. |
 
@@ -989,6 +1035,6 @@ backups on iOS — is [`UX.md` → What each client can do](UX.md#what-each-clie
 4. The CLI, the desktop Settings picker and mobile pick it up automatically — there is no second list.
    There used to be: the TUI kept its own `PRESETS`, so `outl theme list` advertised eight presets while the
    desktop offered nine and told users `outl-light` did not exist while `outl --theme outl-light` resolved it
-   anyway. That const was deleted; `outl-tui` now re-exports `outl_theme::PRESETS`.
+   anyway. That const was deleted; `outl-tui` now re-exports `outl_theme::preset_names`.
 5. If the preset is meant as one half of a pair, check `Palette::is_light()` agrees —
    `outl doctor` validates that a configured pair has one light side and one dark side.

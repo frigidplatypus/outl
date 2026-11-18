@@ -142,7 +142,7 @@ No characters insert themselves — every key is a command.
 | `*` / `#` | Search workspace for the word under cursor (forward / backward). Walk results with `n` / `N`. |
 | `z R` / `z M` | Unfold all / fold all blocks on the current page (chord). `z M` skips leaf blocks — only blocks that already have children get folded; folding a leaf today is invisible, but would silently surface as "children appear collapsed" once the user added any underneath. |
 | `z z` | Center viewport vertically on the cursor (chord) |
-| `z i` / `z o` | Zoom in on the selected block / zoom out one level (chord). `z i` makes the block the outline root — only its subtree renders, with a breadcrumb of ancestors in the status chrome; `z o` pops one level back toward the full page (no-op at the page root). Pure local view state — never written to the op log, so it's per-device and never syncs. |
+| `z i` / `z o` | Zoom in on the selected block / zoom out one level (chord). `z i` makes the block the outline root — only its subtree renders, with a breadcrumb of ancestors in the status chrome; `z o` pops one level back toward the full page (no-op at the page root). Pure local view state — never written to the op log, so it's per-device and never syncs. The page's own sections (inline backlinks, nested pages) go off screen while zoomed, and `j` stops at the subtree edge instead of crossing into them; a cursor already parked in the backlinks panel comes back to the outline. |
 | `z f` | Focus mode: hide the header, the warnings banner, the sidebar and the status bar so only the outline is left. Press again to bring them back. Session only. Not `F`, which is find-backward, and not `Ctrl+Shift+F`, which a terminal reports as `Ctrl+F`. |
 | `g v` | Re-enter Visual mode at the last captured range (chord) |
 | `o` / `O` | New block below / above |
@@ -341,6 +341,22 @@ Unknown commands surface in the status line as `unknown command: <name>`.
 The `g p` overlay above is the same two writers behind a list you can browse.
 Use the commands when you know the key, the overlay when you don't.
 
+#### Pages
+
+| Command | Aliases | Action |
+|---------|---------|--------|
+| `merge <page name>` | none | Merge the open page into another existing page, after a `y/n` |
+
+`/merge Beta` on the page `Alpha` asks `merge 'Alpha' into 'Beta'? can't be undone here. y/n`.
+`y` confirms and any other key cancels, the same prompt `g d` uses for a page delete.
+The blocks of `Alpha` move under `Beta` (ids and subtrees intact), `Alpha`'s properties and names carry over as aliases, links that named `Alpha` are rewritten to `Beta`, and `Alpha` goes to the trash.
+You land on `Beta`, and a toast says what moved, for example `merged 'Alpha' into 'Beta': 2 blocks, links updated in 1 block`.
+Where both pages set the same property to different values the target's value is kept and the toast says how many clashed.
+The target has to exist (the command never creates a page), a journal cannot be the source, and a page cannot be merged into itself.
+`u` does not take a merge back, and the undo history of every page the merge touched is dropped so an older snapshot cannot undo half of it.
+The merge itself is `outl_actions::merge_pages`, shared with `outl page merge`; see [RFC 0557](rfcs/0557-page-merge-and-rename.md).
+The TUI has no page rename, so there is no rename-onto-an-existing-name prompt yet.
+
 #### Block references
 
 | Command | Aliases | Action |
@@ -372,6 +388,7 @@ Use the commands when you know the key, the overlay when you don't.
 
 These write text **at the cursor** (Insert mode only).
 They skip the auto-commit step the other commands do, so your in-flight edit stays alive while the text lands.
+The names and the strings they produce come from `outl_actions::insert`, shared with the desktop, so `/date-today` writes the same thing in a terminal and in the app.
 
 | Command | Aliases | Inserts |
 |---------|---------|---------|
@@ -431,7 +448,7 @@ Hooks are dispatched once per mutation; a hook that itself mutates the workspace
 ## Panels
 
 ```
-┌─outl · default-dark ───────────────────────────────────────────────────┐
+┌─outl · ansi ───────────────────────────────────────────────────┐
 │ Page · Avelino                                                         │
 ├────────────────────────────────────────────────────────────────────────┤
 │ - I am the author                                                      │

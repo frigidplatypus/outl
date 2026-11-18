@@ -187,6 +187,32 @@ So they return the **complete** op set — the same set + HLC order as before �
 The LRU is purely a RAM bound now; the index is the complete logical view.
 `last_ts_per_actor` and `ops_since_per_actor` (the snapshot-boot delta) answer straight from the index keys, so the common boot touches only the index and the recent tail, never the full log.
 
+#### The sidecars are fixed-width binary
+
+They were JSON Lines, and the shape of that cost only became visible on a phone.
+
+On a 723k-op workspace the pair is 170 MB across 23 actors and roughly 1.45 million records.
+Each one was a `String` allocated by `BufReader::lines`, handed to `serde_json`, carrying ULIDs decoded from 26 characters of base32.
+An iPhone 17 Pro spent **14.3 seconds** of a launch loading them — 12 MB/s on hardware that reads at over a gigabyte a second, so the bottleneck was never the disk.
+
+A record is now a fixed number of little-endian bytes behind an 8-byte magic, so a load is a bounded read plus one `copy_from_slice` per entry: **170 MB → 61 MB** on disk, **310 ms → 57 ms** to load on a developer machine.
+
+Three things worth knowing before touching the format again:
+
+- **No converter was needed, and none ever will be.**
+  A sidecar is a local boot cache: dot-prefixed so it never rides the sync surface, and already required to survive being missing or unreadable by rebuilding from the `.jsonl`.
+  A file without the magic reads as absent. The first launch after an upgrade rebuilds once; every later one is fast.
+  Bumping the trailing digit of the magic is the whole migration story.
+- **The offset ordering is the integrity check.**
+  JSON detected corruption for free — a flipped bit usually broke the parse, and a failed parse meant rebuild.
+  Fixed-width binary has no parse to break, so a corrupted record would decode into a plausible offset and send `read_op_at` somewhere wrong.
+  Both sidecars are therefore written in strictly increasing offset order (`NodeIndex::save` sorts for this, rather than emitting grouped by node) and a load that sees them out of order rebuilds.
+  What that misses — a flipped bit that leaves the order intact — `census::fresh_offset_index` still catches, by re-reading the `.jsonl` record at the index's max offset and refusing a sidecar whose entries disagree with it.
+  Neither is a proof, and neither has to be: the worst case of a cache this process rejects is one slower boot.
+- **A torn tail is no longer corruption.**
+  A trailing partial record is the signature of a crash mid-append; the records before it are still good.
+  It is dropped, the freshness check sees the sidecar covering less than the `.jsonl`, and only the tail is indexed.
+
 #### A question about the index is not a question for `Storage`
 
 `JsonlStorage::actor_timestamps(ops_dir)` returns every distinct HLC the op log holds, grouped by the actor inside it — the whole of what a sync vector clock is.
@@ -200,7 +226,40 @@ Two things it never does: it builds **no node index** (it has no use for "which 
 Persisting would advance the offset sidecar past the node sidecar, and the next real boot would reject the mismatched pair and rebuild both — a status poll arming a full reindex.
 A grown tail is re-scanned instead, which costs what was appended since the last write and nothing more.
 
+The ladder only checks the record at the sidecar's max offset, so it cannot see a hole in the middle.
+Two things keep one from forming, and one repairs one that exists:
+
+- **`ops/.idx-lock-<stem>`** (a dotfile, empty, recreated on demand) is an exclusive flock taken by `append_ops_inner` around one batch (jsonl write plus sidecar appends) and by whoever persists a sidecar pair (`persist_indexes_locked`).
+  A second opener that re-indexed a grown tail used to rename its copy over the sidecar while the live writer was appending to the old inode, losing those entries.
+  Under the lock the persister first indexes whatever tail appeared since it read the file, so what it renames covers all of it.
+  If the lock cannot be had it persists nothing: the sidecars are a cache, and the next boot rebuilds.
+- **Self-heal for our own actor.**
+  For a foreign actor a short count is the safe direction (a peer resends, ingest dedups).
+  For the device's own actor it is a loop, because ingest refuses every op claiming the local actor and the advertised clock never moves.
+  When `write_deduped_batch` refuses own-actor HLCs the census does not list, it streams the own `.jsonl` through `JsonlStorage::rebuild_own_indexes` and persists a complete pair under the same lock, so the next clock is right and the peer stops resending.
+  Nothing is appended, and an HLC the log does not hold stays refused.
+  The stream runs at most once per five minutes per `ops/` directory.
+
 `outl-sync-iroh`'s vector clock, its delta selection and its ingest dedup are the callers; see [`docs/iroh-internals.md`](iroh-internals.md#module-layout).
+
+#### The census keeps the offsets, so the sender never opens storage
+
+`JsonlStorage::actor_offset_indexes(ops_dir)` is the same read keeping each op's byte offset instead of discarding it, and `actor_timestamps` is its HLC-only projection — one owner, so the two cannot disagree about what the workspace holds.
+
+The offsets are what the sender needs next.
+Having learned *which* ops a peer lacks, it needs those op **bodies**.
+It used to get them by calling `JsonlStorage::open`: the full load of both index sidecars for every actor, 160 MB resident and 55 ms on a real 23-actor workspace, to re-derive numbers the census was already holding.
+`JsonlStorage::read_ops_at_offsets(ops_dir, &[(actor, ts, offset)])` seeks straight to each one.
+A pick that cannot be read back is a `StorageError::MissingOp`, never a silent omission, for the reason on `read_op_or_missing`: a short read here is indistinguishable from a healthy one, and a sync receiver would record the gap as settled.
+
+Two properties of the read itself, both measured on a 748,684-op / 23-actor workspace:
+
+- **A loaded index is taken whole when the file holds one producer**, which every writer's guard makes the normal case.
+  Regrouping by `Hlc::actor` anyway meant re-inserting every HLC in the workspace into a second `BTreeMap`, and that was the dominant cost: 100 ms → 38 ms, which also made this read cheaper than the `open` it exists to replace.
+- **The actors' files are read across lanes**, worth about 10 % on top and no more.
+  The reason is the one [`index_load.rs`](../crates/outl-core/src/storage/jsonl/index_load.rs) records about boot: the ceiling is one file, not the thread count, and a single actor holds 68 % of those ops.
+
+Why this read is on the performance-critical list at all, and the checklist it generalises to: [`docs/performance.md`](performance.md).
 
 ### The index sidecars: one owner, and a lifecycle
 

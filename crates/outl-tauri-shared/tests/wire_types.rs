@@ -54,10 +54,12 @@ mod wire_pin;
 mod wire_fixtures;
 
 use outl_tauri_shared::capture_inbox::CaptureDrainDto;
-use outl_tauri_shared::commands::exec::{EmbedContent, RunCodeBlockReply};
+use outl_tauri_shared::commands::exec::{EmbedContent, PageEmbedContent, RunCodeBlockReply};
 use outl_tauri_shared::commands::peers::{PeerDto, PeerStatusDto};
 use outl_tauri_shared::commands::property::PropertyKey;
-use outl_tauri_shared::commands::reminders::{ReminderDto, ReminderSettingsDto, SnoozePresetDto};
+use outl_tauri_shared::commands::reminders::{
+    RemindFieldsDto, ReminderDto, ReminderSettingsDto, SnoozePresetDto,
+};
 use outl_tauri_shared::commands::theme::ThemeConfigDto;
 use outl_tauri_shared::commands::timeline::{PageTimelineDto, TimelineEventDto};
 use outl_tauri_shared::commands::trash::{RestoreTrashReply, TrashEntryDto};
@@ -197,7 +199,7 @@ fn workspace_summary_matches_its_interface() {
 /// side of the same triangle.
 #[test]
 fn palette_matches_its_interface() {
-    assert_wire_shape(&outl_theme::presets::outl(), "Palette", &[]);
+    assert_wire_shape(&outl_theme::default(), "Palette", &[]);
 }
 
 // --- the rest of the wire ------------------------------------------------
@@ -289,6 +291,25 @@ fn reminder_matches_its_interface() {
 }
 
 #[test]
+fn remind_fields_match_their_interface() {
+    // The `date` arm, because it is the one carrying a field the other
+    // two leave `None` — a pin built on `done` would pass with
+    // `until_date` missing from either side.
+    let dto = RemindFieldsDto {
+        anchor: "at".into(),
+        hour: 15,
+        minute: 30,
+        every_minutes: Some(60),
+        until: "date".into(),
+        until_hour: None,
+        until_minute: None,
+        until_date: Some("2026-12-20".into()),
+        max_fires: Some(5),
+    };
+    assert_wire_shape(&dto, "RemindFields", &[]);
+}
+
+#[test]
 fn template_dto_matches_its_interface() {
     let dto = TemplateDto {
         name: "standup".into(),
@@ -337,6 +358,19 @@ fn embed_content_matches_resolved_block() {
         children: vec![outline_node()],
     };
     assert_wire_shape(&dto, "ResolvedBlock", &[]);
+}
+
+/// The `![[page]]` reply (issue #190). Keyed by the name as written, so
+/// the DTO itself carries the slug it resolved to — and a key missing
+/// here is an embed that renders nothing on a device, in both clients.
+#[test]
+fn page_embed_content_matches_its_interface() {
+    let dto = PageEmbedContent {
+        slug: "infra".into(),
+        title: "Infra".into(),
+        blocks: vec![outline_node()],
+    };
+    assert_wire_shape(&dto, "PageEmbedContent", &[]);
 }
 
 #[test]
