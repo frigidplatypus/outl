@@ -332,7 +332,7 @@
             # not taken yet, so the two `bun run build` outputs differ. When
             # either side moves, rebuild and copy the `got: sha256-...` value
             # from the FOD mismatch error into the matching hash here.
-            outputHash = "sha256-fWfeIhpeyC3OpVD4pWXa/XUz2pbc3mRaCvkweE4Ge2k=";
+            outputHash = "sha256-2T6LO7fr5w1/P2bsGwcNaZbsJb4Vlk1lpRLvZau9pb4=";
           };
 
           outl-desktop = mkOutlDesktop {
@@ -358,7 +358,7 @@
             pname = "outl-desktop-frontend";
             inherit version;
             src = projectSrc;
-            outputHash = "sha256-fWfeIhpeyC3OpVD4pWXa/XUz2pbc3mRaCvkweE4Ge2k=";
+            outputHash = "sha256-2T6LO7fr5w1/P2bsGwcNaZbsJb4Vlk1lpRLvZau9pb4=";
           };
 
           outl-desktop-dev = mkOutlDesktop {
