@@ -162,6 +162,11 @@ A backlink row carries its own `▢` / `▣` / `•` indicator ahead of the text
 Clicking the indicator toggles the **source** block's TODO without leaving the page; clicking the text navigates.
 They are two buttons in one flex row, so the gestures cannot collide.
 
+**Hovering a row highlights it and nothing else.**
+`j` / `k` cross into this section from the outline's last block, and the row holding that cursor draws the same accent bar a selected block does — so a pointer merely passing over the section on its way elsewhere must not move it.
+It used to: `onMouseEnter` wrote the keyboard's own cursor, which took `j` and `Enter` off the block the user had left them on, from a gesture they never aimed.
+The highlight is CSS now, and which row owns the cursor is `backlinkCursor()`'s answer alone ([`outl-desktop/CLAUDE.md`](../crates/outl-desktop/CLAUDE.md#the-cursor-lives-in-one-region)).
+
 ## Properties (`key:: value`) chip row
 
 `components/PropertyEditor.tsx` renders the chip row and owns three verbs:
@@ -235,6 +240,30 @@ The page's `key:: value` row, the backlinks section, the nested-pages list and t
 A commit, a batch op, a quick capture into today, a timeline restore and a peer-driven refresh all **keep** it — none of them is the user asking to go somewhere.
 
 Cross-client contract: [`clients.md` → Zoom / focus on a block](clients.md#zoom--focus-on-a-block-roamworkflowy).
+
+## Arrow keys walk between blocks in Insert mode
+
+The outline reads as one continuous document while a block is open for editing, so the arrows do not stop at the block's boundary:
+
+| Keystroke | Where the caret goes |
+|---|---|
+| `←` with the caret at offset 0 | end of the block above |
+| `→` with the caret at the end | start of the block below |
+| `↑` on the block's first line | block above, same column |
+| `↓` on the block's last line | block below, same column |
+
+The draft is committed on the way out, so the step is a save, not a loss.
+Anywhere else inside the block the arrows are the browser's own motion, and a block with soft newlines (a fenced code block) is navigated internally first — `↑` only leaves once the caret is on its first line.
+
+Three things it deliberately does not do.
+A **modified** arrow is a different chord and never walks (`Alt+↑` / `Alt+↓` move the block; `Cmd+↑` / `Cmd+↓` are the OS's document-edge motion).
+An arrow with text **selected** collapses the selection in place, like everywhere else.
+And the walk **stops at the outline's edges** rather than stepping into the backlinks section below — those rows belong to another page, and opening one for editing from an arrow key aimed at this one is not what was pressed; at the top or bottom block the keystroke stays inside the block and nothing is committed.
+
+A zoom is honoured: the walk covers the rows on screen, so the caret cannot leave a subtree the reader zoomed into.
+
+The decision is `@outl/shared/caret-nav`, shared with mobile and mirroring the TUI, so the keystroke means the same thing on all three.
+One shared limit: a *line* is a logical `\n` line, never a soft-wrapped visual one, so `↑` from the middle of a long wrapped block steps to the previous block instead of to the row above it.
 
 ## Inline autocomplete popups
 

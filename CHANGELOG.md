@@ -5,7 +5,84 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ## [Unreleased]
 
+### Added
+
+- **Arrow keys walk between blocks while you are typing, on every client.**
+  `←` at the start of a block lands at the end of the one above, `→` at the end lands at the start of the one below, and `↑` / `↓` on a block's first or last line carry your column over.
+  The outline reads as one continuous document, so holding `←` walks back through the page without ever leaving Insert.
+  The draft is committed on the way out, so the step is a save.
+
+  The TUI has shipped this for a while.
+  The desktop and mobile apps stopped the caret at the block boundary, which is the keystroke you press most often in an outliner and the one place the three clients disagreed.
+
+  **`@outl/shared/caret-nav` is the one owner now**, and the split is what makes it one: it answers *does this keystroke leave the block* and *which block does it hand the caret to*, so a client keeps only what it alone knows — which rows are on screen, and how it enters Insert.
+  It mirrors the TUI's `cross_block_nav_eligible` / `cross_block_step`, which is what stops the terminal from drifting away from the other two.
+
+  Three things it deliberately does not do, each of which was the alternative.
+  A **modified** arrow never walks, because those chords already mean something (`Alt+↑` moves the block, `Cmd+↑` is the OS's document-edge motion).
+  An arrow with text **selected** collapses the selection in place, the way it does everywhere else — hijacking that would make the first arrow after a drag jump to another block.
+  And the walk **stops at the outline's edges** rather than continuing into the backlinks below: those rows belong to another page, and opening one for editing from an arrow aimed at this one is not what you pressed.
+  At the first or last block the keystroke stays inside the block and nothing is committed, so `←` there cannot drop you out of Insert.
+
+  **A line is a logical line, never a soft-wrapped one**, and that limit is shared on purpose.
+  `↑` from the middle of a long wrapped block steps to the previous block instead of the row above it.
+  A textarea exposes no per-visual-line caret API, and both ways around that are worse: measuring through a mirror element means copying a dozen font properties that rot silently, and reading the caret back after the browser's own default makes the decision asynchronous *and* still ambiguous at column 0 of a wrapped row.
+  A rule three clients agree on beats a rule that is right more often on one of them.
+
+  On mobile this needs a hardware keyboard, since a soft keyboard has no arrows.
+
+  Two guards carry the regressions.
+  On the desktop, `↑` / `↓` are the catalog's Normal-mode `SelectionUp` / `SelectionDown`, and committing the draft unmounts the textarea mid-dispatch — so without `stopImmediatePropagation` the `window` listener resolves the same keystroke a second time and the caret lands two blocks away, with the cursor and the editor disagreeing about where it went.
+  And the target is resolved **before** anything is awaited, because a `preventDefault` only counts during the synchronous dispatch; a handler that committed first and looked for a neighbour after had already let the browser move the caret.
+  `BlockRow.caret-nav.test.tsx` fails when either is removed.
+
 ### Fixed
+
+- **TUI: `Home` and `End` moved the whole block, not the line the cursor was on.**
+  Identical for an ordinary single-line block, which is why it went unnoticed; inside a block with soft newlines — a fenced code block — `Home` jumped to the top of the fence while its own doc comment already said "line".
+
+- **TUI: `←` / `→` at a block's edge moved the outline's cursor while you were editing a backlink.**
+  `↑` / `↓` asked `cross_block_nav_eligible` and correctly declined a source-page edit, which has its own commit semantics; the other two arms skipped the check.
+  Since `enter_insert` dispatches on `Focus`, spilling out of one committed a cross-page write per keystroke and opened the *next backlink's* file.
+  All four arms ask now.
+
+- **The desktop cursor jumped to a backlink instead of staying where the user left it.**
+  `j` walked a citing block on someone else's page, `Enter` navigated away instead of entering Insert, and two rows drew the selection accent at once — intermittently, on pages that have backlinks at all.
+
+  The trigger was the mouse, which is why it read as random.
+  A backlink row carried an `onMouseEnter` that wrote `selectedBacklinkBlockId`, the **keyboard's** own cursor, so a pointer merely crossing the section on its way elsewhere moved it.
+  The user never aimed that gesture and had no reason to connect it to the next keystroke.
+
+  Underneath it, the exclusion that was supposed to make this impossible was a sentence rather than a mechanism.
+  `selectedBlockId` and `selectedBacklinkBlockId` are documented as mutually exclusive because every reader — `SelectionDown`, `SelectionUp`, `OpenRefUnderCursor`, and the row's own highlight — checks the backlink field **first**.
+  Nothing enforced it: ~20 call sites write `selectedBlockId` directly (a row click, `onStartEdit`, a zoom, every `create_block` reply, the picker, the task and reminder panels), each had to remember to clear the other field, and most did not.
+  So the hover was one door of several, and the mouse was simply the easiest to walk through by accident.
+
+  **`backlinkCursor()` (`lib/store.ts`) is the mechanism now**, and every reader goes through it, the highlight included — a stale id painting a second accent bar is the visible half of the same bug.
+  The outline wins because releasing it is the deliberate act: the two handlers that cross the separator write `selectedBlockId` to `null` in the same breath, so no other writer has to know the rule exists.
+  The `onMouseEnter` is gone; the hover affordance is the row's `hover:bg-…`, which costs no state.
+
+  **The TUI was already correct, structurally**, which is what the fix is modelled on: `Focus` is an enum there, so the two positions cannot both be live and the compiler is the net.
+  Its one path that still has to *assign* `Focus::Outline` is a mouse click — the same gesture that broke the desktop — and `actions/mouse.rs` had no tests at all.
+  It has three now, including `a_click_brings_the_cursor_back_from_the_backlinks`, verified to fail when that line is removed.
+  Mobile has no backlink cursor and was never affected.
+
+- **The desktop's backlinks section blinked on every block created or deleted.**
+  It vanished and came back roughly a second later with the same rows, on every structural edit, on every page that has backlinks at all.
+
+  The cause was a sentence that was never true. `<OutlineView />` fetched backlinks under `createEffect(on(() => appState.page?.slug, …))`, with a comment saying it fired once per navigation and must not refetch per mutation.
+  Solid's `on` does not compare values — it only makes a dependency explicit — and `applyPageState` writes the page as **one object** (`setAppState({ page, … })`), which `setState` merges key by key, so `page` is assigned a fresh `PageMeta` on every reply and its node fires.
+  (A *path* write, `setAppState("page", …)`, merges into the object already there and does not, which is why a store test written that way passes against the broken code.)
+
+  So every commit ran `emptyBacklinks()`, `lateSectionVisible` correctly unmounted a section with no rows, and the page paid an `O(blocks-in-workspace)` scan to re-derive an answer that could not have changed — backlinks are *other* pages pointing here.
+  The same defect sat in the sidebar's recents queue, where it rebuilt the array and wrote `localStorage` synchronously on each keystroke-commit.
+
+  **The mechanism now has one owner across the clients.** `createPageKey` (`@outl/shared/navigation`) is a value-compared memo over one field of the open page; `createBacklinksKey`, which mobile already sourced its `createResource` from, is that with two fields.
+  The desktop takes both, and with the backlinks key it also gains a half it never had: `namespace_children` hangs off `title::`, so a rename under the same slug now refetches.
+  The TUI needed no change — it holds `backlink_index` and keeps the old one live until a rebuild lands, which is the same rule in a client with no Solid in it.
+
+  `navigation/page-key.parity.test.ts` reads **both clients' sources** and refuses the shape itself, with a declared exception per file and a reason: `installPageChangeEffect` must re-run on every reply (it repairs a selection whose block left the tree), and two backlinks refetches are not navigation decisions at all.
+  A first version of that guard paired the shape with "but the file imports the key" and passed against a file holding both, which is the regression rather than the fix.
 
 - **A backlink's breadcrumb was drawn as markdown source.**
   The trail above a nested reference read `#alinhamento [[buser/team/vendas]] internet 0800 [email](https://mail.google.com/mail?authuser=...)` while the citing block right under it read as prose — so the one line on the panel saying *where* a reference lives was the one line written in markup, with a URL eating a row that truncates to a single line anyway.

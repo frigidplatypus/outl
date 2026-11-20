@@ -125,8 +125,19 @@ Declining a confirm writes nothing and leaves the dialog open; the outcome (bloc
 There is no chord and no menu entry: delete has none in `menu.rs` either, so these did not get one.
 The sidebar list is keyed on the page id **and** slug and title, since a rename keeps the id.
 
-`OutlineView.tsx` refetches backlinks via `createEffect(on(slug, …))` — per navigation, not per commit (the "Esc is slow" fix).
-All three fetch sites (that effect, `AppShell::refreshActivePage`, `toggleBacklinkTodo`) go through `trackBacklinks` in `lib/store.ts`, none of them awaited on a render or keystroke path.
+**Backlinks are fetched per navigation, by `installBacklinksEffect` (`lib/backlinks-effect.ts`), and "per navigation" is `@outl/shared`'s answer, not this crate's.**
+It sources `createBacklinksKey`, which is `createPageKey` with two fields — read [`outl-frontend-shared/CLAUDE.md`](../outl-frontend-shared/CLAUDE.md) before changing either.
+
+This used to be `createEffect(on(() => appState.page?.slug, …))` inline in `OutlineView.tsx`, under a comment saying it fired once per navigation.
+It did not: `on()` makes a dependency explicit and **compares nothing**, and `applyPageState` writes the page as one object (`setAppState({ page, … })`), which `setState` merges key by key — so `page` is assigned a fresh `PageMeta` on every reply and its node fires.
+So every created or deleted block ran `emptyBacklinks()`, `lateSectionVisible` unmounted the whole section, and it came back an `O(blocks-in-workspace)` scan later with the same rows.
+A *path* write (`setAppState("page", …)`) merges in place and would not fire, which is why a store test written that way passes against the broken code — `backlinks-effect.test.ts` goes through the real `applyPageState` for that reason.
+The sidebar's recents queue had the identical defect and now takes `createPageKey` directly.
+`navigation/page-key.parity.test.ts` in `@outl/shared` reads both clients' sources and refuses the shape outright.
+
+Taking the shared key also fixed a half this client never had: `namespace_children` hangs off `title::`, so a rename under the same slug now refetches.
+
+All three fetch sites (that effect, `AppShell::refreshActivePage`, `toggleBacklinkTodo`) go through `trackBacklinks` in `lib/store.ts`, none of them awaited on a render or keystroke path; the latter two are declared exceptions in that parity test, with the reason each re-asks.
 It owns `appState.backlinksLoading`, which `<InlineBacklinks />` is the **only** reader of.
 A page-wide load state here is the regression [`UX.md` → Never block a keystroke](../../UX.md#2-never-block-a-keystroke) names; `InlineBacklinks.test.tsx` → "backlinks load behind the page" is the net.
 
@@ -140,6 +151,22 @@ Net: "the backlinks section never appears and then disappears" (`InlineBacklinks
 **The ancestor breadcrumb is `<CrumbTrail />` (`@outl/shared/markdown`), never a `join` of `crumb.text`.**
 A crumb carries inline tokens, so the trail renders like any other block and stays inert; the plain join survives only as the `title=` tooltip, through `crumbTrailText`.
 Mobile's `BacklinksSection` wraps the same component, which is what stops one client showing markdown source while the other renders it.
+
+### The cursor lives in one region
+
+**`backlinkCursor()` (`lib/store.ts`) is the single owner of "is the cursor in this section", and every reader goes through it — the row's own highlight included.**
+`selectedBlockId` and `selectedBacklinkBlockId` are declared mutually exclusive because each reader checks the backlink one *first*.
+With both set, `j` walks someone else's page and `Enter` navigates away instead of editing, while the outline still paints the block the user left the cursor on.
+That exclusion was a sentence: ~20 call sites write `selectedBlockId` directly and each had to clear the other field, and most did not.
+The outline wins because releasing it is the deliberate act — the two handlers that cross the separator null it in the same breath, so no other writer has to know the rule exists.
+A stale id painting a second accent bar is the visible half of the same bug, which is why the highlight may not read the raw field either.
+
+**A pointer crossing the section is not a cursor move**, so a backlink row has no `onMouseEnter`.
+It wrote the keyboard's own cursor, which is what made the bug read as intermittent: the user never aimed the gesture.
+The hover affordance is the row's `hover:bg-…`, which costs no state.
+
+This is what the TUI gets from `Focus` being an enum; its one path that still has to *assign* `Focus::Outline` is a mouse click, the same gesture that broke here.
+Net: `lib/cursor-region.test.tsx`, plus `a_click_brings_the_cursor_back_from_the_backlinks` in `outl-tui`.
 
 **Toggling a task from a backlink row (issue #144)** mutates the *source* page, and the backlink effect is keyed on the slug, which didn't change.
 So `toggleBacklinkTodo` refetches `pageBacklinks(currentSlug)` itself — the exception that effect's comment calls out.
@@ -333,6 +360,16 @@ Load-bearing notes a contributor needs:
 
 - **Plain `Enter` → splits the block at the caret** (`onEnter`, issue #184).
   `Shift+Enter` → literal `\n` soft break (issue #119), handled in `BlockEditor`'s `handleKeydown` (not the catalog; see the code comment).
+- **A bare arrow key at the block's edge walks into the neighbour without leaving Insert.**
+  The outline reads as one continuous document, which the TUI has shipped all along; `components/outline-caret-nav.ts` is this client's half.
+  `@outl/shared/caret-nav` owns the whole decision, so the three clients cannot disagree about when a keystroke leaves a block or where the caret lands in the next one.
+  Three things here are load-bearing, and the editor's own comments carry the mechanism:
+  **the target is resolved before anything is awaited** (a `preventDefault` only counts during the synchronous dispatch, so a handler that commits first and looks for a neighbour after has already let the browser move the caret);
+  **nothing is committed when the keystroke goes nowhere**, because `commit()` writes `editingBlockId = null`, so a `←` in the page's first block would otherwise drop the user out of Insert instead of doing nothing;
+  and **`stopImmediatePropagation` is what stops a double move** — `↑` / `↓` are the catalog's Normal `SelectionUp` / `SelectionDown`, and the commit unmounts the textarea mid-dispatch, so the `window` listener would resolve the same keystroke a second time.
+  Removing that line moves the caret two blocks and leaves the cursor and the editor disagreeing about where it went; `BlockRow.caret-nav.test.tsx` is the net, verified to fail without it, and it also pins that a modified arrow (`Alt+↑` moves the block) never walks.
+  **A held arrow's repeat is swallowed while a step's commit is in flight** (`caretStepping`): a changed draft keeps the textarea mounted for a backend round-trip, and every repeat in that window would otherwise commit the same draft again.
+  The walk is `visibleRoots()`, so a zoom is honoured, and it stops at the outline's edges rather than stepping into the read-only backlinks — opening *another page* for editing from a keystroke aimed at this one.
 - **`Tab` / `Shift+Tab` indent / outdent the block and keep it in edit mode, on itself** (issue #477).
   `commit()` (called first, so the backend sees the latest draft) flips `editingBlockId` to `null`, and the moved block's row remounts a fresh `<BlockEditor />` elsewhere in the tree.
   `onIndent` / `onOutdent` (`components/outline-structure.ts`'s `createStructureOps`) re-select and re-edit the block's own id once the move settles.
